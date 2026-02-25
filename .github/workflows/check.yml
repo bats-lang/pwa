@@ -50,18 +50,13 @@ jobs:
           bats lock --repository ~/repository
           bats check --repository ~/repository
 
-      - name: Build example
+      - name: Build and run pwa generator
         run: |
           export PATH=~/bats-bin:$PATH
           cd example
           bats lock --repository ~/repository
-          bats build --only native --repository ~/repository
-
-      - name: Run pwa generator
-        run: |
-          export PATH=~/bats-bin:$PATH
-          cd example
-          bats run --bin pwa --repository ~/repository
+          bats build --only native --only debug --repository ~/repository
+          bats run --only debug --bin pwa --repository ~/repository
 
       - name: Verify PWA output
         run: |
