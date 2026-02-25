@@ -43,16 +43,18 @@ jobs:
           mkdir -p ~/bats-bin
           cp debug/bats ~/bats-bin/bats
 
+      - name: Setup
+        run: |
+          sudo ln -sf $HOME/bats-bin/bats /usr/local/bin/bats
+          git clone https://github.com/bats-lang/repository-prototype.git $HOME/repository
+
       - name: Check library
         run: |
-          export PATH=$HOME/bats-bin:$PATH
-          git clone https://github.com/bats-lang/repository-prototype.git $HOME/repository
           bats lock --repository $HOME/repository
           bats check --repository $HOME/repository
 
       - name: Build and run pwa generator
         run: |
-          export PATH=$HOME/bats-bin:$PATH
           cd example
           bats lock --repository $HOME/repository
           bats build --only native --only debug --repository $HOME/repository
