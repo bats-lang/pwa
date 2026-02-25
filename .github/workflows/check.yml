@@ -45,7 +45,7 @@ jobs:
 
       - name: Setup
         run: |
-          sudo ln -sf $HOME/bats-bin/bats /usr/local/bin/bats
+          sudo cp $HOME/bats-bin/bats /bin/bats
           git clone https://github.com/bats-lang/repository-prototype.git $HOME/repository
 
       - name: Check library
@@ -53,16 +53,6 @@ jobs:
           bats lock --repository $HOME/repository
           bats check --repository $HOME/repository
 
-      # Example build requires pwa to be published.
-      # After initial publish, uncomment and add pwa to example/bats.toml deps.
-      # - name: Build and run pwa generator
-      #   run: |
-      #     cd example
-      #     bats lock --repository $HOME/repository
-      #     bats build --only native --only debug --repository $HOME/repository
-      #     bats run --only debug --bin pwa --repository $HOME/repository
-      #
-      # - name: Verify PWA output
-      #   run: |
-      #     test -f example/dist/pwa/index.html
-      #     grep -q "BATS PWA" example/dist/pwa/index.html
+      # TODO: example build blocked by run_sh empty envp issue
+      # (bats lock can't find bats for self-call when envp is empty)
+      # Fix: bats-lang/bats needs run_sh to pass PATH in envp
