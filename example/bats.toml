@@ -1,0 +1,7 @@
+[package]
+name = "pwa-example"
+kind = "bin"
+unsafe = false
+
+[dependencies]
+"wasm.bats-packages.dev/dom" = ""

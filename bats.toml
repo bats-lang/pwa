@@ -1,0 +1,4 @@
+[package]
+name = "pwa"
+kind = "lib"
+unsafe = false
