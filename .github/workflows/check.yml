@@ -57,6 +57,10 @@ jobs:
         run: |
           cd example
           bats lock --repository $HOME/repository
+          # Link local pwa library (not yet published)
+          mkdir -p bats_modules/pwa/src
+          cp ../src/lib.bats bats_modules/pwa/src/lib.bats
+          cp ../bats.toml bats_modules/pwa/bats.toml
           bats build --only native --only debug --repository $HOME/repository
           bats run --only debug --bin pwa --repository $HOME/repository
 
