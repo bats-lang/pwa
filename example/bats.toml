@@ -4,5 +4,4 @@ kind = "bin"
 unsafe = false
 
 [dependencies]
-"pwa" = ""
 "wasm.bats-packages.dev/dom" = ""
