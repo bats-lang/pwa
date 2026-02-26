@@ -5,6 +5,11 @@ unsafe = false
 
 [dependencies]
 "pwa" = ""
-"wasm.bats-packages.dev/dom" = ""
 "file" = ""
 "process" = ""
+"array" = ""
+"arith" = ""
+"builder" = ""
+"result" = ""
+"wasm.bats-packages.dev/bridge" = ""
+"promise" = ""
