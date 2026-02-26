@@ -2,3 +2,8 @@ build/
 docs/
 bats_modules/
 bats.lock
+build/
+docs/
+bats_modules/
+bats.lock
+dist/
