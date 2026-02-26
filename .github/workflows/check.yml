@@ -53,6 +53,18 @@ jobs:
           bats lock --repository $HOME/repository
           bats check --repository $HOME/repository
 
-      # TODO: example build blocked by run_sh empty envp issue
-      # (bats lock can't find bats for self-call when envp is empty)
-      # Fix: bats-lang/bats needs run_sh to pass PATH in envp
+      - name: Build and run pwa generator
+        run: |
+          cd example
+          bats lock --repository $HOME/repository
+          bats build --only native --only debug --repository $HOME/repository
+          bats run --only debug --bin pwa --repository $HOME/repository
+
+      - name: Verify PWA output
+        run: |
+          test -f example/dist/pwa/index.html
+          test -f example/dist/pwa/service-worker.js
+          test -f example/dist/pwa/manifest.json
+          grep -q "BATS PWA" example/dist/pwa/index.html
+          grep -q "BATS PWA" example/dist/pwa/manifest.json
+          echo "PWA verification passed"
