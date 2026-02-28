@@ -2,3 +2,13 @@
 name = "pwa"
 kind = "lib"
 unsafe = false
+
+[dependencies]
+"array" = ""
+"arith" = ""
+"builder" = ""
+"file" = ""
+"path" = ""
+"result" = ""
+"str" = ""
+"wasm.bats-packages.dev/bridge" = ""

@@ -1,6 +1,6 @@
 (* pwa -- PWA and APK shell generator for bats WASM apps *)
-(* Generates index.html, service-worker.js, manifest.json, capacitor.config.json *)
-(* Safe: no $UNSAFE, no $extfcall *)
+(* Native build tool: writes index.html, service-worker.js, manifest.json to disk *)
+(* For APK: also writes capacitor.config.json *)
 
 #include "share/atspre_staload.hats"
 
@@ -8,58 +8,105 @@
 #use arith as AR
 #use builder as B
 #use file as F
+#use path as P
 #use result as R
+#use str as S
 #use wasm.bats-packages.dev/bridge as BR
 
 (* ============================================================
-   Builder-based API (generate file contents)
+   Builder-based API (generate file contents into builders)
    ============================================================ *)
 
-(* Generate index.html into builder.
-   app_name: displayed in loading screen and title
-   wasm_file: filename of the .wasm file (e.g. "output.wasm") *)
 #pub fn build_html {na:nat}{nw:nat}
   (b: !$B.builder, app_name: string na, wasm_file: string nw): void
 
-(* Generate service-worker.js into builder.
-   wasm_file: filename to cache
-   assets: null-separated list of extra paths to cache *)
 #pub fn build_service_worker {nw:nat}
   (b: !$B.builder, wasm_file: string nw): void
 
-(* Generate manifest.json into builder.
-   app_name: PWA name *)
 #pub fn build_manifest {na:nat}
   (b: !$B.builder, app_name: string na): void
 
-(* Generate capacitor.config.json into builder.
-   app_name: display name
-   app_id: reverse-domain identifier (e.g. "com.example.myapp")
-   out_dir: web content directory name (e.g. "dist") *)
 #pub fn build_capacitor_config {na:nat}{ni:nat}{nd:nat}
   (b: !$B.builder, app_name: string na, app_id: string ni, out_dir: string nd): void
 
 (* ============================================================
-   High-level API (write files to directory)
+   High-level API -- write complete PWA/APK to a directory
    ============================================================ *)
 
 (* Create a complete PWA in out_dir.
-   Writes: index.html, service-worker.js, manifest.json, bridge.js
-   Copies wasm_file to out_dir.
-   wasm_path: path to the .wasm file
-   wasm_name: filename for the wasm in the output (e.g. "app.wasm")
-   out_dir: output directory path (must exist) *)
-#pub fn create_pwa {na:nat}{ni:nat}{nw:nat}{nd:nat}
+   Writes index.html, service-worker.js, manifest.json.
+   Copies wasm from wasm_path as wasm_name.
+   assets: null-separated source paths to copy into out_dir. *)
+#pub fn create_pwa {na:nat}{ni:nat}{nw:nat}{nn:nat}{nd:nat}{la:agz}{nas:pos}
   (app_name: string na, app_id: string ni,
-   wasm_path: string nw, wasm_name: string nd,
-   out_dir: string na): void
+   wasm_path: string nw, wasm_name: string nn,
+   out_dir: string nd,
+   assets: !$A.arr(byte, la, nas), asset_len: int, asset_max: int nas): void
 
-(* Create a Capacitor-based APK project in out_dir.
-   Same as create_pwa plus capacitor.config.json *)
-#pub fn create_apk {na:nat}{ni:nat}{nw:nat}{nd:nat}
+(* Same as create_pwa plus capacitor.config.json *)
+#pub fn create_apk {na:nat}{ni:nat}{nw:nat}{nn:nat}{nd:nat}{la:agz}{nas:pos}
   (app_name: string na, app_id: string ni,
-   wasm_path: string nw, wasm_name: string nd,
-   out_dir: string na): void
+   wasm_path: string nw, wasm_name: string nn,
+   out_dir: string nd,
+   assets: !$A.arr(byte, la, nas), asset_len: int, asset_max: int nas): void
+
+(* ============================================================
+   Internal: write builder to dir/filename
+   ============================================================ *)
+
+fn _write_to {nd:nat}{nf:nat}
+  (dir: string nd, filename: string nf, content: $B.builder): void = let
+  val pb = $B.create()
+  val () = $B.bput(pb, dir)
+  val () = $B.put_byte(pb, 47)
+  val () = $B.bput(pb, filename)
+  val () = $B.put_byte(pb, 0)
+  val @(pa, pl) = $B.to_arr(pb)
+  val @(fzp, bvp) = $A.freeze<byte>(pa)
+  val @(ca, cl) = $B.to_arr(content)
+  val @(fzc, bvc) = $A.freeze<byte>(ca)
+  val fr = $F.file_open(bvp, $AR.checked_arr_size(pl), 577, 420)
+in
+  (case+ fr of
+  | ~$R.ok(fd) => let
+      val _ = $F.file_write(fd, bvc, $AR.checked_arr_size(cl))
+      val _ = $F.file_close(fd)
+    in end
+  | ~$R.err(_) => ());
+  $A.drop<byte>(fzc, bvc); $A.free<byte>($A.thaw<byte>(fzc));
+  $A.drop<byte>(fzp, bvp); $A.free<byte>($A.thaw<byte>(fzp))
+end
+
+(* Copy file from src to dir/filename *)
+fn _copy_to {ns:nat}{nd:nat}{nf:nat}
+  (src: string ns, dir: string nd, filename: string nf): void = let
+  val @(sa, sl) = $S.str_to_borrow(src)
+  val @(fzs, bvs) = $A.freeze<byte>(sa)
+  val sr = $F.file_open(bvs, $AR.checked_arr_size(sl), 0, 0)
+  val () = $A.drop<byte>(fzs, bvs)
+  val () = $A.free<byte>($A.thaw<byte>(fzs))
+in
+  case+ sr of
+  | ~$R.ok(sfd) => let
+      val buf = $A.alloc<byte>(524288)
+      val rr = $F.file_read(sfd, buf, 524288)
+      val nb = (case+ rr of | ~$R.ok(n) => n | ~$R.err(_) => 0): int
+      val _ = $F.file_close(sfd)
+      val cb = $B.create()
+      val @(fzb, bvb) = $A.freeze<byte>(buf)
+      fun cp {l:agz}{fuel:nat} .<fuel>.
+        (bv: !$A.borrow(byte, l, 524288), i: int, len: int,
+         b: !$B.builder, fuel: int fuel): void =
+        if fuel <= 0 then () else if i >= len then ()
+        else let
+          val () = $B.put_byte(b, byte2int0($A.read<byte>(bv, $AR.checked_idx(i, 524288))))
+        in cp(bv, i + 1, len, b, fuel - 1) end
+      val () = cp(bvb, 0, nb, cb, $AR.checked_nat(nb + 1))
+      val () = $A.drop<byte>(fzb, bvb)
+      val () = $A.free<byte>($A.thaw<byte>(fzb))
+    in _write_to(dir, filename, cb) end
+  | ~$R.err(_) => ()
+end
 
 (* ============================================================
    Implementations -- builder API
@@ -96,23 +143,20 @@ implement build_html (b, app_name, wasm_file) = let
   val () = $B.bput(b, "    </div>\n")
   val () = $B.bput(b, "  </div>\n")
   val () = $B.bput(b, "  <script type=\"module\">\n")
-  (* Emit the bridge JS source *)
   val bridge_b = $B.create()
   val () = $BR.produce_bridge(bridge_b)
-  val @(bridge_arr, bridge_len) = $B.to_arr(bridge_b)
-  val @(fz_br, bv_br) = $A.freeze<byte>(bridge_arr)
+  val @(ba, bl) = $B.to_arr(bridge_b)
+  val @(fzb, bvb) = $A.freeze<byte>(ba)
   fun copy_bridge {l:agz}{fuel:nat} .<fuel>.
     (bv: !$A.borrow(byte, l, 524288), i: int, len: int,
      out: !$B.builder, fuel: int fuel): void =
-    if fuel <= 0 then ()
-    else if i >= len then ()
+    if fuel <= 0 then () else if i >= len then ()
     else let
-      val byte_val = byte2int0($A.read<byte>(bv, $AR.checked_idx(i, 524288)))
-      val () = $B.put_byte(out, byte_val)
+      val () = $B.put_byte(out, byte2int0($A.read<byte>(bv, $AR.checked_idx(i, 524288))))
     in copy_bridge(bv, i + 1, len, out, fuel - 1) end
-  val () = copy_bridge(bv_br, 0, bridge_len, b, $AR.checked_nat(bridge_len + 1))
-  val () = $A.drop<byte>(fz_br, bv_br)
-  val () = $A.free<byte>($A.thaw<byte>(fz_br))
+  val () = copy_bridge(bvb, 0, bl, b, $AR.checked_nat(bl + 1))
+  val () = $A.drop<byte>(fzb, bvb)
+  val () = $A.free<byte>($A.thaw<byte>(fzb))
   val () = $B.bput(b, "\n")
   val () = $B.bput(b, "    const root = document.getElementById('app');\n")
   val () = $B.bput(b, "    const resp = await fetch('")
@@ -192,43 +236,113 @@ in end
    Implementations -- high-level file API
    ============================================================ *)
 
-(* Helper: write builder contents to a file path *)
-fn _write_builder_to_file {l:agz}{n:pos}
-  (path: !$A.borrow(byte, l, n), path_len: int n, b: $B.builder): void = let
-  val @(arr, len) = $B.to_arr(b)
-  val @(fz, bv) = $A.freeze<byte>(arr)
-  val fd_r = $F.file_create(path, path_len)
+(* Copy a single asset from assets array at [pos, path_end) to out_dir *)
+fn _copy_one_asset {la:agz}{nas:pos}{nd:nat}
+  (assets: !$A.arr(byte, la, nas), pos: int, path_end: int,
+   asset_max: int nas, out_dir: string nd): void = let
+  val path_len = path_end - pos
+  (* Find basename start: scan backwards for '/' *)
+  val base = $P.filename(assets, path_len, asset_max)
+  (* Build source path into a null-terminated array *)
+  val src_b = $B.create()
+  fun cp_range {la2:agz}{fuel:nat} .<fuel>.
+    (a: !$A.arr(byte, la2, nas), i: int, lim: int, max: int nas,
+     b: !$B.builder, fuel: int fuel): void =
+    if fuel <= 0 then () else if i >= lim then ()
+    else let
+      val () = $B.put_byte(b, byte2int0($A.get<byte>(a, $AR.checked_idx(i, max))))
+    in cp_range(a, i + 1, lim, max, b, fuel - 1) end
+  val () = cp_range(assets, pos, path_end, asset_max, src_b, $AR.checked_nat(path_len + 1))
+  val () = $B.put_byte(src_b, 0)
+  val @(src_a, src_l) = $B.to_arr(src_b)
+  val @(fzs, bvs) = $A.freeze<byte>(src_a)
+  (* Build dest filename *)
+  val dst_b = $B.create()
+  val () = cp_range(assets, pos + base, path_end, asset_max, dst_b, $AR.checked_nat(path_len - base + 1))
+  val () = $B.put_byte(dst_b, 0)
+  val @(dst_a, dst_l) = $B.to_arr(dst_b)
+  val @(fzd, bvd) = $A.freeze<byte>(dst_a)
+  (* Read source file *)
+  val sr = $F.file_open(bvs, $AR.checked_arr_size(src_l), 0, 0)
 in
-  case+ fd_r of
-  | ~$R.ok(fd) => let
-      val wr = $F.file_write(fd, bv, len)
-      val () = $R.discard<int><int>(wr)
-      val cr = $F.file_close(fd)
-      val () = $R.discard<int><int>(cr)
+  (case+ sr of
+  | ~$R.ok(sfd) => let
+      val buf = $A.alloc<byte>(524288)
+      val rr = $F.file_read(sfd, buf, 524288)
+      val nb = (case+ rr of | ~$R.ok(n) => n | ~$R.err(_) => 0): int
+      val _ = $F.file_close(sfd)
+      (* Write buf[0..nb) to out_dir/basename *)
+      val content_b = $B.create()
+      val @(fzb, bvb) = $A.freeze<byte>(buf)
+      fun cpb {l:agz}{fuel:nat} .<fuel>.
+        (bv: !$A.borrow(byte, l, 524288), i: int, len: int,
+         b: !$B.builder, fuel: int fuel): void =
+        if fuel <= 0 then () else if i >= len then ()
+        else let
+          val () = $B.put_byte(b, byte2int0($A.read<byte>(bv, $AR.checked_idx(i, 524288))))
+        in cpb(bv, i + 1, len, b, fuel - 1) end
+      val () = cpb(bvb, 0, nb, content_b, $AR.checked_nat(nb + 1))
+      val () = $A.drop<byte>(fzb, bvb)
+      val () = $A.free<byte>($A.thaw<byte>(fzb))
+      (* Write content to out_dir/basename using dst_b bytes as filename *)
+      val pb = $B.create()
+      val () = $B.bput(pb, out_dir)
+      val () = $B.put_byte(pb, 47)
+      val () = cp_range(assets, pos + base, path_end, asset_max, pb, $AR.checked_nat(path_len - base + 1))
+      val () = $B.put_byte(pb, 0)
+      val @(pa, pl) = $B.to_arr(pb)
+      val @(fzp, bvp) = $A.freeze<byte>(pa)
+      val @(ca, cl) = $B.to_arr(content_b)
+      val @(fzc, bvc) = $A.freeze<byte>(ca)
+      val fr = $F.file_open(bvp, $AR.checked_arr_size(pl), 577, 420)
     in
-      $A.drop<byte>(fz, bv);
-      $A.free<byte>($A.thaw<byte>(fz))
+      (case+ fr of
+      | ~$R.ok(fd) => let
+          val _ = $F.file_write(fd, bvc, $AR.checked_arr_size(cl))
+          val _ = $F.file_close(fd)
+        in end
+      | ~$R.err(_) => ());
+      $A.drop<byte>(fzc, bvc); $A.free<byte>($A.thaw<byte>(fzc));
+      $A.drop<byte>(fzp, bvp); $A.free<byte>($A.thaw<byte>(fzp))
     end
-  | ~$R.err(_) => let
-    in
-      $A.drop<byte>(fz, bv);
-      $A.free<byte>($A.thaw<byte>(fz))
-    end
+  | ~$R.err(_) => ());
+  $A.drop<byte>(fzs, bvs); $A.free<byte>($A.thaw<byte>(fzs));
+  $A.drop<byte>(fzd, bvd); $A.free<byte>($A.thaw<byte>(fzd))
 end
 
-implement create_pwa (app_name, app_id, wasm_path, wasm_name, out_dir) = let
-  (* TODO: build paths by concatenating out_dir + "/" + filename *)
-  (* For now, write to current directory *)
+(* Iterate through null-separated asset paths and copy each *)
+fun _copy_assets {la:agz}{nas:pos}{nd:nat}{fuel:nat} .<fuel>.
+  (assets: !$A.arr(byte, la, nas), pos: int, len: int,
+   asset_max: int nas, out_dir: string nd, fuel: int fuel): void =
+  if fuel <= 0 then ()
+  else if pos >= len then ()
+  else let
+    val path_end = $S.find_null(assets, pos, asset_max, $AR.checked_nat(len - pos + 1))
+    val path_len = path_end - pos
+  in
+    if path_len > 0 then let
+      val () = _copy_one_asset(assets, pos, path_end, asset_max, out_dir)
+    in _copy_assets(assets, path_end + 1, len, asset_max, out_dir, fuel - 1) end
+    else _copy_assets(assets, path_end + 1, len, asset_max, out_dir, fuel - 1)
+  end
+
+implement create_pwa (app_name, app_id, wasm_path, wasm_name, out_dir, assets, asset_len, asset_max) = let
   val html_b = $B.create()
   val () = build_html(html_b, app_name, wasm_name)
+  val () = _write_to(out_dir, "index.html", html_b)
   val sw_b = $B.create()
   val () = build_service_worker(sw_b, wasm_name)
+  val () = _write_to(out_dir, "service-worker.js", sw_b)
   val mf_b = $B.create()
   val () = build_manifest(mf_b, app_name)
+  val () = _write_to(out_dir, "manifest.json", mf_b)
+  val () = _copy_to(wasm_path, out_dir, wasm_name)
+  val () = _copy_assets(assets, 0, asset_len, asset_max, out_dir, $AR.checked_nat(asset_len + 1))
 in end
 
-implement create_apk (app_name, app_id, wasm_path, wasm_name, out_dir) = let
-  val () = create_pwa(app_name, app_id, wasm_path, wasm_name, out_dir)
+implement create_apk (app_name, app_id, wasm_path, wasm_name, out_dir, assets, asset_len, asset_max) = let
+  val () = create_pwa(app_name, app_id, wasm_path, wasm_name, out_dir, assets, asset_len, asset_max)
   val cap_b = $B.create()
   val () = build_capacitor_config(cap_b, app_name, app_id, out_dir)
+  val () = _write_to(out_dir, "capacitor.config.json", cap_b)
 in end
