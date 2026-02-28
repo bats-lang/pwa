@@ -50,6 +50,26 @@
    out_dir: string nd,
    assets: !$A.arr(byte, la, nas), asset_len: int, asset_max: int nas): void
 
+(* Same as create_apk but generates a signed release AAB.
+   Writes release signing config and copies keystore.
+   keystore_path: path to release.jks file
+   keystore_password: password for the keystore
+   key_alias: alias of the signing key
+   key_password: password for the key *)
+#pub fn create_aab {na:nat}{ni:nat}{nw:nat}{nn:nat}{nd:nat}{la:agz}{nas:pos}{nk:nat}{nkp:nat}{nka:nat}{nkpw:nat}
+  (app_name: string na, app_id: string ni,
+   wasm_path: string nw, wasm_name: string nn,
+   out_dir: string nd,
+   assets: !$A.arr(byte, la, nas), asset_len: int, asset_max: int nas,
+   keystore_path: string nk, keystore_password: string nkp,
+   key_alias: string nka, key_password: string nkpw): void
+
+(* Generate release signing Gradle config *)
+#pub fn build_release_signing {nk:nat}{nkp:nat}{nka:nat}{nkpw:nat}
+  (b: !$B.builder,
+   keystore_path: string nk, keystore_password: string nkp,
+   key_alias: string nka, key_password: string nkpw): void
+
 (* ============================================================
    Internal: write builder to dir/filename
    ============================================================ *)
@@ -232,6 +252,33 @@ implement build_capacitor_config (b, app_name, app_id, out_dir) = let
   val () = $B.bput(b, "}\n")
 in end
 
+implement build_release_signing (b, keystore_path, keystore_password, key_alias, key_password) = let
+  (* Gradle script applied to android/app/build.gradle for release signing *)
+  val () = $B.bput(b, "android {\n")
+  val () = $B.bput(b, "    signingConfigs {\n")
+  val () = $B.bput(b, "        release {\n")
+  val () = $B.bput(b, "            storeFile file('")
+  val () = $B.bput(b, keystore_path)
+  val () = $B.bput(b, "')\n")
+  val () = $B.bput(b, "            storePassword '")
+  val () = $B.bput(b, keystore_password)
+  val () = $B.bput(b, "'\n")
+  val () = $B.bput(b, "            keyAlias '")
+  val () = $B.bput(b, key_alias)
+  val () = $B.bput(b, "'\n")
+  val () = $B.bput(b, "            keyPassword '")
+  val () = $B.bput(b, key_password)
+  val () = $B.bput(b, "'\n")
+  val () = $B.bput(b, "        }\n")
+  val () = $B.bput(b, "    }\n")
+  val () = $B.bput(b, "    buildTypes {\n")
+  val () = $B.bput(b, "        release {\n")
+  val () = $B.bput(b, "            signingConfig signingConfigs.release\n")
+  val () = $B.bput(b, "        }\n")
+  val () = $B.bput(b, "    }\n")
+  val () = $B.bput(b, "}\n")
+in end
+
 (* ============================================================
    Implementations -- high-level file API
    ============================================================ *)
@@ -345,4 +392,15 @@ implement create_apk (app_name, app_id, wasm_path, wasm_name, out_dir, assets, a
   val cap_b = $B.create()
   val () = build_capacitor_config(cap_b, app_name, app_id, out_dir)
   val () = _write_to(out_dir, "capacitor.config.json", cap_b)
+in end
+
+implement create_aab (app_name, app_id, wasm_path, wasm_name, out_dir, assets, asset_len, asset_max, keystore_path, keystore_password, key_alias, key_password) = let
+  (* Write all APK files (PWA + capacitor.config.json) *)
+  val () = create_apk(app_name, app_id, wasm_path, wasm_name, out_dir, assets, asset_len, asset_max)
+  (* Write release signing config *)
+  val sign_b = $B.create()
+  val () = build_release_signing(sign_b, "release.jks", keystore_password, key_alias, key_password)
+  val () = _write_to(out_dir, "release-signing.gradle", sign_b)
+  (* Copy keystore file *)
+  val () = _copy_to(keystore_path, out_dir, "release.jks")
 in end
