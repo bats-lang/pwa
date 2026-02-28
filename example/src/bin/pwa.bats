@@ -9,7 +9,7 @@
 #use pwa as P
 #use result as R
 
-fn _write_to {nd:nat}{nf:nat}
+fn _write_file {nd:nat}{nf:nat}
   (dir: string nd, filename: string nf, content: $B.builder): void = let
   val pb = $B.create()
   val () = $B.bput(pb, dir)
@@ -24,9 +24,19 @@ fn _write_to {nd:nat}{nf:nat}
 in
   (case+ fr of
   | ~$R.ok(fd) => let
-      val wr = $F.file_write(fd, bvc, $AR.checked_arr_size(cl))
-      val () = $R.discard<int><int>(wr)
-      val cr = $F.file_close(fd)
+      val bw = $F.buf_writer_create(fd)
+      fun write_loop {l:agz}{fuel:nat} .<fuel>.
+        (bw: !$F.buf_writer, bv: !$A.borrow(byte, l, 524288),
+         i: int, lim: int, fuel: int fuel): void =
+        if fuel <= 0 then ()
+        else if i >= lim then ()
+        else let
+          val b = byte2int0($A.read<byte>(bv, $AR.checked_idx(i, 524288)))
+          val wr = $F.buf_write_byte(bw, b)
+          val () = $R.discard<int><int>(wr)
+        in write_loop(bw, bv, i + 1, lim, fuel - 1) end
+      val () = write_loop(bw, bvc, 0, cl, $AR.checked_nat(cl + 1))
+      val cr = $F.buf_writer_close(bw)
       val () = $R.discard<int><int>(cr)
     in end
   | ~$R.err(_) => ());
@@ -52,15 +62,15 @@ implement main0 () = let
 
   val html_b = $B.create()
   val () = $P.build_html(html_b, "BATS PWA", "output.wasm")
-  val () = _write_to("dist/pwa", "index.html", html_b)
+  val () = _write_file("dist/pwa", "index.html", html_b)
 
   val sw_b = $B.create()
   val () = $P.build_service_worker(sw_b, "output.wasm")
-  val () = _write_to("dist/pwa", "service-worker.js", sw_b)
+  val () = _write_file("dist/pwa", "service-worker.js", sw_b)
 
   val mf_b = $B.create()
   val () = $P.build_manifest(mf_b, "BATS PWA")
-  val () = _write_to("dist/pwa", "manifest.json", mf_b)
+  val () = _write_file("dist/pwa", "manifest.json", mf_b)
 
   val () = println! ("PWA generated in dist/pwa/")
 in end
