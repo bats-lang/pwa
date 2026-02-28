@@ -20,7 +20,7 @@ fn _write_file {nd:nat}{nf:nat}
   val @(fzp, bvp) = $A.freeze<byte>(pa)
   val @(ca, cl) = $B.to_arr(content)
   val @(fzc, bvc) = $A.freeze<byte>(ca)
-  val fr = $F.file_open(bvp, $AR.checked_arr_size(pl), 577, 420)
+  val fr = $F.file_open(bvp, 524288, 577, 420)
 in
   (case+ fr of
   | ~$R.ok(fd) => let
@@ -50,7 +50,7 @@ fn _mkdir {nd:nat} (dir: string nd): void = let
   val () = $B.put_byte(db, 0)
   val @(da, dl) = $B.to_arr(db)
   val @(fzd, bvd) = $A.freeze<byte>(da)
-  val mr = $F.file_mkdir(bvd, $AR.checked_arr_size(dl), 493)
+  val mr = $F.file_mkdir(bvd, 524288, 493)
   val () = $R.discard<int><int>(mr)
 in
   $A.drop<byte>(fzd, bvd); $A.free<byte>($A.thaw<byte>(fzd))
