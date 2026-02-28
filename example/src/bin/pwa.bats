@@ -24,8 +24,10 @@ fn _write_to {nd:nat}{nf:nat}
 in
   (case+ fr of
   | ~$R.ok(fd) => let
-      val _ = $F.file_write(fd, bvc, $AR.checked_arr_size(cl))
-      val _ = $F.file_close(fd)
+      val wr = $F.file_write(fd, bvc, $AR.checked_arr_size(cl))
+      val () = $R.discard<int><int>(wr)
+      val cr = $F.file_close(fd)
+      val () = $R.discard<int><int>(cr)
     in end
   | ~$R.err(_) => ());
   $A.drop<byte>(fzc, bvc); $A.free<byte>($A.thaw<byte>(fzc));
@@ -38,7 +40,8 @@ fn _mkdir {nd:nat} (dir: string nd): void = let
   val () = $B.put_byte(db, 0)
   val @(da, dl) = $B.to_arr(db)
   val @(fzd, bvd) = $A.freeze<byte>(da)
-  val _ = $F.file_mkdir(bvd, $AR.checked_arr_size(dl), 493)
+  val mr = $F.file_mkdir(bvd, $AR.checked_arr_size(dl), 493)
+  val () = $R.discard<int><int>(mr)
 in
   $A.drop<byte>(fzd, bvd); $A.free<byte>($A.thaw<byte>(fzd))
 end
