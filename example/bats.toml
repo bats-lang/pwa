@@ -6,7 +6,6 @@ unsafe = false
 [dependencies]
 "pwa" = ""
 "file" = ""
-"process" = ""
 "array" = ""
 "arith" = ""
 "builder" = ""
