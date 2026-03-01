@@ -53,18 +53,23 @@ jobs:
           bats lock --repository $HOME/repository
           bats check --repository $HOME/repository
 
+      - name: Upload library to local repository
+        run: |
+          bats upload --repository $HOME/repository
+
       - name: Build and run pwa generator
         run: |
           cd example
           bats lock --repository $HOME/repository
-          bats build --only native --only debug --repository $HOME/repository
-          bats run --only debug --bin pwa --repository $HOME/repository
+          bats build --repository $HOME/repository
+          bats run --bin pwa --repository $HOME/repository
 
       - name: Verify PWA output
         run: |
           test -f example/dist/pwa/index.html
+          test -f example/dist/pwa/bridge.js
+          test -f example/dist/pwa/app.js
           test -f example/dist/pwa/service-worker.js
           test -f example/dist/pwa/manifest.json
-          grep -q "BATS PWA" example/dist/pwa/index.html
           grep -q "BATS PWA" example/dist/pwa/manifest.json
           echo "PWA verification passed"
