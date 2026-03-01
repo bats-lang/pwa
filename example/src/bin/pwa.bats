@@ -36,8 +36,10 @@ fn _write_file {nd:nat}{nf:nat}
 in
   (case+ fr of
   | ~$R.ok(fd) => let
-      val _ = $F.file_write(fd, bvc, $AR.checked_arr_size(cl))
-      val _ = $F.file_close(fd)
+      val wr = $F.file_write(fd, bvc, 524288)
+      val () = $R.discard<int><int>(wr)
+      val cr = $F.file_close(fd)
+      val () = $R.discard<int><int>(cr)
     in end
   | ~$R.err(_) => ());
   $A.drop<byte>(fzc, bvc); $A.free<byte>($A.thaw<byte>(fzc));

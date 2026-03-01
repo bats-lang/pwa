@@ -11,7 +11,7 @@
 #use path as P
 #use result as R
 #use str as S
-#use wasm.bats-packages.dev/bridge as BR
+#use bridge-js as BJ
 
 (* ============================================================
    Builder-based API (generate file contents into builders)
@@ -91,7 +91,7 @@ fn _write_to {nd:nat}{nf:nat}
   val @(fzp, bvp) = $A.freeze<byte>(pa)
   val @(ca, cl) = $B.to_arr(content)
   val @(fzc, bvc) = $A.freeze<byte>(ca)
-  val fr = $F.file_open(bvp, $AR.checked_arr_size(pl), 577, 420)
+  val fr = $F.file_open(bvp, 524288, 577, 420)
 in
   (case+ fr of
   | ~$R.ok(fd) => let
@@ -118,9 +118,12 @@ end
 (* Copy file from src to dir/filename *)
 fn _copy_to {ns:nat}{nd:nat}{nf:nat}
   (src: string ns, dir: string nd, filename: string nf): void = let
-  val @(sa, sl) = $S.str_to_borrow(src)
+  val sb = $B.create()
+  val () = $B.bput(sb, src)
+  val () = $B.put_byte(sb, 0)
+  val @(sa, sl) = $B.to_arr(sb)
   val @(fzs, bvs) = $A.freeze<byte>(sa)
-  val sr = $F.file_open(bvs, $AR.checked_arr_size(sl), 0, 0)
+  val sr = $F.file_open(bvs, 524288, 0, 0)
   val () = $A.drop<byte>(fzs, bvs)
   val () = $A.free<byte>($A.thaw<byte>(fzs))
 in
@@ -192,7 +195,7 @@ implement build_html (b, app_name) = let
 in end
 
 implement build_bridge_js (b) =
-  $BR.produce_bridge(b)
+  $BJ.emit_js_all(b)
 
 implement build_app_js (b, wasm_file) = let
   val () = $B.bput(b, "const root = document.getElementById('bats-root');\n")
@@ -327,7 +330,7 @@ fn _copy_one_asset {la:agz}{nas:pos}{nd:nat}
   val @(src_a, src_l) = $B.to_arr(src_b)
   val @(fzs, bvs) = $A.freeze<byte>(src_a)
   (* Find basename in the borrow *)
-  val base = _find_basename(bvs, path_len, $AR.checked_arr_size(src_l))
+  val base = _find_basename(bvs, path_len, 524288)
   (* Build dest filename *)
   val dst_b = $B.create()
   fun cp_borrow {l:agz}{fuel:nat} .<fuel>.
@@ -339,7 +342,7 @@ fn _copy_one_asset {la:agz}{nas:pos}{nd:nat}
     in cp_borrow(bv, i + 1, lim, b, fuel - 1) end
   val () = cp_borrow(bvs, base, path_len, dst_b, $AR.checked_nat(path_len - base + 1))
   (* Read source file *)
-  val sr = $F.file_open(bvs, $AR.checked_arr_size(src_l), 0, 0)
+  val sr = $F.file_open(bvs, 524288, 0, 0)
 in
   (case+ sr of
   | ~$R.ok(sfd) => let
@@ -371,7 +374,7 @@ in
       val @(fzp, bvp) = $A.freeze<byte>(pa)
       val @(ca, cl) = $B.to_arr(content_b)
       val @(fzc, bvc) = $A.freeze<byte>(ca)
-      val fr = $F.file_open(bvp, $AR.checked_arr_size(pl), 577, 420)
+      val fr = $F.file_open(bvp, 524288, 577, 420)
     in
       (case+ fr of
       | ~$R.ok(fd) => let
@@ -396,8 +399,7 @@ in
     end
   | ~$R.err(_) => ());
   $A.drop<byte>(fzs, bvs); $A.free<byte>($A.thaw<byte>(fzs));
-  val @(da, dl) = $B.to_arr(dst_b)
-  val () = $A.free<byte>(da)
+  (let val @(da, dl) = $B.to_arr(dst_b) val () = $A.free<byte>(da) in end)
 end
 
 (* Iterate through null-separated asset paths and copy each *)

@@ -60,9 +60,9 @@ jobs:
       - name: Build and run pwa generator
         run: |
           cd example
-          bats lock --repository $HOME/repository
-          bats build --repository $HOME/repository
-          bats run --bin pwa --repository $HOME/repository
+          bats lock --dev --repository $HOME/repository
+          bats build --dev --repository $HOME/repository
+          bats run --bin pwa --dev --repository $HOME/repository
 
       - name: Verify PWA output
         run: |
