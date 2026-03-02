@@ -9,6 +9,18 @@
 #use pwa as P
 #use result as R
 
+fn _mkdir {nd:nat} (dir: string nd): void = let
+  val db = $B.create()
+  val () = $B.bput(db, dir)
+  val () = $B.put_byte(db, 0)
+  val @(da, dl) = $B.to_arr(db)
+  val @(fzd, bvd) = $A.freeze<byte>(da)
+  val mr = $F.file_mkdir(bvd, 524288, 493)
+  val () = $R.discard<int><int>(mr)
+in
+  $A.drop<byte>(fzd, bvd); $A.free<byte>($A.thaw<byte>(fzd))
+end
+
 fn _write_file {nd:nat}{nf:nat}
   (dir: string nd, filename: string nf, content: $B.builder): void = let
   val pb = $B.create()
@@ -24,19 +36,9 @@ fn _write_file {nd:nat}{nf:nat}
 in
   (case+ fr of
   | ~$R.ok(fd) => let
-      val bw = $F.buf_writer_create(fd)
-      fun write_loop {l:agz}{fuel:nat} .<fuel>.
-        (bw: !$F.buf_writer, bv: !$A.borrow(byte, l, 524288),
-         i: int, lim: int, fuel: int fuel): void =
-        if fuel <= 0 then ()
-        else if i >= lim then ()
-        else let
-          val b = byte2int0($A.read<byte>(bv, $AR.checked_idx(i, 524288)))
-          val wr = $F.buf_write_byte(bw, b)
-          val () = $R.discard<int><int>(wr)
-        in write_loop(bw, bv, i + 1, lim, fuel - 1) end
-      val () = write_loop(bw, bvc, 0, cl, $AR.checked_nat(cl + 1))
-      val cr = $F.buf_writer_close(bw)
+      val wr = $F.file_write(fd, bvc, 524288)
+      val () = $R.discard<int><int>(wr)
+      val cr = $F.file_close(fd)
       val () = $R.discard<int><int>(cr)
     in end
   | ~$R.err(_) => ());
@@ -44,33 +46,21 @@ in
   $A.drop<byte>(fzp, bvp); $A.free<byte>($A.thaw<byte>(fzp))
 end
 
-fn _mkdir {nd:nat} (dir: string nd): void = let
-  val db = $B.create()
-  val () = $B.bput(db, dir)
-  val () = $B.put_byte(db, 0)
-  val @(da, dl) = $B.to_arr(db)
-  val @(fzd, bvd) = $A.freeze<byte>(da)
-  val mr = $F.file_mkdir(bvd, 524288, 493)
-  val () = $R.discard<int><int>(mr)
-in
-  $A.drop<byte>(fzd, bvd); $A.free<byte>($A.thaw<byte>(fzd))
-end
-
 implement main0 () = let
   val () = _mkdir("dist")
   val () = _mkdir("dist/pwa")
 
-  val html_b = $B.create()
-  val () = $P.build_html(html_b, "BATS PWA", "output.wasm")
-  val () = _write_file("dist/pwa", "index.html", html_b)
+  (* Create a dummy wasm file for testing *)
+  val wb = $B.create()
+  val () = $B.bput(wb, "dummy wasm")
+  val () = _write_file("dist", "app.wasm", wb)
 
-  val sw_b = $B.create()
-  val () = $P.build_service_worker(sw_b, "output.wasm")
-  val () = _write_file("dist/pwa", "service-worker.js", sw_b)
-
-  val mf_b = $B.create()
-  val () = $P.build_manifest(mf_b, "BATS PWA")
-  val () = _write_file("dist/pwa", "manifest.json", mf_b)
+  (* Create PWA with no extra assets *)
+  val assets = $A.alloc<byte>(1)
+  val () = $P.create_pwa("BATS PWA", "dev.bats.pwa",
+    "dist/app.wasm", "app.wasm", "dist/pwa",
+    assets, 0, 1)
+  val () = $A.free<byte>(assets)
 
   val () = println! ("PWA generated in dist/pwa/")
 in end

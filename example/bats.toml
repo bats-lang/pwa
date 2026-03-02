@@ -10,5 +10,7 @@ unsafe = false
 "arith" = ""
 "builder" = ""
 "result" = ""
+"str" = ""
+"path" = ""
 "wasm.bats-packages.dev/bridge" = ""
 "promise" = ""
