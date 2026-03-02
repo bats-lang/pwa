@@ -11,7 +11,7 @@
 #use path as P
 #use result as R
 #use str as S
-#use bridge-js as BJ
+#use wasm.bats-packages.dev/bridge as BR
 
 (* ============================================================
    Builder-based API (generate file contents into builders)
@@ -195,7 +195,7 @@ implement build_html (b, app_name) = let
 in end
 
 implement build_bridge_js (b) =
-  $BJ.emit_js_all(b)
+  $BR.produce_bridge(b)
 
 implement build_app_js (b, wasm_file) = let
   val () = $B.bput(b, "const root = document.getElementById('bats-root');\n")

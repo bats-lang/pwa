@@ -11,4 +11,4 @@ unsafe = false
 "path" = ""
 "result" = ""
 "str" = ""
-"bridge-js" = ""
+"wasm.bats-packages.dev/bridge" = ""
