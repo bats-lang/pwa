@@ -10,3 +10,6 @@ unsafe = false
 "arith" = ""
 "builder" = ""
 "result" = ""
+"str" = ""
+"path" = ""
+"bridge-js" = ""
