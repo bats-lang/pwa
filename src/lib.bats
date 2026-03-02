@@ -198,6 +198,7 @@ implement build_bridge_js (b) =
   $BR.produce_bridge(b)
 
 implement build_app_js (b, wasm_file) = let
+  val () = $B.bput(b, "import { loadWASM } from './bridge.js';\n")
   val () = $B.bput(b, "const root = document.getElementById('bats-root');\n")
   val () = $B.bput(b, "const resp = await fetch('")
   val () = $B.bput(b, wasm_file)
