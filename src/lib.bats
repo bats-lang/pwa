@@ -1,5 +1,6 @@
 (* pwa -- PWA and APK shell generator for bats WASM apps *)
-(* Native build tool: writes index.html, bridge.js, app.js, service-worker.js, manifest.json to disk *)
+(* Native build tool: writes index.html, bridge.js, service-worker.js, manifest.json to disk *)
+(* All JS generation is delegated to the bridge package. *)
 (* For APK: also writes capacitor.config.json *)
 
 #include "share/atspre_staload.hats"
@@ -20,15 +21,6 @@
 #pub fn build_html {na:nat}
   (b: !$B.builder, app_name: string na): void
 
-#pub fn build_bridge_js
-  (b: !$B.builder): void
-
-#pub fn build_app_js {nw:nat}
-  (b: !$B.builder, wasm_file: string nw): void
-
-#pub fn build_service_worker {nw:nat}
-  (b: !$B.builder, wasm_file: string nw): void
-
 #pub fn build_manifest {na:nat}
   (b: !$B.builder, app_name: string na): void
 
@@ -40,7 +32,7 @@
    ============================================================ *)
 
 (* Create a complete PWA in out_dir.
-   Writes index.html, bridge.js, app.js, service-worker.js, manifest.json.
+   Writes index.html, bridge.js, service-worker.js, manifest.json.
    Copies wasm from wasm_path as wasm_name.
    assets: null-separated source paths to copy into out_dir. *)
 #pub fn create_pwa {na:nat}{ni:nat}{nw:nat}{nn:nat}{nd:nat}{la:agz}{nas:pos}
@@ -185,50 +177,9 @@ implement build_html (b, app_name) = let
   val () = $B.bput(b, "    </div>\n")
   val () = $B.bput(b, "  </div>\n")
   val () = $B.bput(b, "  <script type=\"module\" src=\"bridge.js\"></script>\n")
-  val () = $B.bput(b, "  <script type=\"module\" src=\"app.js\"></script>\n")
-  val () = $B.bput(b, "  <script>\n")
-  val () = $B.bput(b, "    if ('serviceWorker' in navigator) {\n")
-  val () = $B.bput(b, "      navigator.serviceWorker.register('service-worker.js');\n")
-  val () = $B.bput(b, "    }\n")
-  val () = $B.bput(b, "  </script>\n")
   val () = $B.bput(b, "</body>\n</html>\n")
 in end
 
-implement build_bridge_js (b) =
-  $BR.produce_bridge(b)
-
-implement build_app_js (b, wasm_file) = let
-  val () = $B.bput(b, "import { loadWASM } from './bridge.js';\n")
-  val () = $B.bput(b, "const root = document.getElementById('bats-root');\n")
-  val () = $B.bput(b, "const resp = await fetch('")
-  val () = $B.bput(b, wasm_file)
-  val () = $B.bput(b, "');\n")
-  val () = $B.bput(b, "const bytes = await resp.arrayBuffer();\n")
-  val () = $B.bput(b, "await loadWASM(bytes, root, {});\n")
-in end
-
-implement build_service_worker (b, wasm_file) = let
-  val () = $B.bput(b, "const CACHE = 'bats-pwa-v1';\n")
-  val () = $B.bput(b, "const SHELL = [\n")
-  val () = $B.bput(b, "  './', '")
-  val () = $B.bput(b, wasm_file)
-  val () = $B.bput(b, "', 'manifest.json',\n")
-  val () = $B.bput(b, "];\n\n")
-  val () = $B.bput(b, "self.addEventListener('install', e => {\n")
-  val () = $B.bput(b, "  self.skipWaiting();\n")
-  val () = $B.bput(b, "  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));\n")
-  val () = $B.bput(b, "});\n\n")
-  val () = $B.bput(b, "self.addEventListener('activate', e => {\n")
-  val () = $B.bput(b, "  e.waitUntil(\n")
-  val () = $B.bput(b, "    caches.keys().then(keys =>\n")
-  val () = $B.bput(b, "      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))\n")
-  val () = $B.bput(b, "    ).then(() => self.clients.claim())\n")
-  val () = $B.bput(b, "  );\n")
-  val () = $B.bput(b, "});\n\n")
-  val () = $B.bput(b, "self.addEventListener('fetch', e => {\n")
-  val () = $B.bput(b, "  e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));\n")
-  val () = $B.bput(b, "});\n")
-in end
 
 implement build_manifest (b, app_name) = let
   val () = $B.bput(b, "{\n")
@@ -433,13 +384,10 @@ implement create_pwa (app_name, app_id, wasm_path, wasm_name, out_dir, assets, a
   val () = build_html(html_b, app_name)
   val () = _write_to(out_dir, "index.html", html_b)
   val br_b = $B.create()
-  val () = build_bridge_js(br_b)
+  val () = $BR.produce_bridge_app(br_b, wasm_name, "bats-root")
   val () = _write_to(out_dir, "bridge.js", br_b)
-  val app_b = $B.create()
-  val () = build_app_js(app_b, wasm_name)
-  val () = _write_to(out_dir, "app.js", app_b)
   val sw_b = $B.create()
-  val () = build_service_worker(sw_b, wasm_name)
+  val () = $BR.produce_service_worker(sw_b, wasm_name)
   val () = _write_to(out_dir, "service-worker.js", sw_b)
   val mf_b = $B.create()
   val () = build_manifest(mf_b, app_name)
