@@ -1,23 +1,36 @@
 #target wasm binary
 #include "share/atspre_staload.hats"
-#use str as S
-#use wasm.bats-packages.dev/dom as D
-#use widget as W
+#use array as A
+staload "wasm.bats-packages.dev/bridge/src/dom.bats"
 
 implement main0 () = let
-  var mt = @[char][3]('d','i','v')
-  val mount_tag = $S.text_of_chars(mt, 3)
-  var mi = @[char][9]('b','a','t','s','-','r','o','o','t')
-  val mount_id = $S.text_of_chars(mi, 9)
-  val doc = $D.create_document(mount_tag, 3, mount_id, 9)
-  var mc = @[char][3]('m','s','g')
-  val msg_id_t = $S.text_of_chars(mc, 3)
-  val msg_id = $W.Generated(msg_id_t, 3)
-  val msg = $W.Element($W.ElementNode(
-    msg_id, $W.Normal($W.Div()), ~1, 0,
-    $W.NoneInt(), $W.NoneStr(),
-    $W.WCons($W.Text("BATS PWA"), $W.WNil())))
-  val d = $W.AddChild($W.Root(), msg)
-  val () = $D.apply(doc, d)
-  val () = $D.destroy(doc)
+  val buf = $A.alloc<byte>(64)
+  (* SET_TEXT opcode = 1
+     Wire: [1:u8][nid_len:u16le][nid_str][text_len:u16le][text_str]
+     nid = "bats-root" (9 bytes), text = "BATS PWA" (8 bytes)
+     Total = 1 + 2 + 9 + 2 + 8 = 22 bytes *)
+  val () = $A.write_byte(buf, 0, 1)
+  val () = $A.write_u16le(buf, 1, 9)
+  (* "bats-root" *)
+  val () = $A.write_byte(buf, 3, 98)
+  val () = $A.write_byte(buf, 4, 97)
+  val () = $A.write_byte(buf, 5, 116)
+  val () = $A.write_byte(buf, 6, 115)
+  val () = $A.write_byte(buf, 7, 45)
+  val () = $A.write_byte(buf, 8, 114)
+  val () = $A.write_byte(buf, 9, 111)
+  val () = $A.write_byte(buf, 10, 111)
+  val () = $A.write_byte(buf, 11, 116)
+  val () = $A.write_u16le(buf, 12, 8)
+  (* "BATS PWA" *)
+  val () = $A.write_byte(buf, 14, 66)
+  val () = $A.write_byte(buf, 15, 65)
+  val () = $A.write_byte(buf, 16, 84)
+  val () = $A.write_byte(buf, 17, 83)
+  val () = $A.write_byte(buf, 18, 32)
+  val () = $A.write_byte(buf, 19, 80)
+  val () = $A.write_byte(buf, 20, 87)
+  val () = $A.write_byte(buf, 21, 65)
+  val () = dom_flush(buf, 22)
+  val () = $A.free<byte>(buf)
 in end
