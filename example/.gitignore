@@ -1,2 +1,9 @@
 build/
+dist/
 docs/
+bats_modules/
+bats.lock
+node_modules/
+package-lock.json
+test-results/
+playwright-report/

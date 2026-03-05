@@ -420,6 +420,15 @@ fun _copy_assets {la:agz}{nas:pos}{nd:nat}{fuel:nat} .<fuel>.
   end
 
 implement create_pwa (app_name, app_id, wasm_path, wasm_name, out_dir, assets, asset_len, asset_max) = let
+  val mb = $B.create()
+  val () = $B.bput(mb, out_dir)
+  val () = $B.put_byte(mb, 0)
+  val @(ma, _) = $B.to_arr(mb)
+  val @(fzm, bvm) = $A.freeze<byte>(ma)
+  val mr = $F.file_mkdir(bvm, 524288, 493)
+  val () = $R.discard<int><int>(mr)
+  val () = $A.drop<byte>(fzm, bvm)
+  val () = $A.free<byte>($A.thaw<byte>(fzm))
   val html_b = $B.create()
   val () = build_html(html_b, app_name)
   val () = _write_to(out_dir, "index.html", html_b)
