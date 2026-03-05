@@ -1,13 +1,16 @@
 [package]
-name = "pwa-example"
+name = "gen-pwa"
 kind = "bin"
 unsafe = false
 
 [dependencies]
+"pwa" = ""
 "array" = ""
 "arith" = ""
 "builder" = ""
-"promise" = ""
+"file" = ""
 "result" = ""
 "str" = ""
+"path" = ""
 "wasm.bats-packages.dev/bridge" = ""
+"promise" = ""
