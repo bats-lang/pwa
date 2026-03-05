@@ -63,7 +63,7 @@ jobs:
         run: |
           cd example
           bats lock --dev --repository $HOME/repository
-          bats build --only wasm --dev --repository $HOME/repository
+          BATS=bats ./build-wasm.sh $HOME/repository --dev
           test -f dist/wasm/app.wasm
 
       - name: Build PWA generator
