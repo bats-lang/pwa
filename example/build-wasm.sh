@@ -7,12 +7,14 @@
 set -e
 
 REPO="${1:?usage: build-wasm.sh <repository-path>}"
+shift
+EXTRA_ARGS="$*"
 BATS="${BATS:-bats}"
 export PATSHOME="${PATSHOME:-$HOME/.bats/ats2}"
 
 # Step 1: Run bats build --only native to preprocess and run patsopt
 # (will fail at link since pwa-web is wasm-only, that's expected)
-"$BATS" build --only native --repository "$REPO" 2>&1 || true
+"$BATS" build --only native --repository "$REPO" $EXTRA_ARGS 2>&1 || true
 
 # Step 2: Remove cached .sats/.dats for namespaced deps to force
 # re-preprocessing with wasm target
@@ -22,7 +24,7 @@ find build/bats_modules/wasm.bats-packages.dev/ \
 
 # Step 3: Run bats build --only wasm to re-preprocess with wasm target
 # (this creates .dats with #target wasm blocks included)
-"$BATS" build --only wasm --repository "$REPO" 2>&1
+"$BATS" build --only wasm --repository "$REPO" $EXTRA_ARGS 2>&1
 
 # Step 4: Run patsopt on all re-preprocessed .dats files
 for dats in build/bats_modules/wasm.bats-packages.dev/*/src/*.dats; do
