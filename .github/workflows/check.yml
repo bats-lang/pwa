@@ -69,17 +69,17 @@ jobs:
           cd example
           bats build --dev --only native --only debug --repository $HOME/repository
 
-      - name: Generate PWA
-        run: |
-          cd example
-          mkdir -p dist/pwa
-          dist/debug/build-pwa
-
       - name: Build WASM app
         run: |
           cd example
           BATS=bats ./build-wasm.sh $HOME/repository --dev
           test -f dist/wasm/app.wasm
+
+      - name: Generate PWA
+        run: |
+          cd example
+          mkdir -p dist/pwa
+          dist/debug/build-pwa
 
       - name: Verify PWA output
         run: |
