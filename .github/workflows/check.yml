@@ -59,20 +59,24 @@ jobs:
       - name: Upload library to local repository
         run: bats upload --repository $HOME/repository
 
-      - name: Build example
+      - name: Build WASM app
         run: |
           cd example
           bats lock --dev --repository $HOME/repository
-          bats build --dev --only native --repository $HOME/repository
-          test -f dist/debug/build-pwa
           BATS=bats ./build-wasm.sh $HOME/repository --dev
           test -f dist/wasm/app.wasm
+
+      - name: Build PWA generator
+        run: |
+          cd example/gen-pwa
+          bats lock --dev --repository $HOME/repository
+          bats build --dev --repository $HOME/repository
 
       - name: Generate PWA
         run: |
           cd example
           mkdir -p dist/pwa
-          dist/debug/build-pwa
+          gen-pwa/dist/debug/build-pwa
 
       - name: Verify PWA output
         run: |
