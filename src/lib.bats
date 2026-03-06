@@ -19,13 +19,13 @@
    ============================================================ *)
 
 #pub fn build_html {na:nat}
-  (b: !$B.builder, app_name: string na): void
+  (b: !$B.builder0, app_name: string na): void
 
 #pub fn build_manifest {na:nat}
-  (b: !$B.builder, app_name: string na): void
+  (b: !$B.builder0, app_name: string na): void
 
 #pub fn build_capacitor_config {na:nat}{ni:nat}{nd:nat}
-  (b: !$B.builder, app_name: string na, app_id: string ni, out_dir: string nd): void
+  (b: !$B.builder0, app_name: string na, app_id: string ni, out_dir: string nd): void
 
 (* ============================================================
    High-level API -- write complete PWA/APK to a directory
@@ -64,7 +64,7 @@
 
 (* Generate release signing Gradle config *)
 #pub fn build_release_signing {nk:nat}{nkp:nat}{nka:nat}{nkpw:nat}
-  (b: !$B.builder,
+  (b: !$B.builder0,
    keystore_path: string nk, keystore_password: string nkp,
    key_alias: string nka, key_password: string nkpw): void
 
@@ -73,12 +73,12 @@
    ============================================================ *)
 
 fn _write_to {nd:nat}{nf:nat}
-  (dir: string nd, filename: string nf, content: $B.builder): void = let
+  (dir: string nd, filename: string nf, content: $B.builder0): void = let
   val pb = $B.create()
   val () = $B.bput(pb, dir)
-  val () = $B.put_byte(pb, 47)
+  val () = $B.put_byte_safe(pb, 47)
   val () = $B.bput(pb, filename)
-  val () = $B.put_byte(pb, 0)
+  val () = $B.put_byte_safe(pb, 0)
   val @(pa, pl) = $B.to_arr(pb)
   val @(fzp, bvp) = $A.freeze<byte>(pa)
   val @(ca, cl) = $B.to_arr(content)
@@ -112,7 +112,7 @@ fn _copy_to {ns:nat}{nd:nat}{nf:nat}
   (src: string ns, dir: string nd, filename: string nf): void = let
   val sb = $B.create()
   val () = $B.bput(sb, src)
-  val () = $B.put_byte(sb, 0)
+  val () = $B.put_byte_safe(sb, 0)
   val @(sa, sl) = $B.to_arr(sb)
   val @(fzs, bvs) = $A.freeze<byte>(sa)
   val sr = $F.file_open(bvs, 524288, 0, 0)
@@ -130,10 +130,10 @@ in
       val @(fzb, bvb) = $A.freeze<byte>(buf)
       fun cp {l:agz}{fuel:nat} .<fuel>.
         (bv: !$A.borrow(byte, l, 524288), i: int, len: int,
-         b: !$B.builder, fuel: int fuel): void =
+         b: !$B.builder0, fuel: int fuel): void =
         if fuel <= 0 then () else if i >= len then ()
         else let
-          val () = $B.put_byte(b, byte2int0($A.read<byte>(bv, $AR.checked_idx(i, 524288))))
+          val () = $B.put_byte_safe(b, byte2int0($A.read<byte>(bv, $AR.checked_idx(i, 524288))))
         in cp(bv, i + 1, len, b, fuel - 1) end
       val () = cp(bvb, 0, nb, cb, $AR.checked_nat(nb + 1))
       val () = $A.drop<byte>(fzb, bvb)
@@ -272,13 +272,13 @@ fn _copy_one_asset {la:agz}{nas:pos}{nd:nat}
   val src_b = $B.create()
   fun cp_range {la2:agz}{fuel:nat} .<fuel>.
     (a: !$A.arr(byte, la2, nas), i: int, lim: int, max: int nas,
-     b: !$B.builder, fuel: int fuel): void =
+     b: !$B.builder0, fuel: int fuel): void =
     if fuel <= 0 then () else if i >= lim then ()
     else let
-      val () = $B.put_byte(b, byte2int0($A.get<byte>(a, $AR.checked_idx(i, max))))
+      val () = $B.put_byte_safe(b, byte2int0($A.get<byte>(a, $AR.checked_idx(i, max))))
     in cp_range(a, i + 1, lim, max, b, fuel - 1) end
   val () = cp_range(assets, pos, path_end, asset_max, src_b, $AR.checked_nat(path_len + 1))
-  val () = $B.put_byte(src_b, 0)
+  val () = $B.put_byte_safe(src_b, 0)
   val @(src_a, src_l) = $B.to_arr(src_b)
   val @(fzs, bvs) = $A.freeze<byte>(src_a)
   (* Find basename in the borrow *)
@@ -287,10 +287,10 @@ fn _copy_one_asset {la:agz}{nas:pos}{nd:nat}
   val dst_b = $B.create()
   fun cp_borrow {l:agz}{fuel:nat} .<fuel>.
     (bv: !$A.borrow(byte, l, 524288), i: int, lim: int,
-     b: !$B.builder, fuel: int fuel): void =
+     b: !$B.builder0, fuel: int fuel): void =
     if fuel <= 0 then () else if i >= lim then ()
     else let
-      val () = $B.put_byte(b, byte2int0($A.read<byte>(bv, $AR.checked_idx(i, 524288))))
+      val () = $B.put_byte_safe(b, byte2int0($A.read<byte>(bv, $AR.checked_idx(i, 524288))))
     in cp_borrow(bv, i + 1, lim, b, fuel - 1) end
   val () = cp_borrow(bvs, base, path_len, dst_b, $AR.checked_nat(path_len - base + 1))
   (* Read source file *)
@@ -308,10 +308,10 @@ in
       val @(fzb, bvb) = $A.freeze<byte>(buf)
       fun cpb {l:agz}{fuel:nat} .<fuel>.
         (bv: !$A.borrow(byte, l, 524288), i: int, len: int,
-         b: !$B.builder, fuel: int fuel): void =
+         b: !$B.builder0, fuel: int fuel): void =
         if fuel <= 0 then () else if i >= len then ()
         else let
-          val () = $B.put_byte(b, byte2int0($A.read<byte>(bv, $AR.checked_idx(i, 524288))))
+          val () = $B.put_byte_safe(b, byte2int0($A.read<byte>(bv, $AR.checked_idx(i, 524288))))
         in cpb(bv, i + 1, len, b, fuel - 1) end
       val () = cpb(bvb, 0, nb, content_b, $AR.checked_nat(nb + 1))
       val () = $A.drop<byte>(fzb, bvb)
@@ -319,9 +319,9 @@ in
       (* Write content to out_dir/basename *)
       val pb = $B.create()
       val () = $B.bput(pb, out_dir)
-      val () = $B.put_byte(pb, 47)
+      val () = $B.put_byte_safe(pb, 47)
       val () = cp_borrow(bvs, base, path_len, pb, $AR.checked_nat(path_len - base + 1))
-      val () = $B.put_byte(pb, 0)
+      val () = $B.put_byte_safe(pb, 0)
       val @(pa, pl) = $B.to_arr(pb)
       val @(fzp, bvp) = $A.freeze<byte>(pa)
       val @(ca, cl) = $B.to_arr(content_b)
@@ -373,7 +373,7 @@ fun _copy_assets {la:agz}{nas:pos}{nd:nat}{fuel:nat} .<fuel>.
 implement create_pwa (app_name, app_id, wasm_path, wasm_name, out_dir, assets, asset_len, asset_max) = let
   val mb = $B.create()
   val () = $B.bput(mb, out_dir)
-  val () = $B.put_byte(mb, 0)
+  val () = $B.put_byte_safe(mb, 0)
   val @(ma, _) = $B.to_arr(mb)
   val @(fzm, bvm) = $A.freeze<byte>(ma)
   val mr = $F.file_mkdir(bvm, 524288, 493)
