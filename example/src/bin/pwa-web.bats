@@ -1,4 +1,4 @@
-#target wasm
+#target wasm binary
 #include "share/atspre_staload.hats"
 #use str as S
 #use wasm.bats-packages.dev/dom as D

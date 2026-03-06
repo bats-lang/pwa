@@ -16,9 +16,9 @@ export PATSHOME="${PATSHOME:-$HOME/.bats/ats2}"
 # (will fail at link since pwa-web is wasm-only, that's expected)
 "$BATS" build --only native --repository "$REPO" $EXTRA_ARGS 2>&1 || true
 
-# Step 2: Remove cached .sats/.dats for namespaced deps to force
-# re-preprocessing with wasm target
-find build/bats_modules/wasm.bats-packages.dev/ \
+# Step 2: Remove cached .sats/.dats for ALL deps to force
+# re-preprocessing with wasm target (needed for #target blocks)
+find build/bats_modules/ \
   \( -name "*.sats" -o -name "*.dats" -o -name "*_dats.c" \) \
   -delete 2>/dev/null || true
 
@@ -27,7 +27,7 @@ find build/bats_modules/wasm.bats-packages.dev/ \
 "$BATS" build --only wasm --repository "$REPO" $EXTRA_ARGS 2>&1
 
 # Step 4: Run patsopt on all re-preprocessed .dats files
-for dats in build/bats_modules/wasm.bats-packages.dev/*/src/*.dats; do
+for dats in build/bats_modules/*/src/*.dats build/bats_modules/wasm.bats-packages.dev/*/src/*.dats; do
   base=$(basename "$dats" .dats)
   out="${dats%%.dats}_dats.c"
   "$PATSHOME/bin/patsopt" -o "$out" \
@@ -35,14 +35,15 @@ for dats in build/bats_modules/wasm.bats-packages.dev/*/src/*.dats; do
     -d "$dats"
 done
 
-# Step 5: Compile all _dats.c to WASM .o
-for c_file in $(find build/ -name "*_dats.c"); do
+# Step 5: Compile all _dats.c to WASM .o (excluding native-only binaries)
+for c_file in $(find build/ -name "*_dats.c" ! -name "build-pwa_dats.c" ! -name "_bats_entry_build-pwa*" ! -path "*/bats_modules/file/*" ! -path "*/bats_modules/pwa/*"); do
   o_file="${c_file%.c}.o"
   clang --target=wasm32 -O2 -nostdlib -ffreestanding -fvisibility=default \
     -D_ATS_CCOMP_HEADER_NONE_ -D_ATS_CCOMP_EXCEPTION_NONE_ \
     -D_ATS_CCOMP_PRELUDE_NONE_ -D_ATS_CCOMP_RUNTIME_NONE_ \
     -D_BRIDGE_RUNTIME_DEFINED \
     -include build/_bats_wasm_runtime.h \
+    -include wasm_bridge_stubs.h \
     -I build/_bats_wasm_stubs \
     -Wno-implicit-function-declaration -Wno-int-conversion \
     -c -o "$o_file" "$c_file"
@@ -64,6 +65,6 @@ wasm-ld --no-entry --allow-undefined --lto-O2 \
   --export=bats_on_media_change \
   -o dist/wasm/app.wasm \
   build/_bats_wasm_runtime.o \
-  $(find build/ -name "*_dats.o" -type f | sort)
+  $(find build/ -name "*_dats.o" -type f ! -name "build-pwa_dats.o" ! -name "_bats_entry_build-pwa*" ! -path "*/bats_modules/file/*" ! -path "*/bats_modules/pwa/*" | sort)
 
 echo "Built: dist/wasm/app.wasm"
