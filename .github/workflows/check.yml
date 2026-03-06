@@ -65,7 +65,7 @@ jobs:
           bats lock --dev --repository $HOME/repository
           BATS=bats ./build-wasm.sh $HOME/repository --dev
           test -f dist/wasm/app.wasm
-          bats build --dev --repository $HOME/repository
+          bats build --dev --only native --repository $HOME/repository
           test -f dist/debug/build-pwa
 
       - name: Generate PWA
