@@ -10,5 +10,6 @@ unsafe = false
 "file" = ""
 "path" = ""
 "result" = ""
+"promise" = ""
 "str" = ""
 "wasm.bats-packages.dev/bridge" = ""
