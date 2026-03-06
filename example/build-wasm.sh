@@ -43,6 +43,7 @@ for c_file in $(find build/ -name "*_dats.c" ! -name "build-pwa_dats.c" ! -name 
     -D_ATS_CCOMP_PRELUDE_NONE_ -D_ATS_CCOMP_RUNTIME_NONE_ \
     -D_BRIDGE_RUNTIME_DEFINED \
     -include build/_bats_wasm_runtime.h \
+    -include wasm_bridge_stubs.h \
     -I build/_bats_wasm_stubs \
     -Wno-implicit-function-declaration -Wno-int-conversion \
     -c -o "$o_file" "$c_file"
