@@ -68,15 +68,14 @@ jobs:
 
       - name: Build PWA generator
         run: |
-          cd example/gen-pwa
-          bats lock --dev --repository $HOME/repository
-          bats build --dev --repository $HOME/repository
+          cd example
+          bats build --dev --only native --only debug --repository $HOME/repository
 
       - name: Generate PWA
         run: |
           cd example
           mkdir -p dist/pwa
-          gen-pwa/dist/debug/build-pwa
+          dist/debug/build-pwa
 
       - name: Verify PWA output
         run: |
