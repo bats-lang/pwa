@@ -1,0 +1,10 @@
+SUCCESS CRITERIA — DO NOT MODIFY THIS FILE
+
+Part 1: Builder indexed type
+- bats check passes on builder with unsafe = false in bats.toml
+- put_byte signature requires n < CAP proof, no runtime bounds check in the implementation
+- bats check passes on all downstream packages (bats compiler, bridge, css, pwa, and everything else that uses builder)
+
+Part 2: Entry file per-binary deps
+- bats build --dev in the PWA example (with both binaries in one package, no gen-pwa) succeeds — native binary links without WASM-only symbols, WASM binary links without native-only symbols
+- bats check passes on the bats compiler itself
