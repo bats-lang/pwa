@@ -36,7 +36,7 @@ for dats in build/bats_modules/*/src/*.dats build/bats_modules/wasm.bats-package
 done
 
 # Step 5: Compile all _dats.c to WASM .o (excluding native-only binaries)
-for c_file in $(find build/ -name "*_dats.c" ! -name "build-pwa_dats.c" ! -name "_bats_entry_build-pwa*" ! -path "*/bats_modules/file/*"); do
+for c_file in $(find build/ -name "*_dats.c" ! -name "build-pwa_dats.c" ! -name "_bats_entry_build-pwa*" ! -path "*/bats_modules/file/*" ! -path "*/bats_modules/pwa/*"); do
   o_file="${c_file%.c}.o"
   clang --target=wasm32 -O2 -nostdlib -ffreestanding -fvisibility=default \
     -D_ATS_CCOMP_HEADER_NONE_ -D_ATS_CCOMP_EXCEPTION_NONE_ \
@@ -64,6 +64,6 @@ wasm-ld --no-entry --allow-undefined --lto-O2 \
   --export=bats_on_media_change \
   -o dist/wasm/app.wasm \
   build/_bats_wasm_runtime.o \
-  $(find build/ -name "*_dats.o" -type f ! -name "build-pwa_dats.o" ! -name "_bats_entry_build-pwa*" ! -path "*/bats_modules/file/*" | sort)
+  $(find build/ -name "*_dats.o" -type f ! -name "build-pwa_dats.o" ! -name "_bats_entry_build-pwa*" ! -path "*/bats_modules/file/*" ! -path "*/bats_modules/pwa/*" | sort)
 
 echo "Built: dist/wasm/app.wasm"
