@@ -18,14 +18,14 @@
    Builder-based API (generate file contents into builders)
    ============================================================ *)
 
-#pub fn build_html {na:nat}
-  (b: !$B.builder_v >> $B.builder_v, app_name: string na): void
+#pub fn build_html {na:nat | na < 256}{n:nat | n + 1600 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 1600] $B.builder(m), app_name: string na): void
 
-#pub fn build_manifest {na:nat}
-  (b: !$B.builder_v >> $B.builder_v, app_name: string na): void
+#pub fn build_manifest {na:nat | na < 256}{n:nat | n + 900 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 900] $B.builder(m), app_name: string na): void
 
-#pub fn build_capacitor_config {na:nat}{ni:nat}{nd:nat}
-  (b: !$B.builder_v >> $B.builder_v, app_name: string na, app_id: string ni, out_dir: string nd): void
+#pub fn build_capacitor_config {na:nat | na < 256}{ni:nat | ni < 256}{nd:nat | nd < 256}{n:nat | n + 900 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 900] $B.builder(m), app_name: string na, app_id: string ni, out_dir: string nd): void
 
 (* ============================================================
    High-level API -- write complete PWA/APK to a directory
@@ -35,14 +35,14 @@
    Writes index.html, bridge.js, service-worker.js, manifest.json.
    Copies wasm from wasm_path as wasm_name.
    assets: null-separated source paths to copy into out_dir. *)
-#pub fn create_pwa {na:nat}{ni:nat}{nw:nat}{nn:nat}{nd:nat}{la:agz}{nas:pos}
+#pub fn create_pwa {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nn:nat | nn < 200}{nd:nat | nd < 256}{la:agz}{nas:pos}
   (app_name: string na, app_id: string ni,
    wasm_path: string nw, wasm_name: string nn,
    out_dir: string nd,
    assets: !$A.arr(byte, la, nas), asset_len: int, asset_max: int nas): void
 
 (* Same as create_pwa plus capacitor.config.json *)
-#pub fn create_apk {na:nat}{ni:nat}{nw:nat}{nn:nat}{nd:nat}{la:agz}{nas:pos}
+#pub fn create_apk {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nn:nat | nn < 200}{nd:nat | nd < 256}{la:agz}{nas:pos}
   (app_name: string na, app_id: string ni,
    wasm_path: string nw, wasm_name: string nn,
    out_dir: string nd,
@@ -54,7 +54,7 @@
    keystore_password: password for the keystore
    key_alias: alias of the signing key
    key_password: password for the key *)
-#pub fn create_aab {na:nat}{ni:nat}{nw:nat}{nn:nat}{nd:nat}{la:agz}{nas:pos}{nk:nat}{nkp:nat}{nka:nat}{nkpw:nat}
+#pub fn create_aab {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nn:nat | nn < 200}{nd:nat | nd < 256}{la:agz}{nas:pos}{nk:nat | nk < 256}{nkp:nat | nkp < 256}{nka:nat | nka < 256}{nkpw:nat | nkpw < 256}
   (app_name: string na, app_id: string ni,
    wasm_path: string nw, wasm_name: string nn,
    out_dir: string nd,
@@ -63,18 +63,38 @@
    key_alias: string nka, key_password: string nkpw): void
 
 (* Generate release signing Gradle config *)
-#pub fn build_release_signing {nk:nat}{nkp:nat}{nka:nat}{nkpw:nat}
-  (b: !$B.builder_v >> $B.builder_v,
+#pub fn build_release_signing {nk:nat | nk < 256}{nkp:nat | nkp < 256}{nka:nat | nka < 256}{nkpw:nat | nkpw < 256}{n:nat | n + 1400 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 1400] $B.builder(m),
    keystore_path: string nk, keystore_password: string nkp,
    key_alias: string nka, key_password: string nkpw): void
+
+(* ============================================================
+   Internal: copy bytes from borrow to builder with fuel
+   ============================================================ *)
+
+fun _cp_borrow {l:agz}{cap:pos}{n:nat}{fuel:nat | n + fuel <= $B.BUILDER_CAP} .<fuel>.
+  (bv: !$A.borrow(byte, l, cap), i: int, lim: int, cap: int cap,
+   b: !$B.builder(n) >> [m:nat | n <= m; m <= n + fuel] $B.builder(m), fuel: int fuel): void =
+  if fuel <= 0 then () else if i >= lim then ()
+  else let
+    val () = $B.put_char(b, byte2int0($A.read<byte>(bv, $AR.checked_idx(i, cap))))
+  in _cp_borrow(bv, i + 1, lim, cap, b, fuel - 1) end
+
+fun _cp_arr {l:agz}{cap:pos}{n:nat}{fuel:nat | n + fuel <= $B.BUILDER_CAP} .<fuel>.
+  (a: !$A.arr(byte, l, cap), i: int, lim: int, cap: int cap,
+   b: !$B.builder(n) >> [m:nat | n <= m; m <= n + fuel] $B.builder(m), fuel: int fuel): void =
+  if fuel <= 0 then () else if i >= lim then ()
+  else let
+    val () = $B.put_char(b, byte2int0($A.get<byte>(a, $AR.checked_idx(i, cap))))
+  in _cp_arr(a, i + 1, lim, cap, b, fuel - 1) end
 
 (* ============================================================
    Internal: write builder to dir/filename
    ============================================================ *)
 
-fn _write_to {nd:nat}{nf:nat}
+fn _write_to {nd:nat | nd < 256}{nf:nat | nf < 256}
   (dir: string nd, filename: string nf, content: $B.builder_v): void = let
-  var pb: $B.builder_v = $B.create()
+  var pb = $B.create()
   val () = $B.bput(pb, dir)
   val () = $B.put_char(pb, 47)
   val () = $B.bput(pb, filename)
@@ -108,9 +128,9 @@ in
 end
 
 (* Copy file from src to dir/filename *)
-fn _copy_to {ns:nat}{nd:nat}{nf:nat}
+fn _copy_to {ns:nat | ns < 256}{nd:nat | nd < 256}{nf:nat | nf < 256}
   (src: string ns, dir: string nd, filename: string nf): void = let
-  var sb: $B.builder_v = $B.create()
+  var sb = $B.create()
   val () = $B.bput(sb, src)
   val () = $B.put_char(sb, 0)
   val @(sa, sl) = $B.to_arr(sb)
@@ -126,16 +146,9 @@ in
       val nb = (case+ rr of | ~$R.ok(n) => n | ~$R.err(_) => 0): int
       val cr = $F.file_close(sfd)
       val () = $R.discard<int><int>(cr)
-      var cb: $B.builder_v = $B.create()
+      var cb = $B.create()
       val @(fzb, bvb) = $A.freeze<byte>(buf)
-      fun cp {l:agz}{fuel:nat} .<fuel>.
-        (bv: !$A.borrow(byte, l, 524288), i: int, len: int,
-         b: !$B.builder_v >> $B.builder_v, fuel: int fuel): void =
-        if fuel <= 0 then () else if i >= len then ()
-        else let
-          val () = $B.put_char(b, byte2int0($A.read<byte>(bv, $AR.checked_idx(i, 524288))))
-        in cp(bv, i + 1, len, b, fuel - 1) end
-      val () = cp(bvb, 0, nb, cb, $AR.checked_nat(nb + 1))
+      val () = _cp_borrow(bvb, 0, nb, 524288, cb, 524288)
       val () = $A.drop<byte>(fzb, bvb)
       val () = $A.free<byte>($A.thaw<byte>(fzb))
     in _write_to(dir, filename, cb) end
@@ -218,7 +231,6 @@ implement build_capacitor_config (b, app_name, app_id, out_dir) = let
 in end
 
 implement build_release_signing (b, keystore_path, keystore_password, key_alias, key_password) = let
-  (* Gradle script applied to android/app/build.gradle for release signing *)
   val () = $B.bput(b, "android {\n")
   val () = $B.bput(b, "    signingConfigs {\n")
   val () = $B.bput(b, "        release {\n")
@@ -264,35 +276,21 @@ fn _find_basename {l:agz}{n:pos}
 in scan(bv, path_len - 1, max, $AR.checked_nat(path_len + 1)) end
 
 (* Copy a single asset from assets array at [pos, path_end) to out_dir *)
-fn _copy_one_asset {la:agz}{nas:pos}{nd:nat}
+fn _copy_one_asset {la:agz}{nas:pos}{nd:nat | nd < 256}
   (assets: !$A.arr(byte, la, nas), pos: int, path_end: int,
    asset_max: int nas, out_dir: string nd): void = let
   val path_len = path_end - pos
   (* Build source path into a builder, then freeze for basename scan *)
-  var src_b: $B.builder_v = $B.create()
-  fun cp_range {la2:agz}{fuel:nat} .<fuel>.
-    (a: !$A.arr(byte, la2, nas), i: int, lim: int, max: int nas,
-     b: !$B.builder_v >> $B.builder_v, fuel: int fuel): void =
-    if fuel <= 0 then () else if i >= lim then ()
-    else let
-      val () = $B.put_char(b, byte2int0($A.get<byte>(a, $AR.checked_idx(i, max))))
-    in cp_range(a, i + 1, lim, max, b, fuel - 1) end
-  val () = cp_range(assets, pos, path_end, asset_max, src_b, $AR.checked_nat(path_len + 1))
+  var src_b = $B.create()
+  val () = _cp_arr(assets, pos, path_end, asset_max, src_b, 524287)
   val () = $B.put_char(src_b, 0)
   val @(src_a, src_l) = $B.to_arr(src_b)
   val @(fzs, bvs) = $A.freeze<byte>(src_a)
   (* Find basename in the borrow *)
   val base = _find_basename(bvs, path_len, 524288)
   (* Build dest filename *)
-  var dst_b: $B.builder_v = $B.create()
-  fun cp_borrow {l:agz}{fuel:nat} .<fuel>.
-    (bv: !$A.borrow(byte, l, 524288), i: int, lim: int,
-     b: !$B.builder_v >> $B.builder_v, fuel: int fuel): void =
-    if fuel <= 0 then () else if i >= lim then ()
-    else let
-      val () = $B.put_char(b, byte2int0($A.read<byte>(bv, $AR.checked_idx(i, 524288))))
-    in cp_borrow(bv, i + 1, lim, b, fuel - 1) end
-  val () = cp_borrow(bvs, base, path_len, dst_b, $AR.checked_nat(path_len - base + 1))
+  var dst_b = $B.create()
+  val () = _cp_borrow(bvs, base, path_len, 524288, dst_b, 524288)
   (* Read source file *)
   val sr = $F.file_open(bvs, 524288, 0, 0)
 in
@@ -304,23 +302,18 @@ in
       val cr = $F.file_close(sfd)
       val () = $R.discard<int><int>(cr)
       (* Write buf[0..nb) to out_dir/basename *)
-      var content_b: $B.builder_v = $B.create()
+      var content_b = $B.create()
       val @(fzb, bvb) = $A.freeze<byte>(buf)
-      fun cpb {l:agz}{fuel:nat} .<fuel>.
-        (bv: !$A.borrow(byte, l, 524288), i: int, len: int,
-         b: !$B.builder_v >> $B.builder_v, fuel: int fuel): void =
-        if fuel <= 0 then () else if i >= len then ()
-        else let
-          val () = $B.put_char(b, byte2int0($A.read<byte>(bv, $AR.checked_idx(i, 524288))))
-        in cpb(bv, i + 1, len, b, fuel - 1) end
-      val () = cpb(bvb, 0, nb, content_b, $AR.checked_nat(nb + 1))
+      val () = _cp_borrow(bvb, 0, nb, 524288, content_b, 524288)
       val () = $A.drop<byte>(fzb, bvb)
       val () = $A.free<byte>($A.thaw<byte>(fzb))
       (* Write content to out_dir/basename *)
-      var pb: $B.builder_v = $B.create()
+      var pb = $B.create()
       val () = $B.bput(pb, out_dir)
       val () = $B.put_char(pb, 47)
-      val () = cp_borrow(bvs, base, path_len, pb, $AR.checked_nat(path_len - base + 1))
+      val out_dir_len = g1u2i(string1_length(out_dir))
+      val inner_fuel = 524286 - out_dir_len
+      val () = _cp_borrow(bvs, base, path_len, 524288, pb, inner_fuel)
       val () = $B.put_char(pb, 0)
       val @(pa, pl) = $B.to_arr(pb)
       val @(fzp, bvp) = $A.freeze<byte>(pa)
@@ -355,7 +348,7 @@ in
 end
 
 (* Iterate through null-separated asset paths and copy each *)
-fun _copy_assets {la:agz}{nas:pos}{nd:nat}{fuel:nat} .<fuel>.
+fun _copy_assets {la:agz}{nas:pos}{nd:nat | nd < 256}{fuel:nat} .<fuel>.
   (assets: !$A.arr(byte, la, nas), pos: int, len: int,
    asset_max: int nas, out_dir: string nd, fuel: int fuel): void =
   if fuel <= 0 then ()
@@ -371,7 +364,7 @@ fun _copy_assets {la:agz}{nas:pos}{nd:nat}{fuel:nat} .<fuel>.
   end
 
 implement create_pwa (app_name, app_id, wasm_path, wasm_name, out_dir, assets, asset_len, asset_max) = let
-  var mb: $B.builder_v = $B.create()
+  var mb = $B.create()
   val () = $B.bput(mb, out_dir)
   val () = $B.put_char(mb, 0)
   val @(ma, _) = $B.to_arr(mb)
@@ -380,16 +373,16 @@ implement create_pwa (app_name, app_id, wasm_path, wasm_name, out_dir, assets, a
   val () = $R.discard<int><int>(mr)
   val () = $A.drop<byte>(fzm, bvm)
   val () = $A.free<byte>($A.thaw<byte>(fzm))
-  var html_b: $B.builder_v = $B.create()
+  var html_b = $B.create()
   val () = build_html(html_b, app_name)
   val () = _write_to(out_dir, "index.html", html_b)
-  var br_b: $B.builder_v = $B.create()
+  var br_b = $B.create()
   val () = $BR.produce_bridge_app(br_b, wasm_name, "bats-root")
   val () = _write_to(out_dir, "bridge.js", br_b)
-  var sw_b: $B.builder_v = $B.create()
+  var sw_b = $B.create()
   val () = $BR.produce_service_worker(sw_b, wasm_name)
   val () = _write_to(out_dir, "service-worker.js", sw_b)
-  var mf_b: $B.builder_v = $B.create()
+  var mf_b = $B.create()
   val () = build_manifest(mf_b, app_name)
   val () = _write_to(out_dir, "manifest.json", mf_b)
   val () = _copy_to(wasm_path, out_dir, wasm_name)
@@ -398,7 +391,7 @@ in end
 
 implement create_apk (app_name, app_id, wasm_path, wasm_name, out_dir, assets, asset_len, asset_max) = let
   val () = create_pwa(app_name, app_id, wasm_path, wasm_name, out_dir, assets, asset_len, asset_max)
-  var cap_b: $B.builder_v = $B.create()
+  var cap_b = $B.create()
   val () = build_capacitor_config(cap_b, app_name, app_id, out_dir)
   val () = _write_to(out_dir, "capacitor.config.json", cap_b)
 in end
@@ -407,7 +400,7 @@ implement create_aab (app_name, app_id, wasm_path, wasm_name, out_dir, assets, a
   (* Write all APK files (PWA + capacitor.config.json) *)
   val () = create_apk(app_name, app_id, wasm_path, wasm_name, out_dir, assets, asset_len, asset_max)
   (* Write release signing config *)
-  var sign_b: $B.builder_v = $B.create()
+  var sign_b = $B.create()
   val () = build_release_signing(sign_b, "release.jks", keystore_password, key_alias, key_password)
   val () = _write_to(out_dir, "release-signing.gradle", sign_b)
   (* Copy keystore file *)
