@@ -32,8 +32,8 @@ See `example/` for a complete project that builds a PWA:
 ```bash
 cd example
 bats lock --repository ../repository-prototype
-bats build --only native --only debug --repository ../repository-prototype
-bats run --only debug --bin pwa --repository ../repository-prototype
+bats build --repository ../repository-prototype
+bats run --bin build-pwa --repository ../repository-prototype
 # → dist/pwa/ contains the ready-to-serve PWA
 ```
 
