@@ -1,0 +1,10 @@
+[package]
+name = "assets"
+kind = "bin"
+
+[dependencies]
+"array" = ""
+"file" = ""
+"pwa" = ""
+"result" = ""
+"str" = ""
