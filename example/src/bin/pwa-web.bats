@@ -9,7 +9,8 @@ implement main0 () = let
   var mid = @[char][9]('b', 'a', 't', 's', '-', 'r', 'o', 'o', 't')
   val doc = $D.create_document($S.text_of_chars(tag, 3), 3, $S.text_of_chars(mid, 9), 9)
   val root = $W.Element($W.ElementNode($W.Root(), $W.Normal($W.Div()), ~1, 0, $W.NoneInt(), $W.NoneStr(), $W.WNil()))
-  val @(_, diff) = $W.add_child(root, $W.Text("BATS PWA"))
+  var msg = @[char][8]('B', 'A', 'T', 'S', ' ', 'P', 'W', 'A')
+  val @(_, diff) = $W.add_child(root, $W.Text($S.text_of_chars(msg, 8), 8))
   val () = $D.apply(doc, diff)
   val () = $D.destroy(doc)
 in end
