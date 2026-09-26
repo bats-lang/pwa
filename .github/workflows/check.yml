@@ -52,6 +52,9 @@ jobs:
           bats lock --repository $HOME/repository
           bats check --repository $HOME/repository
 
+      - name: Dynamic tests
+        run: tests/dynamic/run.sh $HOME/repository
+
       - name: Upload library to local repository
         run: bats upload --repository $HOME/repository
 

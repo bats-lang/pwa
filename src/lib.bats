@@ -72,20 +72,25 @@
    Internal: copy bytes from borrow to builder with fuel
    ============================================================ *)
 
+(* A position in a buffer; indexed so a read at it can be proven. *)
+typedef pos_t = [p:int] int p
+
 fun _cp_borrow {l:agz}{cap:pos}{n:nat}{fuel:nat | n + fuel <= $B.BUILDER_CAP} .<fuel>.
-  (bv: !$A.borrow(byte, l, cap), i: int, lim: int, cap: int cap,
+  (bv: !$A.borrow(byte, l, cap), i: pos_t, lim: int, cap: int cap,
    b: !$B.builder(n) >> [m:nat | n <= m; m <= n + fuel] $B.builder(m), fuel: int fuel): void =
   if fuel <= 0 then () else if i >= lim then ()
+  else if i < 0 then () else if i >= cap then ()
   else let
-    val () = $B.put_char(b, byte2int0($A.read<byte>(bv, $AR.checked_idx(i, cap))))
+    val () = $B.put_char(b, byte2int0($A.read<byte>(bv, i)))
   in _cp_borrow(bv, i + 1, lim, cap, b, fuel - 1) end
 
 fun _cp_arr {l:agz}{cap:pos}{n:nat}{fuel:nat | n + fuel <= $B.BUILDER_CAP} .<fuel>.
-  (a: !$A.arr(byte, l, cap), i: int, lim: int, cap: int cap,
+  (a: !$A.arr(byte, l, cap), i: pos_t, lim: int, cap: int cap,
    b: !$B.builder(n) >> [m:nat | n <= m; m <= n + fuel] $B.builder(m), fuel: int fuel): void =
   if fuel <= 0 then () else if i >= lim then ()
+  else if i < 0 then () else if i >= cap then ()
   else let
-    val () = $B.put_char(b, byte2int0($A.get<byte>(a, $AR.checked_idx(i, cap))))
+    val () = $B.put_char(b, byte2int0($A.get<byte>(a, i)))
   in _cp_arr(a, i + 1, lim, cap, b, fuel - 1) end
 
 (* ============================================================
@@ -110,15 +115,16 @@ in
       val bw = $F.buf_writer_create(fd)
       fun write_loop {l:agz}{fuel:nat} .<fuel>.
         (bw: !$F.buf_writer, bv: !$A.borrow(byte, l, 524288),
-         i: int, lim: int, fuel: int fuel): void =
+         i: pos_t, lim: int, fuel: int fuel): void =
         if fuel <= 0 then ()
         else if i >= lim then ()
+        else if i < 0 then () else if i >= 524288 then ()
         else let
-          val b = byte2int0($A.read<byte>(bv, $AR.checked_idx(i, 524288)))
+          val b = byte2int0($A.read<byte>(bv, i))
           val wr = $F.buf_write_byte(bw, b)
           val () = $R.discard<int><int>(wr)
         in write_loop(bw, bv, i + 1, lim, fuel - 1) end
-      val () = write_loop(bw, bvc, 0, cl, $AR.checked_nat(cl + 1))
+      val () = write_loop(bw, bvc, 0, cl, 524289)
       val cr = $F.buf_writer_close(bw)
       val () = $R.discard<int><int>(cr)
     in end
@@ -262,22 +268,18 @@ in end
 
 (* Find basename offset: scan backwards for '/' in a borrow *)
 fn _find_basename {l:agz}{n:pos}
-  (bv: !$A.borrow(byte, l, n), path_len: int, max: int n): int = let
-  fun scan {fuel:nat} .<fuel>.
-    (bv: !$A.borrow(byte, l, n), i: int, max: int n, fuel: int fuel): int =
-    if fuel <= 0 then 0
-    else if i < 0 then 0
-    else let
-      val c = byte2int0($A.read<byte>(bv, $AR.checked_idx(i, max)))
-    in
-      if c = 47 then i + 1
-      else scan(bv, i - 1, max, fuel - 1)
-    end
-in scan(bv, path_len - 1, max, $AR.checked_nat(path_len + 1)) end
+  (bv: !$A.borrow(byte, l, n), path_len: pos_t, max: int n): pos_t = let
+  fun scan {i:nat | i < n} .<i>.
+    (bv: !$A.borrow(byte, l, n), i: int i): pos_t =
+    if byte2int0($A.read<byte>(bv, i)) = 47 then i + 1
+    else if i <= 0 then 0
+    else scan(bv, i - 1)
+  val start = min(path_len - 1, max - 1)
+in if start < 0 then 0 else scan(bv, start) end
 
 (* Copy a single asset from assets array at [pos, path_end) to out_dir *)
 fn _copy_one_asset {la:agz}{nas:pos}{nd:nat | nd < 256}
-  (assets: !$A.arr(byte, la, nas), pos: int, path_end: int,
+  (assets: !$A.arr(byte, la, nas), pos: pos_t, path_end: pos_t,
    asset_max: int nas, out_dir: string nd): void = let
   val path_len = path_end - pos
   (* Build source path into a builder, then freeze for basename scan *)
@@ -326,15 +328,16 @@ in
           val bw = $F.buf_writer_create(fd)
           fun wl {l2:agz}{fuel:nat} .<fuel>.
             (bw: !$F.buf_writer, bv: !$A.borrow(byte, l2, 524288),
-             i: int, lim: int, fuel: int fuel): void =
+             i: pos_t, lim: int, fuel: int fuel): void =
             if fuel <= 0 then ()
             else if i >= lim then ()
+            else if i < 0 then () else if i >= 524288 then ()
             else let
-              val b = byte2int0($A.read<byte>(bv, $AR.checked_idx(i, 524288)))
+              val b = byte2int0($A.read<byte>(bv, i))
               val wr = $F.buf_write_byte(bw, b)
               val () = $R.discard<int><int>(wr)
             in wl(bw, bv, i + 1, lim, fuel - 1) end
-          val () = wl(bw, bvc, 0, cl, $AR.checked_nat(cl + 1))
+          val () = wl(bw, bvc, 0, cl, 524289)
           val wr = $F.buf_writer_close(bw)
           val () = $R.discard<int><int>(wr)
         in end
@@ -348,19 +351,16 @@ in
 end
 
 (* Iterate through null-separated asset paths and copy each *)
-fun _copy_assets {la:agz}{nas:pos}{nd:nat | nd < 256}{fuel:nat} .<fuel>.
-  (assets: !$A.arr(byte, la, nas), pos: int, len: int,
-   asset_max: int nas, out_dir: string nd, fuel: int fuel): void =
-  if fuel <= 0 then ()
-  else if pos >= len then ()
+fun _copy_assets {la:agz}{nas:pos}{nd:nat | nd < 256}{p:nat | p <= nas} .<nas - p>.
+  (assets: !$A.arr(byte, la, nas), pos: int p, len: int,
+   asset_max: int nas, out_dir: string nd): void =
+  if pos >= len then ()
   else let
-    val path_end = $S.find_null(assets, pos, asset_max, $AR.checked_nat(len - pos + 1))
-    val path_len = path_end - pos
+    val path_end = $S.find_null_at(assets, pos, asset_max)
+    val () = (if path_end - pos > 0 then _copy_one_asset(assets, pos, path_end, asset_max, out_dir)): void
   in
-    if path_len > 0 then let
-      val () = _copy_one_asset(assets, pos, path_end, asset_max, out_dir)
-    in _copy_assets(assets, path_end + 1, len, asset_max, out_dir, fuel - 1) end
-    else _copy_assets(assets, path_end + 1, len, asset_max, out_dir, fuel - 1)
+    if path_end >= asset_max then ()
+    else _copy_assets(assets, path_end + 1, len, asset_max, out_dir)
   end
 
 implement create_pwa (app_name, app_id, wasm_path, wasm_name, out_dir, assets, asset_len, asset_max) = let
@@ -386,7 +386,7 @@ implement create_pwa (app_name, app_id, wasm_path, wasm_name, out_dir, assets, a
   val () = build_manifest(mf_b, app_name)
   val () = _write_to(out_dir, "manifest.json", mf_b)
   val () = _copy_to(wasm_path, out_dir, wasm_name)
-  val () = _copy_assets(assets, 0, asset_len, asset_max, out_dir, $AR.checked_nat(asset_len + 1))
+  val () = _copy_assets(assets, 0, asset_len, asset_max, out_dir)
 in end
 
 implement create_apk (app_name, app_id, wasm_path, wasm_name, out_dir, assets, asset_len, asset_max) = let
