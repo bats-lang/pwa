@@ -13,6 +13,13 @@
 #       artifact: my-app-android
 #       project-dir: android
 #
+# With smoke-test-text set, a second job installs the APK on an Android
+# emulator (API 34, hardware-accelerated on the Linux runner), launches
+# it and waits for that text, which should be one only the app's wasm
+# renders; it fails when the text never shows, the app crashes or the
+# page logs a console error, and uploads a screenshot, the UI dump and
+# the logcat as the artifact android-smoke-test.
+#
 # Signing uses the caller's secrets (passed with `secrets: inherit`):
 # KEYSTORE_BASE64 (the keystore file, base64-encoded), KEYSTORE_PASSWORD,
 # KEY_ALIAS and KEY_PASSWORD. Without KEYSTORE_BASE64 the build is
@@ -36,6 +43,11 @@ on:
         required: false
         type: number
         default: 0
+      smoke-test-text:
+        description: Text the app shows once it runs; empty for no emulator test
+        required: false
+        type: string
+        default: ''
     secrets:
       KEYSTORE_BASE64:
         required: false
@@ -112,3 +124,54 @@ jobs:
         with:
           name: release-apk
           path: app/${{ inputs.project-dir }}/android/app/build/outputs/apk/release/*.apk
+
+  smoke-test:
+    needs: build-android
+    if: inputs.smoke-test-text != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact }}
+          path: app
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-apk
+          path: apk
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Find the APK
+        run: echo "SMOKE_APK=$(find apk -name '*.apk' | head -1)" >> "$GITHUB_ENV"
+
+      - name: Run the app on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          SMOKE_TEXT: ${{ inputs.smoke-test-text }}
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: sh "app/${{ inputs.project-dir }}/smoke-test.sh" "$SMOKE_APK" "$SMOKE_TEXT" smoke
+
+      - name: Upload screenshot, UI dump and logcat
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-smoke-test
+          path: |
+            smoke/screenshot.png
+            smoke/ui.xml
+            smoke/logcat.txt
+          if-no-files-found: ignore

@@ -56,7 +56,17 @@ secrets `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS` and
       artifact: my-app-android   # holds android/ and pwa/
       project-dir: android
       version-code-offset: 0     # version code = run number + this
+      smoke-test-text: Hello     # optional: run it on an emulator
 ```
+
+With `smoke-test-text`, a second job boots an Android emulator (API 34,
+hardware-accelerated on the Linux runner), installs the APK, launches it
+and waits for that text on the screen: pick one only the app's wasm
+renders, so the test shows the wasm ran. It fails when the text never
+shows, the app crashes, or the page logs a console error, and uploads
+the artifact `android-smoke-test` (a screenshot, the UI dump and the
+logcat). The project's `smoke-test.sh` does the work and runs against
+any device `adb` sees.
 
 ## Example
 

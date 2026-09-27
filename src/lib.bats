@@ -65,9 +65,19 @@
    out_dir: string nd,
    assets: !$A.arr(byte, la, nas), asset_len: int k, asset_max: int nas): void
 
+(* smoke-test.sh, for app app_id: on a running emulator or device
+   (adb), installs the APK given as its first argument (signing it with
+   a throwaway key when it is unsigned), launches it, and waits up to
+   two minutes for the text given as its second argument to be on the
+   screen; writes screenshot.png, ui.xml and logcat.txt to the directory
+   given as its third. Fails when the text never shows, the app crashes,
+   or the page logs an error to the console. *)
+#pub fn build_smoke_test_script {ni:nat | ni < 256}{n:nat | n + 5000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 5000] $B.builder(m), app_id: string ni): void
+
 (* Writes a Capacitor project in project_dir for the PWA in web_dir
    (relative to project_dir): capacitor.config.json, package.json,
-   android-release.gradle and build-android.sh. Running build-android.sh
+   android-release.gradle, build-android.sh and smoke-test.sh. Running build-android.sh
    (Node, a JDK and the Android SDK needed) builds the Android app. No
    secret is written: signing reads the keystore and its passwords when
    the build runs. *)
@@ -315,6 +325,60 @@ implement build_android_script (b) = let
   val () = $B.bput(b, "./gradlew bundleRelease assembleRelease\n")
 in end
 
+implement build_smoke_test_script (b, app_id) = let
+  val () = $B.bput(b, "#!/bin/sh\n")
+  val () = $B.bput(b, "# usage: smoke-test.sh <apk> <text> <out-dir>\n")
+  val () = $B.bput(b, "# On a running emulator or device (adb): installs the APK (signed\n")
+  val () = $B.bput(b, "# with a throwaway key when unsigned), launches the app, and waits\n")
+  val () = $B.bput(b, "# up to two minutes for <text> on the screen. Writes screenshot.png,\n")
+  val () = $B.bput(b, "# ui.xml and logcat.txt to <out-dir>. Fails when the text never\n")
+  val () = $B.bput(b, "# shows, the app crashes, or the page logs a console error.\n")
+  val () = $B.bput(b, "set -eu\n")
+  val () = $B.bput(b, "APP_ID='")
+  val () = $B.bput(b, app_id)
+  val () = $B.bput(b, "'\n")
+  val () = $B.bput(b, "APK=$1\nTEXT=$2\nOUT=$3\n")
+  val () = $B.bput(b, "mkdir -p \"$OUT\"\n")
+  val () = $B.bput(b, "case \"$APK\" in\n")
+  val () = $B.bput(b, "  *unsigned*)\n")
+  val () = $B.bput(b, "    SIGNER=$(find \"$ANDROID_HOME/build-tools\" -name apksigner | sort | tail -1)\n")
+  val () = $B.bput(b, "    keytool -genkeypair -keystore \"$OUT/smoke.jks\" -alias smoke -keyalg RSA \\\n")
+  val () = $B.bput(b, "      -keysize 2048 -validity 1 -storepass smokepass -keypass smokepass \\\n")
+  val () = $B.bput(b, "      -dname CN=smoke >/dev/null\n")
+  val () = $B.bput(b, "    \"$SIGNER\" sign --ks \"$OUT/smoke.jks\" --ks-pass pass:smokepass \\\n")
+  val () = $B.bput(b, "      --out \"$OUT/smoke-signed.apk\" \"$APK\"\n")
+  val () = $B.bput(b, "    rm -f \"$OUT/smoke.jks\"\n")
+  val () = $B.bput(b, "    APK=\"$OUT/smoke-signed.apk\"\n")
+  val () = $B.bput(b, "    ;;\n")
+  val () = $B.bput(b, "esac\n")
+  val () = $B.bput(b, "adb install -r \"$APK\"\n")
+  val () = $B.bput(b, "adb logcat -c\n")
+  val () = $B.bput(b, "adb shell monkey -p \"$APP_ID\" -c android.intent.category.LAUNCHER 1 >/dev/null\n")
+  val () = $B.bput(b, "found=0\n")
+  val () = $B.bput(b, "for _ in $(seq 60); do\n")
+  val () = $B.bput(b, "  sleep 2\n")
+  val () = $B.bput(b, "  adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || continue\n")
+  val () = $B.bput(b, "  adb shell cat /sdcard/ui.xml > \"$OUT/ui.xml\" || continue\n")
+  val () = $B.bput(b, "  if grep -qF \"$TEXT\" \"$OUT/ui.xml\"; then found=1; break; fi\n")
+  val () = $B.bput(b, "done\n")
+  val () = $B.bput(b, "adb exec-out screencap -p > \"$OUT/screenshot.png\"\n")
+  val () = $B.bput(b, "adb logcat -d > \"$OUT/logcat.txt\"\n")
+  val () = $B.bput(b, "status=0\n")
+  val () = $B.bput(b, "if grep -q \"FATAL EXCEPTION\" \"$OUT/logcat.txt\"; then\n")
+  val () = $B.bput(b, "  echo \"The app crashed:\"; grep -A20 \"FATAL EXCEPTION\" \"$OUT/logcat.txt\"; status=1\n")
+  val () = $B.bput(b, "fi\n")
+  val () = $B.bput(b, "# Capacitor logs the page's console.error with level E and tag Capacitor/Console\n")
+  val () = $B.bput(b, "if grep -E \" E Capacitor/Console\" \"$OUT/logcat.txt\"; then\n")
+  val () = $B.bput(b, "  echo \"The page logged console errors (above)\"; status=1\n")
+  val () = $B.bput(b, "fi\n")
+  val () = $B.bput(b, "if [ $found = 0 ]; then\n")
+  val () = $B.bput(b, "  echo \"'$TEXT' was not on the screen after two minutes\"; status=1\n")
+  val () = $B.bput(b, "else\n")
+  val () = $B.bput(b, "  echo \"'$TEXT' is on the screen\"\n")
+  val () = $B.bput(b, "fi\n")
+  val () = $B.bput(b, "exit $status\n")
+in end
+
 (* ============================================================
    Implementations -- high-level file API
    ============================================================ *)
@@ -396,4 +460,7 @@ implement create_android (app_name, app_id, web_dir, project_dir) = let
   val () = _write_to(project_dir, "android-release.gradle", gr_b)
   var sh_b = $B.create()
   val () = build_android_script(sh_b)
-in _write_mode(project_dir, "build-android.sh", sh_b, 493) end
+  val () = _write_mode(project_dir, "build-android.sh", sh_b, 493)
+  var st_b = $B.create()
+  val () = build_smoke_test_script(st_b, app_id)
+in _write_mode(project_dir, "smoke-test.sh", st_b, 493) end
