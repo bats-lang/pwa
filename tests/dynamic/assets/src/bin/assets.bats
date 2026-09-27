@@ -16,7 +16,7 @@ fn _write {n:pos | n < 1048576}{m:pos | m <= 1048576}
   val @(fb, bb) = $A.freeze<byte>($S.from_char_array(body, m))
   val () = (case+ $F.file_open(bp, n, 577, 420) of
     | ~$R.ok(fd) => let
-        val () = $R.discard<int><int>($F.file_write(fd, bb, m))
+        val () = $R.discard<int(m)><int>($F.file_write(fd, bb, m))
       in $R.discard<int><int>($F.file_close(fd)) end
     | ~$R.err(_) => ()): void
   val () = $A.drop<byte>(fp, bp)

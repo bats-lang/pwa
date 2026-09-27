@@ -34,19 +34,19 @@
 (* Create a complete PWA in out_dir.
    Writes index.html, bridge.js, service-worker.js, manifest.json.
    Copies wasm from wasm_path as wasm_name.
-   assets: null-separated source paths to copy into out_dir. *)
-#pub fn create_pwa {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nn:nat | nn < 200}{nd:nat | nd < 256}{la:agz}{nas:pos}
+   assets[0, asset_len): null-separated source paths to copy into out_dir. *)
+#pub fn create_pwa {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nn:nat | nn < 200}{nd:nat | nd < 256}{la:agz}{nas:pos | nas + 257 <= $B.BUILDER_CAP}{k:nat | k <= nas}
   (app_name: string na, app_id: string ni,
    wasm_path: string nw, wasm_name: string nn,
    out_dir: string nd,
-   assets: !$A.arr(byte, la, nas), asset_len: int, asset_max: int nas): void
+   assets: !$A.arr(byte, la, nas), asset_len: int k, asset_max: int nas): void
 
 (* Same as create_pwa plus capacitor.config.json *)
-#pub fn create_apk {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nn:nat | nn < 200}{nd:nat | nd < 256}{la:agz}{nas:pos}
+#pub fn create_apk {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nn:nat | nn < 200}{nd:nat | nd < 256}{la:agz}{nas:pos | nas + 257 <= $B.BUILDER_CAP}{k:nat | k <= nas}
   (app_name: string na, app_id: string ni,
    wasm_path: string nw, wasm_name: string nn,
    out_dir: string nd,
-   assets: !$A.arr(byte, la, nas), asset_len: int, asset_max: int nas): void
+   assets: !$A.arr(byte, la, nas), asset_len: int k, asset_max: int nas): void
 
 (* Same as create_apk but generates a signed release AAB.
    Writes release signing config and copies keystore.
@@ -54,11 +54,11 @@
    keystore_password: password for the keystore
    key_alias: alias of the signing key
    key_password: password for the key *)
-#pub fn create_aab {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nn:nat | nn < 200}{nd:nat | nd < 256}{la:agz}{nas:pos}{nk:nat | nk < 256}{nkp:nat | nkp < 256}{nka:nat | nka < 256}{nkpw:nat | nkpw < 256}
+#pub fn create_aab {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nn:nat | nn < 200}{nd:nat | nd < 256}{la:agz}{nas:pos | nas + 257 <= $B.BUILDER_CAP}{k:nat | k <= nas}{nk:nat | nk < 256}{nkp:nat | nkp < 256}{nka:nat | nka < 256}{nkpw:nat | nkpw < 256}
   (app_name: string na, app_id: string ni,
    wasm_path: string nw, wasm_name: string nn,
    out_dir: string nd,
-   assets: !$A.arr(byte, la, nas), asset_len: int, asset_max: int nas,
+   assets: !$A.arr(byte, la, nas), asset_len: int k, asset_max: int nas,
    keystore_path: string nk, keystore_password: string nkp,
    key_alias: string nka, key_password: string nkpw): void
 
@@ -69,97 +69,82 @@
    key_alias: string nka, key_password: string nkpw): void
 
 (* ============================================================
-   Internal: copy bytes from borrow to builder with fuel
+   Internal: paths and files
    ============================================================ *)
 
-(* A position in a buffer; indexed so a read at it can be proven. *)
-typedef pos_t = [p:int] int p
-
-fun _cp_borrow {l:agz}{cap:pos}{n:nat}{fuel:nat | n + fuel <= $B.BUILDER_CAP} .<fuel>.
-  (bv: !$A.borrow(byte, l, cap), i: pos_t, lim: int, cap: int cap,
-   b: !$B.builder(n) >> [m:nat | n <= m; m <= n + fuel] $B.builder(m), fuel: int fuel): void =
-  if fuel <= 0 then () else if i >= lim then ()
-  else if i < 0 then () else if i >= cap then ()
+(* a[i, e) into b *)
+fun _put_range {l:agz}{na:nat}{i,e:nat | i <= e; e <= na}{n:nat | n + e - i <= $B.BUILDER_CAP} .<e - i>.
+  (a: !$A.arr(byte, l, na), i: int i, e: int e,
+   b: !$B.builder(n) >> $B.builder(n + e - i)): void =
+  if i >= e then ()
   else let
-    val () = $B.put_char(b, byte2int0($A.read<byte>(bv, i)))
-  in _cp_borrow(bv, i + 1, lim, cap, b, fuel - 1) end
+    val () = $B.put_byte(b, $AR.low_byte(byte2int0($A.get<byte>(a, i))))
+  in _put_range(a, i + 1, e, b) end
 
-fun _cp_arr {l:agz}{cap:pos}{n:nat}{fuel:nat | n + fuel <= $B.BUILDER_CAP} .<fuel>.
-  (a: !$A.arr(byte, l, cap), i: pos_t, lim: int, cap: int cap,
-   b: !$B.builder(n) >> [m:nat | n <= m; m <= n + fuel] $B.builder(m), fuel: int fuel): void =
-  if fuel <= 0 then () else if i >= lim then ()
-  else if i < 0 then () else if i >= cap then ()
-  else let
-    val () = $B.put_char(b, byte2int0($A.get<byte>(a, i)))
-  in _cp_arr(a, i + 1, lim, cap, b, fuel - 1) end
+(* Opens the NUL-terminated path in b (consumed) with flags and mode *)
+fn _open_built (b: $B.builder_v, flags: int, mode: int): $R.result($F.fd, int) = let
+  val @(pa, _) = $B.to_arr(b)
+  val @(fz, bv) = $A.freeze<byte>(pa)
+  val r = $F.file_open(bv, 524288, flags, mode)
+  val () = $A.drop<byte>(fz, bv)
+  val () = $A.free<byte>($A.thaw<byte>(fz))
+in r end
 
-(* ============================================================
-   Internal: write builder to dir/filename
-   ============================================================ *)
-
-fn _write_to {nd:nat | nd < 256}{nf:nat | nf < 256}
-  (dir: string nd, filename: string nf, content: $B.builder_v): void = let
+(* Opens dir/filename for writing (created, truncated) *)
+fn _open_out {nd:nat | nd < 256}{nf:nat | nf < 256}
+  (dir: string nd, filename: string nf): $R.result($F.fd, int) = let
   var pb = $B.create()
   val () = $B.bput(pb, dir)
   val () = $B.put_char(pb, 47)
   val () = $B.bput(pb, filename)
   val () = $B.put_char(pb, 0)
-  val @(pa, pl) = $B.to_arr(pb)
-  val @(fzp, bvp) = $A.freeze<byte>(pa)
+in _open_built(pb, 1 + 64 + 512, 420) end
+
+(* Writes the bytes of content to f *)
+fn _write_builder (f: !$F.fd, content: $B.builder_v): void = let
   val @(ca, cl) = $B.to_arr(content)
-  val @(fzc, bvc) = $A.freeze<byte>(ca)
-  val fr = $F.file_open(bvp, 524288, 577, 420)
+  val @(fz, bv) = $A.freeze<byte>(ca)
 in
-  (case+ fr of
-  | ~$R.ok(fd) => let
-      val bw = $F.buf_writer_create(fd)
-      fun write_loop {l:agz}{fuel:nat} .<fuel>.
-        (bw: !$F.buf_writer, bv: !$A.borrow(byte, l, 524288),
-         i: pos_t, lim: int, fuel: int fuel): void =
-        if fuel <= 0 then ()
-        else if i >= lim then ()
-        else if i < 0 then () else if i >= 524288 then ()
-        else let
-          val b = byte2int0($A.read<byte>(bv, i))
-          val wr = $F.buf_write_byte(bw, b)
-          val () = $R.discard<int><int>(wr)
-        in write_loop(bw, bv, i + 1, lim, fuel - 1) end
-      val () = write_loop(bw, bvc, 0, cl, 524289)
-      val cr = $F.buf_writer_close(bw)
-      val () = $R.discard<int><int>(cr)
-    in end
-  | ~$R.err(_) => ());
-  $A.drop<byte>(fzc, bvc); $A.free<byte>($A.thaw<byte>(fzc));
-  $A.drop<byte>(fzp, bvp); $A.free<byte>($A.thaw<byte>(fzp))
+  if cl > 0 then let
+    val @(left, right) = $A.borrow_split<byte>(fz, bv, cl)
+    val () = $R.discard<int><int>((case+ $F.file_write(f, left, cl) of
+      | ~$R.ok(w) => $R.ok(w) | ~$R.err(e) => $R.err(e)): $R.result(int, int))
+    val () = $A.drop<byte>(fz, $A.borrow_join<byte>(fz, left, right))
+  in $A.free<byte>($A.thaw<byte>(fz)) end
+  else let
+    val () = $A.drop<byte>(fz, bv)
+  in $A.free<byte>($A.thaw<byte>(fz)) end
 end
+
+(* Writes content to dir/filename *)
+fn _write_to {nd:nat | nd < 256}{nf:nat | nf < 256}
+  (dir: string nd, filename: string nf, content: $B.builder_v): void =
+  case+ _open_out(dir, filename) of
+  | ~$R.ok(fd) => let
+      val () = _write_builder(fd, content)
+    in $R.discard<int><int>($F.file_close(fd)) end
+  | ~$R.err(_) => $B.builder_free(content)
+
+(* Copies the file src (opened by the NUL-terminated path in sb) to f *)
+fn _copy_from (sb: $B.builder_v, f: !$F.fd): void =
+  case+ _open_built(sb, 0, 0) of
+  | ~$R.ok(sfd) => let
+      val () = $R.discard<int><int>((case+ $F.fd_copy(sfd, f) of
+        | ~$R.ok(c) => $R.ok(c) | ~$R.err(e) => $R.err(e)): $R.result(int, int))
+    in $R.discard<int><int>($F.file_close(sfd)) end
+  | ~$R.err(_) => ()
 
 (* Copy file from src to dir/filename *)
 fn _copy_to {ns:nat | ns < 256}{nd:nat | nd < 256}{nf:nat | nf < 256}
-  (src: string ns, dir: string nd, filename: string nf): void = let
-  var sb = $B.create()
-  val () = $B.bput(sb, src)
-  val () = $B.put_char(sb, 0)
-  val @(sa, sl) = $B.to_arr(sb)
-  val @(fzs, bvs) = $A.freeze<byte>(sa)
-  val sr = $F.file_open(bvs, 524288, 0, 0)
-  val () = $A.drop<byte>(fzs, bvs)
-  val () = $A.free<byte>($A.thaw<byte>(fzs))
-in
-  case+ sr of
-  | ~$R.ok(sfd) => let
-      val buf = $A.alloc<byte>(524288)
-      val rr = $F.file_read(sfd, buf, 524288)
-      val nb = (case+ rr of | ~$R.ok(n) => n | ~$R.err(_) => 0): int
-      val cr = $F.file_close(sfd)
-      val () = $R.discard<int><int>(cr)
-      var cb = $B.create()
-      val @(fzb, bvb) = $A.freeze<byte>(buf)
-      val () = _cp_borrow(bvb, 0, nb, 524288, cb, 524288)
-      val () = $A.drop<byte>(fzb, bvb)
-      val () = $A.free<byte>($A.thaw<byte>(fzb))
-    in _write_to(dir, filename, cb) end
+  (src: string ns, dir: string nd, filename: string nf): void =
+  case+ _open_out(dir, filename) of
+  | ~$R.ok(fd) => let
+      var sb = $B.create()
+      val () = $B.bput(sb, src)
+      val () = $B.put_char(sb, 0)
+      val () = _copy_from(sb, fd)
+    in $R.discard<int><int>($F.file_close(fd)) end
   | ~$R.err(_) => ()
-end
 
 (* ============================================================
    Implementations -- builder API
@@ -266,101 +251,50 @@ in end
    Implementations -- high-level file API
    ============================================================ *)
 
-(* Find basename offset: scan backwards for '/' in a borrow *)
-fn _find_basename {l:agz}{n:pos}
-  (bv: !$A.borrow(byte, l, n), path_len: pos_t, max: int n): pos_t = let
-  fun scan {i:nat | i < n} .<i>.
-    (bv: !$A.borrow(byte, l, n), i: int i): pos_t =
-    if byte2int0($A.read<byte>(bv, i)) = 47 then i + 1
-    else if i <= 0 then 0
-    else scan(bv, i - 1)
-  val start = min(path_len - 1, max - 1)
-in if start < 0 then 0 else scan(bv, start) end
+(* Start of the last component of the path a[p, e): just after its last
+   '/', or p *)
+fun _basename {l:agz}{na:nat}{p,i:nat | p <= i; i <= na} .<i - p>.
+  (a: !$A.arr(byte, l, na), p: int p, i: int i): [b:nat | p <= b; b <= i] int b =
+  if i <= p then p
+  else if byte2int0($A.get<byte>(a, i - 1)) = 47 then i
+  else _basename(a, p, i - 1)
 
-(* Copy a single asset from assets array at [pos, path_end) to out_dir *)
-fn _copy_one_asset {la:agz}{nas:pos}{nd:nat | nd < 256}
-  (assets: !$A.arr(byte, la, nas), pos: pos_t, path_end: pos_t,
-   asset_max: int nas, out_dir: string nd): void = let
-  val path_len = path_end - pos
-  (* Build source path into a builder, then freeze for basename scan *)
-  var src_b = $B.create()
-  val () = _cp_arr(assets, pos, path_end, asset_max, src_b, 524287)
-  val () = $B.put_char(src_b, 0)
-  val @(src_a, src_l) = $B.to_arr(src_b)
-  val @(fzs, bvs) = $A.freeze<byte>(src_a)
-  (* Find basename in the borrow *)
-  val base = _find_basename(bvs, path_len, 524288)
-  (* Build dest filename *)
-  var dst_b = $B.create()
-  val () = _cp_borrow(bvs, base, path_len, 524288, dst_b, 524288)
-  (* Read source file *)
-  val sr = $F.file_open(bvs, 524288, 0, 0)
+(* End of the path that starts at p: the first NUL at or after p, or k *)
+fun _path_end {l:agz}{na:nat}{i,k:nat | i <= k; k <= na} .<k - i>.
+  (a: !$A.arr(byte, l, na), i: int i, k: int k): [e:nat | i <= e; e <= k] int e =
+  if i >= k then k
+  else if byte2int0($A.get<byte>(a, i)) = 0 then i
+  else _path_end(a, i + 1, k)
+
+(* Copies the file at the path assets[p, e) to out_dir/<its basename> *)
+fn _copy_one_asset {la:agz}{nas:nat | nas + 257 <= $B.BUILDER_CAP}{p,e:nat | p <= e; e <= nas}{nd:nat | nd < 256}
+  (assets: !$A.arr(byte, la, nas), p: int p, e: int e, out_dir: string nd): void = let
+  val base = _basename(assets, p, e)
+  var db = $B.create()
+  val () = $B.bput(db, out_dir)
+  val () = $B.put_char(db, 47)
+  val () = _put_range(assets, base, e, db)
+  val () = $B.put_char(db, 0)
 in
-  (case+ sr of
-  | ~$R.ok(sfd) => let
-      val buf = $A.alloc<byte>(524288)
-      val rr = $F.file_read(sfd, buf, 524288)
-      val nb = (case+ rr of | ~$R.ok(n) => n | ~$R.err(_) => 0): int
-      val cr = $F.file_close(sfd)
-      val () = $R.discard<int><int>(cr)
-      (* Write buf[0..nb) to out_dir/basename *)
-      var content_b = $B.create()
-      val @(fzb, bvb) = $A.freeze<byte>(buf)
-      val () = _cp_borrow(bvb, 0, nb, 524288, content_b, 524288)
-      val () = $A.drop<byte>(fzb, bvb)
-      val () = $A.free<byte>($A.thaw<byte>(fzb))
-      (* Write content to out_dir/basename *)
-      var pb = $B.create()
-      val () = $B.bput(pb, out_dir)
-      val () = $B.put_char(pb, 47)
-      val out_dir_len = g1u2i(string1_length(out_dir))
-      val inner_fuel = 524286 - out_dir_len
-      val () = _cp_borrow(bvs, base, path_len, 524288, pb, inner_fuel)
-      val () = $B.put_char(pb, 0)
-      val @(pa, pl) = $B.to_arr(pb)
-      val @(fzp, bvp) = $A.freeze<byte>(pa)
-      val @(ca, cl) = $B.to_arr(content_b)
-      val @(fzc, bvc) = $A.freeze<byte>(ca)
-      val fr = $F.file_open(bvp, 524288, 577, 420)
-    in
-      (case+ fr of
-      | ~$R.ok(fd) => let
-          val bw = $F.buf_writer_create(fd)
-          fun wl {l2:agz}{fuel:nat} .<fuel>.
-            (bw: !$F.buf_writer, bv: !$A.borrow(byte, l2, 524288),
-             i: pos_t, lim: int, fuel: int fuel): void =
-            if fuel <= 0 then ()
-            else if i >= lim then ()
-            else if i < 0 then () else if i >= 524288 then ()
-            else let
-              val b = byte2int0($A.read<byte>(bv, i))
-              val wr = $F.buf_write_byte(bw, b)
-              val () = $R.discard<int><int>(wr)
-            in wl(bw, bv, i + 1, lim, fuel - 1) end
-          val () = wl(bw, bvc, 0, cl, 524289)
-          val wr = $F.buf_writer_close(bw)
-          val () = $R.discard<int><int>(wr)
-        in end
-      | ~$R.err(_) => ());
-      $A.drop<byte>(fzc, bvc); $A.free<byte>($A.thaw<byte>(fzc));
-      $A.drop<byte>(fzp, bvp); $A.free<byte>($A.thaw<byte>(fzp))
-    end
-  | ~$R.err(_) => ());
-  $A.drop<byte>(fzs, bvs); $A.free<byte>($A.thaw<byte>(fzs));
-  (let val @(da, dl) = $B.to_arr(dst_b) val () = $A.free<byte>(da) in end)
+  case+ _open_built(db, 1 + 64 + 512, 420) of
+  | ~$R.ok(fd) => let
+      var sb = $B.create()
+      val () = _put_range(assets, p, e, sb)
+      val () = $B.put_char(sb, 0)
+      val () = _copy_from(sb, fd)
+    in $R.discard<int><int>($F.file_close(fd)) end
+  | ~$R.err(_) => ()
 end
 
-(* Iterate through null-separated asset paths and copy each *)
-fun _copy_assets {la:agz}{nas:pos}{nd:nat | nd < 256}{p:nat | p <= nas} .<nas - p>.
-  (assets: !$A.arr(byte, la, nas), pos: int p, len: int,
-   asset_max: int nas, out_dir: string nd): void =
-  if pos >= len then ()
+(* Copies each non-empty path of the NUL-separated list assets[p, k) *)
+fun _copy_assets {la:agz}{nas:nat | nas + 257 <= $B.BUILDER_CAP}{p,k:nat | p <= k; k <= nas}{nd:nat | nd < 256} .<k - p>.
+  (assets: !$A.arr(byte, la, nas), p: int p, k: int k, out_dir: string nd): void =
+  if p >= k then ()
   else let
-    val path_end = $S.find_null_at(assets, pos, asset_max)
-    val () = (if path_end - pos > 0 then _copy_one_asset(assets, pos, path_end, asset_max, out_dir)): void
+    val e = _path_end(assets, p, k)
+    val () = (if e > p then _copy_one_asset(assets, p, e, out_dir) else ())
   in
-    if path_end >= asset_max then ()
-    else _copy_assets(assets, path_end + 1, len, asset_max, out_dir)
+    if e >= k then () else _copy_assets(assets, e + 1, k, out_dir)
   end
 
 implement create_pwa (app_name, app_id, wasm_path, wasm_name, out_dir, assets, asset_len, asset_max) = let
@@ -386,7 +320,7 @@ implement create_pwa (app_name, app_id, wasm_path, wasm_name, out_dir, assets, a
   val () = build_manifest(mf_b, app_name)
   val () = _write_to(out_dir, "manifest.json", mf_b)
   val () = _copy_to(wasm_path, out_dir, wasm_name)
-  val () = _copy_assets(assets, 0, asset_len, asset_max, out_dir)
+  val () = _copy_assets(assets, 0, asset_len, out_dir)
 in end
 
 implement create_apk (app_name, app_id, wasm_path, wasm_name, out_dir, assets, asset_len, asset_max) = let
