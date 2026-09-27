@@ -79,9 +79,31 @@ jobs:
           test -f example/dist/pwa/bridge.js
           test ! -f example/dist/pwa/app.js
           test -f example/dist/pwa/app.wasm
-          ! grep -q "BATS PWA" example/dist/pwa/index.html
-          ! grep -q "BATS PWA" example/dist/pwa/manifest.json
+          if grep -q "BATS PWA" example/dist/pwa/index.html; then exit 1; fi
+          if grep -q "BATS PWA" example/dist/pwa/manifest.json; then exit 1; fi
           echo "PWA files verified, no app.js, no BATS PWA in static files"
+
+      - name: Verify Android project
+        run: |
+          test -f example/dist/android/capacitor.config.json
+          test -f example/dist/android/package.json
+          test -f example/dist/android/android-release.gradle
+          test -x example/dist/android/build-android.sh
+          grep -q '"webDir": "../pwa"' example/dist/android/capacitor.config.json
+          # No keystore or secret is ever written: signing reads them at build time
+          test ! -e example/dist/android/release.jks
+          test ! -e example/dist/pwa/release.jks
+          if grep -rq "storePassword '" example/dist/android example/dist/pwa; then exit 1; fi
+          test -x example/dist/android/smoke-test.sh
+
+      - name: Upload Android project
+        uses: actions/upload-artifact@v4
+        with:
+          name: example-android
+          path: |
+            example/dist/android
+            example/dist/pwa
+          retention-days: 1
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -98,3 +120,14 @@ jobs:
         run: |
           cd example
           npx playwright test
+
+  # The example's Android app, built by the reusable workflow; unsigned,
+  # since this repository has no keystore
+  android:
+    needs: check
+    uses: ./.github/workflows/android.yml
+    with:
+      artifact: example-android
+      project-dir: android
+      # Rendered by the example's wasm (not in its static files)
+      smoke-test-text: BATS PWA
