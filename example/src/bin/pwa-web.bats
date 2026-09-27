@@ -1,16 +1,12 @@
 #target wasm binary
 #include "share/atspre_staload.hats"
-#use str as S
+#use array as A
 #use wasm.bats-packages.dev/dom as D
 #use widget as W
 
 implement main0 () = let
-  var tag = @[char][3]('d', 'i', 'v')
-  var mid = @[char][9]('b', 'a', 't', 's', '-', 'r', 'o', 'o', 't')
-  val doc = $D.create_document($S.text_of_chars(tag, 3), 3, $S.text_of_chars(mid, 9), 9)
-  val root = $W.Element($W.ElementNode($W.Root(), $W.Normal($W.Div()), ~1, 0, $W.NoneInt(), $W.NoneStr(), $W.WNil()))
-  var msg = @[char][8]('B', 'A', 'T', 'S', ' ', 'P', 'W', 'A')
-  val @(_, diff) = $W.add_child(root, $W.Text($S.text_of_chars(msg, 8), 8))
-  val () = $D.apply(doc, diff)
+  val doc = $D.create_document($A.text_lit("div"), 3, $A.text_lit("bats-root"), 9)
+  (* The message, added under the root by a diff that apply consumes *)
+  val () = $D.apply(doc, $W.AddChild($W.Root(), $W.Text($A.text_lit("BATS PWA"), 8)))
   val () = $D.destroy(doc)
 in end
