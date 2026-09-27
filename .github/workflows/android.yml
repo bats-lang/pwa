@@ -80,8 +80,12 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          ANDROID_VERSION_CODE: ${{ github.run_number + inputs.version-code-offset }}
-        run: sh "app/${{ inputs.project-dir }}/build-android.sh"
+          RUN_NUMBER: ${{ github.run_number }}
+          VERSION_CODE_OFFSET: ${{ inputs.version-code-offset }}
+        run: |
+          export ANDROID_VERSION_CODE=$((RUN_NUMBER + VERSION_CODE_OFFSET))
+          echo "Version code: $ANDROID_VERSION_CODE"
+          sh "app/${{ inputs.project-dir }}/build-android.sh"
 
       - name: Remove decoded keystore
         if: always()
