@@ -95,6 +95,9 @@ jobs:
           test ! -e example/dist/pwa/release.jks
           if grep -rq "storePassword '" example/dist/android example/dist/pwa; then exit 1; fi
           test -x example/dist/android/smoke-test.sh
+          # the app's activity (package from the app id) and the types it opens
+          grep -q '^package dev.bats.example;' example/dist/android/MainActivity.java
+          grep -q 'android:mimeType="text/plain"' example/dist/android/intent-filters.xml
 
       - name: Upload Android project
         uses: actions/upload-artifact@v4

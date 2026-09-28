@@ -45,11 +45,28 @@
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 2000] $B.builder(m)): void
 
 (* build-android.sh: builds the Capacitor project it sits in into a
-   release AAB and APK (npm install, cap add android, the Gradle above,
+   release AAB and APK (npm install, cap add android, the app's own
+   MainActivity, its intent filters and launcher icon, the Gradle above,
    cap sync, gradlew bundleRelease assembleRelease); signed when
-   ANDROID_KEYSTORE names a keystore file *)
-#pub fn build_android_script {n:nat | n + 3000 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 3000] $B.builder(m)): void
+   ANDROID_KEYSTORE names a keystore file. The launcher icon is the
+   PWA's icon-512.png in web_dir (relative to the project), when there
+   is one. *)
+#pub fn build_android_script {nw:nat | nw < 256}{n:nat | n + 4000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 4000] $B.builder(m), web_dir: string nw): void
+
+(* MainActivity.java for app app_id: the Capacitor activity, which hands
+   each file the app is opened with (VIEW) or shared (SEND,
+   SEND_MULTIPLE) to the page. The file is copied to the app's cache,
+   and the page is given its local URL and name through
+   batsFetchExternal (the bridge's external files), once the page has
+   it. *)
+#pub fn build_main_activity {ni:nat | ni < 256}{n:nat | n + 5000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 5000] $B.builder(m), app_id: string ni): void
+
+(* The intent filters build-android.sh adds to MainActivity: it opens
+   (VIEW) and is shared (SEND, SEND_MULTIPLE) files of type mime *)
+#pub fn build_intent_filters {nm:nat | nm < 256}{n:nat | n + 1500 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 1500] $B.builder(m), mime: string nm): void
 
 (* ============================================================
    High-level API -- write complete PWA/APK to a directory
@@ -70,19 +87,23 @@
    a throwaway key when it is unsigned), launches it, and waits up to
    two minutes for the text given as its second argument to be on the
    screen; writes screenshot.png, ui.xml and logcat.txt to the directory
-   given as its third. Fails when the text never shows, the app crashes,
-   or the page logs an error to the console. *)
-#pub fn build_smoke_test_script {ni:nat | ni < 256}{n:nat | n + 5000 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 5000] $B.builder(m), app_id: string ni): void
+   given as its third. With a fourth, fifth and sixth (a file, its type
+   and a text), it then shares the file with the app (SEND, on an
+   emulator where adb can be root) and waits for that text too. Fails
+   when a text never shows, the app crashes, or the page logs an error
+   to the console. *)
+#pub fn build_smoke_test_script {ni:nat | ni < 256}{n:nat | n + 7000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 7000] $B.builder(m), app_id: string ni): void
 
 (* Writes a Capacitor project in project_dir for the PWA in web_dir
    (relative to project_dir): capacitor.config.json, package.json,
-   android-release.gradle, build-android.sh and smoke-test.sh. Running build-android.sh
-   (Node, a JDK and the Android SDK needed) builds the Android app. No
-   secret is written: signing reads the keystore and its passwords when
-   the build runs. *)
-#pub fn create_android {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nd:nat | nd < 256}
-  (app_name: string na, app_id: string ni, web_dir: string nw, project_dir: string nd): void
+   android-release.gradle, MainActivity.java, intent-filters.xml,
+   build-android.sh and smoke-test.sh. Running build-android.sh (Node,
+   a JDK and the Android SDK needed) builds the Android app, which opens
+   and is shared files of type mime. No secret is written: signing
+   reads the keystore and its passwords when the build runs. *)
+#pub fn create_android {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nd:nat | nd < 256}{nm:nat | nm < 256}
+  (app_name: string na, app_id: string ni, web_dir: string nw, project_dir: string nd, mime: string nm): void
 
 (* ============================================================
    Internal: paths and files
@@ -301,7 +322,7 @@ implement build_android_gradle (b) = let
   val () = $B.bput(b, "}\n")
 in end
 
-implement build_android_script (b) = let
+implement build_android_script (b, web_dir) = let
   val () = $B.bput(b, "#!/bin/sh\n")
   val () = $B.bput(b, "# Builds this Capacitor project into a release AAB and APK, in\n")
   val () = $B.bput(b, "# android/app/build/outputs/{bundle,apk}/release/. Needs Node, a JDK\n")
@@ -319,20 +340,171 @@ implement build_android_script (b) = let
   val () = $B.bput(b, "if [ -n \"${ANDROID_KEYSTORE:-}\" ]; then\n")
   val () = $B.bput(b, "  cp \"$ANDROID_KEYSTORE\" android/app/release.jks\n")
   val () = $B.bput(b, "fi\n")
+  val () = $B.bput(b, "# the app's activity, which hands the files it is opened with and\n")
+  val () = $B.bput(b, "# shared to the page, and its intent filters\n")
+  val () = $B.bput(b, "cp MainActivity.java \"$(find android/app/src/main/java -name MainActivity.java)\"\n")
+  val () = $B.bput(b, "m=android/app/src/main/AndroidManifest.xml\n")
+  val () = $B.bput(b, "awk 'FNR==NR { f = f $0 \"\\n\"; next } /<\\/activity>/ && !d { printf \"%s\", f; d = 1 } { print }' intent-filters.xml \"$m\" > \"$m.new\"\n")
+  val () = $B.bput(b, "mv \"$m.new\" \"$m\"\n")
+  val () = $B.bput(b, "# the launcher icon: the PWA's\n")
+  val () = $B.bput(b, "icon=\"")
+  val () = $B.bput(b, web_dir)
+  val () = $B.bput(b, "/icon-512.png\"\n")
+  val () = $B.bput(b, "if [ -f \"$icon\" ]; then\n")
+  val () = $B.bput(b, "  for d in android/app/src/main/res/mipmap-*dpi; do\n")
+  val () = $B.bput(b, "    for f in ic_launcher ic_launcher_round ic_launcher_foreground; do\n")
+  val () = $B.bput(b, "      cp \"$icon\" \"$d/$f.png\"\n")
+  val () = $B.bput(b, "    done\n")
+  val () = $B.bput(b, "  done\n")
+  val () = $B.bput(b, "  rm -rf android/app/src/main/res/mipmap-anydpi-v26\n")
+  val () = $B.bput(b, "fi\n")
   val () = $B.bput(b, "cat android-release.gradle >> android/app/build.gradle\n")
   val () = $B.bput(b, "npx cap sync android\n")
   val () = $B.bput(b, "cd android\n")
   val () = $B.bput(b, "./gradlew bundleRelease assembleRelease\n")
 in end
 
+implement build_main_activity (b, app_id) = let
+  val () = $B.bput(b, "package ")
+  val () = $B.bput(b, app_id)
+  val () = $B.bput(b, ";\n")
+  val () = $B.bput(b, "\n")
+  val () = $B.bput(b, "import android.content.Intent;\n")
+  val () = $B.bput(b, "import android.database.Cursor;\n")
+  val () = $B.bput(b, "import android.net.Uri;\n")
+  val () = $B.bput(b, "import android.os.Bundle;\n")
+  val () = $B.bput(b, "import android.os.Handler;\n")
+  val () = $B.bput(b, "import android.os.Looper;\n")
+  val () = $B.bput(b, "import android.provider.OpenableColumns;\n")
+  val () = $B.bput(b, "import com.getcapacitor.BridgeActivity;\n")
+  val () = $B.bput(b, "import java.io.File;\n")
+  val () = $B.bput(b, "import java.io.FileOutputStream;\n")
+  val () = $B.bput(b, "import java.io.InputStream;\n")
+  val () = $B.bput(b, "import java.io.OutputStream;\n")
+  val () = $B.bput(b, "import java.util.ArrayList;\n")
+  val () = $B.bput(b, "import org.json.JSONObject;\n")
+  val () = $B.bput(b, "\n")
+  val () = $B.bput(b, "// Written by the pwa package. Hands each file the app is opened with\n")
+  val () = $B.bput(b, "// (VIEW) or shared (SEND, SEND_MULTIPLE) to the page: the file is\n")
+  val () = $B.bput(b, "// copied to the cache, and the page fetches it from its local URL.\n")
+  val () = $B.bput(b, "public class MainActivity extends BridgeActivity {\n")
+  val () = $B.bput(b, "    private final Handler handler = new Handler(Looper.getMainLooper());\n")
+  val () = $B.bput(b, "\n")
+  val () = $B.bput(b, "    @Override\n")
+  val () = $B.bput(b, "    public void onCreate(Bundle savedInstanceState) {\n")
+  val () = $B.bput(b, "        super.onCreate(savedInstanceState);\n")
+  val () = $B.bput(b, "        if (savedInstanceState == null) {\n")
+  val () = $B.bput(b, "            File[] old = incoming().listFiles();\n")
+  val () = $B.bput(b, "            if (old != null) for (File f : old) f.delete();\n")
+  val () = $B.bput(b, "            handle(getIntent());\n")
+  val () = $B.bput(b, "        }\n")
+  val () = $B.bput(b, "    }\n")
+  val () = $B.bput(b, "\n")
+  val () = $B.bput(b, "    @Override\n")
+  val () = $B.bput(b, "    protected void onNewIntent(Intent intent) {\n")
+  val () = $B.bput(b, "        super.onNewIntent(intent);\n")
+  val () = $B.bput(b, "        setIntent(intent);\n")
+  val () = $B.bput(b, "        handle(intent);\n")
+  val () = $B.bput(b, "    }\n")
+  val () = $B.bput(b, "\n")
+  val () = $B.bput(b, "    private File incoming() {\n")
+  val () = $B.bput(b, "        File dir = new File(getCacheDir(), \"incoming\");\n")
+  val () = $B.bput(b, "        dir.mkdirs();\n")
+  val () = $B.bput(b, "        return dir;\n")
+  val () = $B.bput(b, "    }\n")
+  val () = $B.bput(b, "\n")
+  val () = $B.bput(b, "    private void handle(Intent intent) {\n")
+  val () = $B.bput(b, "        if (intent == null) return;\n")
+  val () = $B.bput(b, "        String action = intent.getAction();\n")
+  val () = $B.bput(b, "        if (Intent.ACTION_VIEW.equals(action)) {\n")
+  val () = $B.bput(b, "            deliver(intent.getData());\n")
+  val () = $B.bput(b, "        } else if (Intent.ACTION_SEND.equals(action)) {\n")
+  val () = $B.bput(b, "            deliver((Uri) intent.getParcelableExtra(Intent.EXTRA_STREAM));\n")
+  val () = $B.bput(b, "        } else if (Intent.ACTION_SEND_MULTIPLE.equals(action)) {\n")
+  val () = $B.bput(b, "            ArrayList<Uri> uris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);\n")
+  val () = $B.bput(b, "            if (uris != null) for (Uri u : uris) deliver(u);\n")
+  val () = $B.bput(b, "        }\n")
+  val () = $B.bput(b, "    }\n")
+  val () = $B.bput(b, "\n")
+  val () = $B.bput(b, "    private String nameOf(Uri uri) {\n")
+  val () = $B.bput(b, "        String name = uri.getLastPathSegment();\n")
+  val () = $B.bput(b, "        try (Cursor c = getContentResolver().query(uri, null, null, null, null)) {\n")
+  val () = $B.bput(b, "            if (c != null && c.moveToFirst()) {\n")
+  val () = $B.bput(b, "                int i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME);\n")
+  val () = $B.bput(b, "                if (i >= 0 && c.getString(i) != null) name = c.getString(i);\n")
+  val () = $B.bput(b, "            }\n")
+  val () = $B.bput(b, "        } catch (Exception e) {\n")
+  val () = $B.bput(b, "            // the name is only shown while the file is imported\n")
+  val () = $B.bput(b, "        }\n")
+  val () = $B.bput(b, "        return name == null ? \"\" : name;\n")
+  val () = $B.bput(b, "    }\n")
+  val () = $B.bput(b, "\n")
+  val () = $B.bput(b, "    private void deliver(final Uri uri) {\n")
+  val () = $B.bput(b, "        if (uri == null) return;\n")
+  val () = $B.bput(b, "        new Thread(() -> {\n")
+  val () = $B.bput(b, "            try {\n")
+  val () = $B.bput(b, "                String name = nameOf(uri);\n")
+  val () = $B.bput(b, "                File out = File.createTempFile(\"in\", \".bin\", incoming());\n")
+  val () = $B.bput(b, "                try (InputStream in = getContentResolver().openInputStream(uri);\n")
+  val () = $B.bput(b, "                     OutputStream os = new FileOutputStream(out)) {\n")
+  val () = $B.bput(b, "                    byte[] buf = new byte[65536];\n")
+  val () = $B.bput(b, "                    int n;\n")
+  val () = $B.bput(b, "                    while ((n = in.read(buf)) > 0) os.write(buf, 0, n);\n")
+  val () = $B.bput(b, "                }\n")
+  val () = $B.bput(b, "                final String js = \"(function(){if(!globalThis.batsFetchExternal)return false;\"\n")
+  val () = $B.bput(b, "                    + \"globalThis.batsFetchExternal(\" + JSONObject.quote(\"/_capacitor_file_\" + out.getAbsolutePath())\n")
+  val () = $B.bput(b, "                    + \",\" + JSONObject.quote(name) + \");return true;})()\";\n")
+  val () = $B.bput(b, "                handler.post(() -> hand(js, 240));\n")
+  val () = $B.bput(b, "            } catch (Exception e) {\n")
+  val () = $B.bput(b, "                // a file that cannot be read is not handed over\n")
+  val () = $B.bput(b, "            }\n")
+  val () = $B.bput(b, "        }).start();\n")
+  val () = $B.bput(b, "    }\n")
+  val () = $B.bput(b, "\n")
+  val () = $B.bput(b, "    // Runs js once the page has the bridge (every quarter second, for a\n")
+  val () = $B.bput(b, "    // minute at most)\n")
+  val () = $B.bput(b, "    private void hand(final String js, final int tries) {\n")
+  val () = $B.bput(b, "        if (bridge == null || bridge.getWebView() == null) {\n")
+  val () = $B.bput(b, "            if (tries > 0) handler.postDelayed(() -> hand(js, tries - 1), 250);\n")
+  val () = $B.bput(b, "            return;\n")
+  val () = $B.bput(b, "        }\n")
+  val () = $B.bput(b, "        bridge.getWebView().evaluateJavascript(js, r -> {\n")
+  val () = $B.bput(b, "            if (!\"true\".equals(r) && tries > 0) handler.postDelayed(() -> hand(js, tries - 1), 250);\n")
+  val () = $B.bput(b, "        });\n")
+  val () = $B.bput(b, "    }\n")
+  val () = $B.bput(b, "}\n")
+in end
+
+implement build_intent_filters (b, mime) = let
+  val () = $B.bput(b, "            <intent-filter>\n")
+  val () = $B.bput(b, "                <action android:name=\"android.intent.action.VIEW\" />\n")
+  val () = $B.bput(b, "                <category android:name=\"android.intent.category.DEFAULT\" />\n")
+  val () = $B.bput(b, "                <category android:name=\"android.intent.category.BROWSABLE\" />\n")
+  val () = $B.bput(b, "                <data android:scheme=\"content\" />\n")
+  val () = $B.bput(b, "                <data android:mimeType=\"")
+  val () = $B.bput(b, mime)
+  val () = $B.bput(b, "\" />\n")
+  val () = $B.bput(b, "            </intent-filter>\n")
+  val () = $B.bput(b, "            <intent-filter>\n")
+  val () = $B.bput(b, "                <action android:name=\"android.intent.action.SEND\" />\n")
+  val () = $B.bput(b, "                <action android:name=\"android.intent.action.SEND_MULTIPLE\" />\n")
+  val () = $B.bput(b, "                <category android:name=\"android.intent.category.DEFAULT\" />\n")
+  val () = $B.bput(b, "                <data android:mimeType=\"")
+  val () = $B.bput(b, mime)
+  val () = $B.bput(b, "\" />\n")
+  val () = $B.bput(b, "            </intent-filter>\n")
+in end
+
 implement build_smoke_test_script (b, app_id) = let
   val () = $B.bput(b, "#!/bin/sh\n")
-  val () = $B.bput(b, "# usage: smoke-test.sh <apk> <text> <out-dir>\n")
+  val () = $B.bput(b, "# usage: smoke-test.sh <apk> <text> <out-dir> [<file> <type> <text>]\n")
   val () = $B.bput(b, "# On a running emulator or device (adb): installs the APK (signed\n")
   val () = $B.bput(b, "# with a throwaway key when unsigned), launches the app, and waits\n")
   val () = $B.bput(b, "# up to two minutes for <text> on the screen. Writes screenshot.png,\n")
   val () = $B.bput(b, "# ui.xml and logcat.txt to <out-dir>. Fails when the text never\n")
-  val () = $B.bput(b, "# shows, the app crashes, or the page logs a console error.\n")
+  val () = $B.bput(b, "# shows, the app crashes, or the page logs a console error. With\n")
+  val () = $B.bput(b, "# <file> <type> <text>, then shares the file with the app and waits\n")
+  val () = $B.bput(b, "# for that text too.\n")
   val () = $B.bput(b, "set -eu\n")
   val () = $B.bput(b, "APP_ID='")
   val () = $B.bput(b, app_id)
@@ -361,6 +533,26 @@ implement build_smoke_test_script (b, app_id) = let
   val () = $B.bput(b, "  adb shell cat /sdcard/ui.xml > \"$OUT/ui.xml\" || continue\n")
   val () = $B.bput(b, "  if grep -qF \"$TEXT\" \"$OUT/ui.xml\"; then found=1; break; fi\n")
   val () = $B.bput(b, "done\n")
+  val () = $B.bput(b, "# Sharing a file with the app: it is put in the app's cache (adb as\n")
+  val () = $B.bput(b, "# root, on an emulator) and handed to it with SEND, as another app\n")
+  val () = $B.bput(b, "# would share it\n")
+  val () = $B.bput(b, "if [ $found = 1 ] && [ $# -ge 6 ]; then\n")
+  val () = $B.bput(b, "  TEXT=$6\n")
+  val () = $B.bput(b, "  DEST=\"/data/data/$APP_ID/cache/smoke-share\"\n")
+  val () = $B.bput(b, "  adb root >/dev/null\n")
+  val () = $B.bput(b, "  adb wait-for-device\n")
+  val () = $B.bput(b, "  adb push \"$4\" /data/local/tmp/smoke-share >/dev/null\n")
+  val () = $B.bput(b, "  OWNER=$(adb shell stat -c %u \"/data/data/$APP_ID\" | tr -d '\\r')\n")
+  val () = $B.bput(b, "  adb shell \"cp /data/local/tmp/smoke-share $DEST && chown $OWNER:$OWNER $DEST && restorecon $DEST\"\n")
+  val () = $B.bput(b, "  adb shell am start -a android.intent.action.SEND -t \"$5\" --eu android.intent.extra.STREAM \"file://$DEST\" -n \"$APP_ID/.MainActivity\" >/dev/null\n")
+  val () = $B.bput(b, "  found=0\n")
+  val () = $B.bput(b, "  for _ in $(seq 60); do\n")
+  val () = $B.bput(b, "    sleep 2\n")
+  val () = $B.bput(b, "    adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || continue\n")
+  val () = $B.bput(b, "    adb shell cat /sdcard/ui.xml > \"$OUT/ui.xml\" || continue\n")
+  val () = $B.bput(b, "    if grep -qF \"$TEXT\" \"$OUT/ui.xml\"; then found=1; break; fi\n")
+  val () = $B.bput(b, "  done\n")
+  val () = $B.bput(b, "fi\n")
   val () = $B.bput(b, "adb exec-out screencap -p > \"$OUT/screenshot.png\"\n")
   val () = $B.bput(b, "adb logcat -d > \"$OUT/logcat.txt\"\n")
   val () = $B.bput(b, "status=0\n")
@@ -447,7 +639,7 @@ implement create_pwa (app_name, app_id, wasm_path, wasm_name, out_dir, assets, a
   val () = _copy_assets(assets, 0, asset_len, out_dir)
 in end
 
-implement create_android (app_name, app_id, web_dir, project_dir) = let
+implement create_android (app_name, app_id, web_dir, project_dir, mime) = let
   val () = _mkdir(project_dir)
   var cap_b = $B.create()
   val () = build_capacitor_config(cap_b, app_name, app_id, web_dir)
@@ -458,8 +650,14 @@ implement create_android (app_name, app_id, web_dir, project_dir) = let
   var gr_b = $B.create()
   val () = build_android_gradle(gr_b)
   val () = _write_to(project_dir, "android-release.gradle", gr_b)
+  var ma_b = $B.create()
+  val () = build_main_activity(ma_b, app_id)
+  val () = _write_to(project_dir, "MainActivity.java", ma_b)
+  var if_b = $B.create()
+  val () = build_intent_filters(if_b, mime)
+  val () = _write_to(project_dir, "intent-filters.xml", if_b)
   var sh_b = $B.create()
-  val () = build_android_script(sh_b)
+  val () = build_android_script(sh_b, web_dir)
   val () = _write_mode(project_dir, "build-android.sh", sh_b, 493)
   var st_b = $B.create()
   val () = build_smoke_test_script(st_b, app_id)
