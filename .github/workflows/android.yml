@@ -25,8 +25,18 @@
 # Signing uses the caller's secrets (passed with `secrets: inherit`):
 # KEYSTORE_BASE64 (the keystore file, base64-encoded), KEYSTORE_PASSWORD,
 # KEY_ALIAS and KEY_PASSWORD. Without KEYSTORE_BASE64 the build is
-# unsigned. The version code is the caller's run number plus
-# version-code-offset: each upload to Google Play needs a higher one.
+# unsigned, unless require-signed is set, which fails it instead. When
+# the build is signed, the AAB and the APK are checked to be signed by
+# that key: each one's signer certificate must have the SHA-256
+# fingerprint of the keystore's KEY_ALIAS certificate. The version code
+# is the caller's run number plus version-code-offset: each upload to
+# Google Play needs a higher one.
+#
+# With publish false (a branch or pull request, say) the AAB and APK are
+# built, signed and checked the same way, but not uploaded as artifacts:
+# the smoke test gets the APK through an artifact that it deletes once
+# it has it. So a branch shows that the signed release will build,
+# without publishing one.
 name: android
 
 on:
@@ -65,6 +75,16 @@ on:
         required: false
         type: string
         default: ''
+      require-signed:
+        description: Fail when there is no signing key, instead of building unsigned
+        required: false
+        type: boolean
+        default: false
+      publish:
+        description: Upload the AAB and APK as the artifacts release-aab and release-apk
+        required: false
+        type: boolean
+        default: true
     secrets:
       KEYSTORE_BASE64:
         required: false
@@ -96,10 +116,22 @@ jobs:
       - name: Decode signing keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          REQUIRE_SIGNED: ${{ inputs.require-signed }}
         run: |
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
             echo "ANDROID_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            # The key's certificate fingerprint, which the AAB and APK must
+            # be signed with (keytool fails here on a wrong password or alias)
+            FP=$(keytool -list -v -keystore "$RUNNER_TEMP/release.jks" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" \
+              | sed -n 's/^[[:space:]]*SHA256: *//p' | head -1 | tr -d ':' | tr 'A-F' 'a-f')
+            test -n "$FP" || { echo "::error::No SHA-256 fingerprint for alias KEY_ALIAS in the keystore"; exit 1; }
+            echo "SIGNING_SHA256=$FP" >> "$GITHUB_ENV"
+          elif [ "$REQUIRE_SIGNED" = "true" ]; then
+            echo "::error::No KEYSTORE_BASE64 secret, and require-signed is set"
+            exit 1
           else
             echo "No KEYSTORE_BASE64 secret: the build is unsigned"
           fi
@@ -129,18 +161,48 @@ jobs:
           test -n "$APK" && test -s "$APK"
           echo "AAB: $AAB ($(stat -c%s "$AAB") bytes)"
           echo "APK: $APK ($(stat -c%s "$APK") bytes)"
+          echo "AAB=$AAB" >> "$GITHUB_ENV"
+          echo "APK=$APK" >> "$GITHUB_ENV"
+
+      - name: Verify the signatures
+        if: env.SIGNING_SHA256 != ''
+        run: |
+          # The AAB is JAR-signed: every entry verified, and signed by the key
+          jarsigner -verify -strict "$AAB" | tee "$RUNNER_TEMP/jarsigner.txt"
+          grep -q '^jar verified' "$RUNNER_TEMP/jarsigner.txt" || { echo "::error::The AAB is not signed"; exit 1; }
+          AAB_FP=$(keytool -printcert -jarfile "$AAB" | sed -n 's/^[[:space:]]*SHA256: *//p' | head -1 | tr -d ':' | tr 'A-F' 'a-f')
+          echo "AAB signer SHA-256: $AAB_FP"
+          [ "$AAB_FP" = "$SIGNING_SHA256" ] || { echo "::error::The AAB is signed with another key"; exit 1; }
+          # The APK is APK-signed (v2+): apksigner checks it, and names its signer
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" verify --print-certs "$APK" | tee "$RUNNER_TEMP/apksigner.txt"
+          APK_FP=$(sed -n 's/^Signer #1 certificate SHA-256 digest: *//p' "$RUNNER_TEMP/apksigner.txt" | head -1 | tr 'A-F' 'a-f')
+          echo "APK signer SHA-256: $APK_FP"
+          [ "$APK_FP" = "$SIGNING_SHA256" ] || { echo "::error::The APK is signed with another key"; exit 1; }
+          echo "The AAB and APK are signed with the release key"
 
       - name: Upload AAB
+        if: inputs.publish
         uses: actions/upload-artifact@v4
         with:
           name: release-aab
           path: app/${{ inputs.project-dir }}/android/app/build/outputs/bundle/release/*.aab
 
       - name: Upload APK
+        if: inputs.publish
         uses: actions/upload-artifact@v4
         with:
           name: release-apk
           path: app/${{ inputs.project-dir }}/android/app/build/outputs/apk/release/*.apk
+
+      # Not published: the smoke test's copy of the APK, which it deletes
+      - name: Hand the APK to the smoke test
+        if: ${{ !inputs.publish && inputs.smoke-test-text != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-apk
+          path: app/${{ inputs.project-dir }}/android/app/build/outputs/apk/release/*.apk
+          retention-days: 1
 
   smoke-test:
     needs: build-android
@@ -154,8 +216,14 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: release-apk
+          name: ${{ inputs.publish && 'release-apk' || 'smoke-apk' }}
           path: apk
+
+      - name: Delete the smoke test's copy of the APK
+        if: ${{ !inputs.publish }}
+        uses: geekyeggo/delete-artifact@v5
+        with:
+          name: smoke-apk
 
       - uses: actions/setup-java@v4
         with:
