@@ -176,7 +176,9 @@ jobs:
           # The APK is APK-signed (v2+): apksigner checks it, and names its signer
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           "$BT/apksigner" verify --print-certs "$APK" | tee "$RUNNER_TEMP/apksigner.txt"
-          APK_FP=$(sed -n 's/^Signer #1 certificate SHA-256 digest: *//p' "$RUNNER_TEMP/apksigner.txt" | head -1 | tr 'A-F' 'a-f')
+          # apksigner names the signer "Signer #1" or, for a v2-only
+          # signature, "V2 Signer"
+          APK_FP=$(sed -n 's/^.*Signer.* certificate SHA-256 digest: *//p' "$RUNNER_TEMP/apksigner.txt" | head -1 | tr 'A-F' 'a-f')
           echo "APK signer SHA-256: $APK_FP"
           [ "$APK_FP" = "$SIGNING_SHA256" ] || { echo "::error::The APK is signed with another key"; exit 1; }
           echo "The AAB and APK are signed with the release key"
