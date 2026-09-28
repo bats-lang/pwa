@@ -459,7 +459,7 @@ implement build_main_activity (b, app_id) = let
   val () = $B.bput(b, "        new Thread(() -> {\n")
   val () = $B.bput(b, "            try {\n")
   val () = $B.bput(b, "                String name = nameOf(uri);\n")
-  val () = $B.bput(b, "                File out = File.createTempFile(\"in\", \".bin\", incoming());\n")
+  val () = $B.bput(b, "                File out = File.createTempFile(\"file\", \".bin\", incoming());\n")
   val () = $B.bput(b, "                try (InputStream in = getContentResolver().openInputStream(uri);\n")
   val () = $B.bput(b, "                     OutputStream os = new FileOutputStream(out)) {\n")
   val () = $B.bput(b, "                    byte[] buf = new byte[65536];\n")
