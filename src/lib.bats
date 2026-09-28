@@ -276,6 +276,15 @@ implement build_capacitor_config (b, app_name, app_id, web_dir) = let
   val () = $B.bput(b, "  \"loggingBehavior\": \"production\",\n")
   val () = $B.bput(b, "  \"android\": {\n")
   val () = $B.bput(b, "    \"adjustMarginsForEdgeToEdge\": \"auto\"\n")
+  val () = $B.bput(b, "  },\n")
+  (* The page lays itself out with env(safe-area-inset-*), which the
+     WebView gives it: SystemBars need not inject its own CSS variables
+     (which it tries before the page has a document, an error on every
+     start) *)
+  val () = $B.bput(b, "  \"plugins\": {\n")
+  val () = $B.bput(b, "    \"SystemBars\": {\n")
+  val () = $B.bput(b, "      \"insetsHandling\": \"native\"\n")
+  val () = $B.bput(b, "    }\n")
   val () = $B.bput(b, "  }\n")
   val () = $B.bput(b, "}\n")
 in end
