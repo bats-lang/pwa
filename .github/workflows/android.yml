@@ -18,7 +18,9 @@
 # it and waits for that text, which should be one only the app's wasm
 # renders; it fails when the text never shows, the app crashes or the
 # page logs a console error, and uploads a screenshot, the UI dump and
-# the logcat as the artifact android-smoke-test.
+# the logcat as the artifact android-smoke-test. With smoke-share-file
+# (a path in the artifact), smoke-share-type and smoke-share-text set,
+# it then shares that file with the app and waits for that text too.
 #
 # Signing uses the caller's secrets (passed with `secrets: inherit`):
 # KEYSTORE_BASE64 (the keystore file, base64-encoded), KEYSTORE_PASSWORD,
@@ -45,6 +47,21 @@ on:
         default: 0
       smoke-test-text:
         description: Text the app shows once it runs; empty for no emulator test
+        required: false
+        type: string
+        default: ''
+      smoke-share-file:
+        description: A file in the artifact to share with the app after it runs; empty for none
+        required: false
+        type: string
+        default: ''
+      smoke-share-type:
+        description: The shared file's MIME type
+        required: false
+        type: string
+        default: ''
+      smoke-share-text:
+        description: Text the app shows once it has taken the shared file
         required: false
         type: string
         default: ''
@@ -158,12 +175,19 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         env:
           SMOKE_TEXT: ${{ inputs.smoke-test-text }}
+          SMOKE_SHARE_FILE: ${{ inputs.smoke-share-file }}
+          SMOKE_SHARE_TYPE: ${{ inputs.smoke-share-type }}
+          SMOKE_SHARE_TEXT: ${{ inputs.smoke-share-text }}
         with:
           api-level: 34
           arch: x86_64
           target: google_apis
           disable-animations: true
-          script: sh "app/${{ inputs.project-dir }}/smoke-test.sh" "$SMOKE_APK" "$SMOKE_TEXT" smoke
+          script: >-
+            if [ -n "$SMOKE_SHARE_FILE" ];
+            then sh "app/${{ inputs.project-dir }}/smoke-test.sh" "$SMOKE_APK" "$SMOKE_TEXT" smoke "app/$SMOKE_SHARE_FILE" "$SMOKE_SHARE_TYPE" "$SMOKE_SHARE_TEXT";
+            else sh "app/${{ inputs.project-dir }}/smoke-test.sh" "$SMOKE_APK" "$SMOKE_TEXT" smoke;
+            fi
 
       - name: Upload screenshot, UI dump and logcat
         if: always()

@@ -11,5 +11,5 @@ implement main0 () = let
   val () = $A.free<byte>(assets)
   (* The Capacitor project around it: dist/android/build-android.sh
      builds the Android app *)
-  val () = $P.create_android("Example App", "dev.bats.example", "../pwa", "dist/android")
+  val () = $P.create_android("Example App", "dev.bats.example", "../pwa", "dist/android", "text/plain")
 in end
