@@ -81,6 +81,10 @@ jobs:
           test -f example/dist/pwa/app.wasm
           if grep -q "BATS PWA" example/dist/pwa/index.html; then exit 1; fi
           if grep -q "BATS PWA" example/dist/pwa/manifest.json; then exit 1; fi
+          # installed, it opens and is shared its files
+          grep -q '"file_handlers"' example/dist/pwa/manifest.json
+          grep -q '"share_target"' example/dist/pwa/manifest.json
+          grep -q 'share-target' example/dist/pwa/service-worker.js
           echo "PWA files verified, no app.js, no BATS PWA in static files"
 
       - name: Verify Android project

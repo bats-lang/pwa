@@ -18,11 +18,25 @@
    Builder-based API (generate file contents into builders)
    ============================================================ *)
 
-#pub fn build_html {na:nat | na < 256}{n:nat | n + 24400 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 24400] $B.builder(m), app_name: string na): void
+#pub fn build_html {na:nat | na < 256}{n:nat | n + 36400 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 36400] $B.builder(m), app_name: string na): void
 
 #pub fn build_manifest {na:nat | na < 256}{n:nat | n + 900 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 900] $B.builder(m), app_name: string na): void
+
+(* The manifest of an app that opens files of type mime (extension ext,
+   with its dot): as build_manifest, and the system opens those files
+   with the installed app (file_handlers, read from launchQueue) and
+   shares them with it (share_target, a POST the service worker keeps:
+   build_share_target_worker) *)
+#pub fn build_manifest_opening {na:nat | na < 256}{nm,ne:nat | nm < 256; ne < 256}{n:nat | n + 2600 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 2600] $B.builder(m), app_name: string na, mime: string nm, ext: string ne): void
+
+(* The service worker's part for share_target: a file shared with the
+   installed app is POSTed to share-target, kept (the cache pwa-shared)
+   and the app opened at ?shared=, whose page drops it on the app *)
+#pub fn build_share_target_worker {n:nat | n + 1600 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 1600] $B.builder(m)): void
 
 (* capacitor.config.json: the app's name and id, and web_dir, the PWA's
    directory relative to the Capacitor project's *)
@@ -31,8 +45,8 @@
 
 (* package.json of the Capacitor project: Capacitor 8's core, Android
    platform and CLI *)
-#pub fn build_capacitor_package {n:nat | n + 700 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 700] $B.builder(m)): void
+#pub fn build_capacitor_package {n:nat | n + 900 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 900] $B.builder(m)): void
 
 (* Gradle appended to android/app/build.gradle: the release build is
    signed with android/app/release.jks when it is there, with the
@@ -81,6 +95,17 @@
    wasm_path: string nw, wasm_name: string nn,
    out_dir: string nd,
    assets: !$A.arr(byte, la, nas), asset_len: int k, asset_max: int nas): void
+
+(* As create_pwa, for an app that opens files of type mime (extension
+   ext, with its dot): the installed app is offered them by the system
+   (build_manifest_opening), and its service worker keeps those shared
+   with it (build_share_target_worker) *)
+#pub fn create_pwa_opening {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nn:nat | nn < 200}{nd:nat | nd < 256}{la:agz}{nas:pos | nas + 257 <= $B.BUILDER_CAP}{k:nat | k <= nas}{nm,ne:nat | nm < 256; ne < 256}
+  (app_name: string na, app_id: string ni,
+   wasm_path: string nw, wasm_name: string nn,
+   out_dir: string nd,
+   assets: !$A.arr(byte, la, nas), asset_len: int k, asset_max: int nas,
+   mime: string nm, ext: string ne): void
 
 (* smoke-test.sh, for app app_id: on a running emulator or device
    (adb), installs the APK given as its first argument (signing it with
@@ -202,6 +227,141 @@ fn _copy_to {ns:nat | ns < 256}{nd:nat | nd < 256}{nf:nat | nf < 256}
 (* ============================================================
    Implementations -- builder API
    ============================================================ *)
+
+(* The screen and the system, for an app that offers them. Full screen
+   (the Fullscreen API, or the Android app's status bar hidden): the root
+   is marked pwa-can-fullscreen, a click on an element marked
+   data-pwa-fullscreen goes into or out of it, and while in it the root
+   is marked pwa-fullscreen. The rotation locked to the one the screen
+   has (the Android app's ScreenOrientation plugin, or screen.orientation
+   where it can lock: installed, or in full screen): pwa-can-lock, and a
+   click on data-pwa-orientation-lock. The screen's brightness, in the
+   Android app only (the ScreenBrightness plugin; a web page cannot set
+   it): pwa-can-brightness, and a select marked data-pwa-brightness,
+   which it fills and keeps. Those elements are marked aria-pressed as
+   they are. And the files the system opens with the app (file_handlers,
+   launchQueue) or shares with it (share_target, kept by the service
+   worker): dropped on the element marked data-pwa-file-drop, as a
+   user's drop would be *)
+fn _screen_script {n:nat | n + 12000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 12000] $B.builder(m)): void = let
+  val () = $B.bput(b, "  <script>\n")
+  val () = $B.bput(b, "    (function () {\n")
+  val () = $B.bput(b, "      var root = document.documentElement;\n")
+  val () = $B.bput(b, "      var P = (window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform() && Capacitor.Plugins) || {};\n")
+  val () = $B.bput(b, "      function kept(k, v) {\n")
+  val () = $B.bput(b, "        try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {}\n")
+  val () = $B.bput(b, "        return null;\n")
+  val () = $B.bput(b, "      }\n")
+  val () = $B.bput(b, "      function press(sel, on) {\n")
+  val () = $B.bput(b, "        document.querySelectorAll(sel).forEach(function (e) { e.setAttribute('aria-pressed', on ? 'true' : 'false'); });\n")
+  val () = $B.bput(b, "      }\n")
+  val () = $B.bput(b, "      function ignore(p) { if (p && p.catch) p.catch(function () {}); }\n")
+  val () = $B.bput(b, "      // Full screen: the Fullscreen API, or the Android app's status bar hidden\n")
+  val () = $B.bput(b, "      var full = false;\n")
+  val () = $B.bput(b, "      function fullNow() { return P.StatusBar ? full : !!document.fullscreenElement; }\n")
+  val () = $B.bput(b, "      function fullShown() {\n")
+  val () = $B.bput(b, "        root.classList.toggle('pwa-fullscreen', fullNow());\n")
+  val () = $B.bput(b, "        press('[data-pwa-fullscreen]', fullNow());\n")
+  val () = $B.bput(b, "        lockable();\n")
+  val () = $B.bput(b, "      }\n")
+  val () = $B.bput(b, "      if (P.StatusBar || document.fullscreenEnabled) root.classList.add('pwa-can-fullscreen');\n")
+  val () = $B.bput(b, "      document.addEventListener('fullscreenchange', fullShown);\n")
+  val () = $B.bput(b, "      function setFull(on) {\n")
+  val () = $B.bput(b, "        if (P.StatusBar) { full = on; ignore(on ? P.StatusBar.hide() : P.StatusBar.show()); fullShown(); return; }\n")
+  val () = $B.bput(b, "        ignore(on ? root.requestFullscreen() : document.exitFullscreen());\n")
+  val () = $B.bput(b, "      }\n")
+  val () = $B.bput(b, "      // The rotation, locked to the one the screen has now: the Android app's\n")
+  val () = $B.bput(b, "      // plugin, or screen.orientation where it can lock (installed, or full\n")
+  val () = $B.bput(b, "      // screen)\n")
+  val () = $B.bput(b, "      var locked = false;\n")
+  val () = $B.bput(b, "      function lockable() {\n")
+  val () = $B.bput(b, "        var web = !!(screen.orientation && screen.orientation.lock) &&\n")
+  val () = $B.bput(b, "          (fullNow() || matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches);\n")
+  val () = $B.bput(b, "        root.classList.toggle('pwa-can-lock', !!P.ScreenOrientation || web);\n")
+  val () = $B.bput(b, "        if (!P.ScreenOrientation && !web && locked) { locked = false; press('[data-pwa-orientation-lock]', false); }\n")
+  val () = $B.bput(b, "      }\n")
+  val () = $B.bput(b, "      function current() {\n")
+  val () = $B.bput(b, "        var t = (screen.orientation && screen.orientation.type) || (innerWidth > innerHeight ? 'landscape-primary' : 'portrait-primary');\n")
+  val () = $B.bput(b, "        return t;\n")
+  val () = $B.bput(b, "      }\n")
+  val () = $B.bput(b, "      function setLock(on) {\n")
+  val () = $B.bput(b, "        var p = P.ScreenOrientation ? (on ? P.ScreenOrientation.lock({ orientation: current() }) : P.ScreenOrientation.unlock())\n")
+  val () = $B.bput(b, "          : (on ? screen.orientation.lock(current()) : Promise.resolve(screen.orientation.unlock()));\n")
+  val () = $B.bput(b, "        Promise.resolve(p).then(function () {\n")
+  val () = $B.bput(b, "          locked = on; press('[data-pwa-orientation-lock]', on); kept('pwa-orientation-lock', on ? '1' : null);\n")
+  val () = $B.bput(b, "        }, function () { locked = false; press('[data-pwa-orientation-lock]', false); });\n")
+  val () = $B.bput(b, "      }\n")
+  val () = $B.bput(b, "      // The screen's brightness, in the Android app (a web page cannot set it)\n")
+  val () = $B.bput(b, "      var LEVELS = [['System', '-1'], ['10%', '0.1'], ['25%', '0.25'], ['50%', '0.5'], ['75%', '0.75'], ['100%', '1']];\n")
+  val () = $B.bput(b, "      function fillBrightness(s) {\n")
+  val () = $B.bput(b, "        if (s.options.length) return;\n")
+  val () = $B.bput(b, "        var cur = kept('pwa-brightness') || '-1';\n")
+  val () = $B.bput(b, "        LEVELS.forEach(function (l) { s.add(new Option(l[0], l[1], false, l[1] === cur)); });\n")
+  val () = $B.bput(b, "      }\n")
+  val () = $B.bput(b, "      if (P.ScreenBrightness) {\n")
+  val () = $B.bput(b, "        root.classList.add('pwa-can-brightness');\n")
+  val () = $B.bput(b, "        var b = kept('pwa-brightness');\n")
+  val () = $B.bput(b, "        if (b && b !== '-1') ignore(P.ScreenBrightness.setBrightness({ brightness: +b }));\n")
+  val () = $B.bput(b, "      }\n")
+  val () = $B.bput(b, "      if (P.ScreenOrientation && kept('pwa-orientation-lock')) setLock(true);\n")
+  val () = $B.bput(b, "      lockable();\n")
+  val () = $B.bput(b, "      new MutationObserver(function () {\n")
+  val () = $B.bput(b, "        document.querySelectorAll('select[data-pwa-brightness]:empty').forEach(fillBrightness);\n")
+  val () = $B.bput(b, "        press('[data-pwa-fullscreen]', fullNow());\n")
+  val () = $B.bput(b, "        press('[data-pwa-orientation-lock]', locked);\n")
+  val () = $B.bput(b, "      }).observe(root, { childList: true, subtree: true });\n")
+  val () = $B.bput(b, "      document.addEventListener('change', function (e) {\n")
+  val () = $B.bput(b, "        var s = e.target;\n")
+  val () = $B.bput(b, "        if (!s || !s.matches || !s.matches('select[data-pwa-brightness]') || !P.ScreenBrightness) return;\n")
+  val () = $B.bput(b, "        kept('pwa-brightness', s.value);\n")
+  val () = $B.bput(b, "        ignore(P.ScreenBrightness.setBrightness({ brightness: +s.value }));\n")
+  val () = $B.bput(b, "      }, true);\n")
+  val () = $B.bput(b, "      document.addEventListener('click', function (e) {\n")
+  val () = $B.bput(b, "        var t = e.target && e.target.closest && e.target.closest('[data-pwa-fullscreen],[data-pwa-orientation-lock]');\n")
+  val () = $B.bput(b, "        if (!t) return;\n")
+  val () = $B.bput(b, "        if (t.hasAttribute('data-pwa-fullscreen')) setFull(!fullNow());\n")
+  val () = $B.bput(b, "        else setLock(!locked);\n")
+  val () = $B.bput(b, "      }, true);\n")
+  val () = $B.bput(b, "    \n")
+  val () = $B.bput(b, "      // Files the system opens with the app (file_handlers) or shares with it\n")
+  val () = $B.bput(b, "      // (share_target, kept by the service worker): dropped on the element\n")
+  val () = $B.bput(b, "      // marked data-pwa-file-drop, as a user's drop would be\n")
+  val () = $B.bput(b, "      function drop(files) {\n")
+  val () = $B.bput(b, "        if (!files.length) return;\n")
+  val () = $B.bput(b, "        var tries = 0;\n")
+  val () = $B.bput(b, "        (function go() {\n")
+  val () = $B.bput(b, "          var el = document.querySelector('[data-pwa-file-drop]');\n")
+  val () = $B.bput(b, "          if (!el) { if (tries++ < 100) setTimeout(go, 100); return; }\n")
+  val () = $B.bput(b, "          setTimeout(function () {\n")
+  val () = $B.bput(b, "            var dt = new DataTransfer();\n")
+  val () = $B.bput(b, "            files.forEach(function (f) { dt.items.add(f); });\n")
+  val () = $B.bput(b, "            el.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));\n")
+  val () = $B.bput(b, "          }, 300);\n")
+  val () = $B.bput(b, "        })();\n")
+  val () = $B.bput(b, "      }\n")
+  val () = $B.bput(b, "      if (window.launchQueue && launchQueue.setConsumer) {\n")
+  val () = $B.bput(b, "        launchQueue.setConsumer(function (p) {\n")
+  val () = $B.bput(b, "          if (!p.files || !p.files.length) return;\n")
+  val () = $B.bput(b, "          Promise.all(p.files.map(function (h) { return h.getFile(); })).then(drop, function () {});\n")
+  val () = $B.bput(b, "        });\n")
+  val () = $B.bput(b, "      }\n")
+  val () = $B.bput(b, "      if (/[?&]shared=/.test(location.search) && window.caches) {\n")
+  val () = $B.bput(b, "        history.replaceState(null, '', location.pathname);\n")
+  val () = $B.bput(b, "        caches.open('pwa-shared').then(function (c) {\n")
+  val () = $B.bput(b, "          return c.keys().then(function (ks) {\n")
+  val () = $B.bput(b, "            return Promise.all(ks.map(function (k) {\n")
+  val () = $B.bput(b, "              return c.match(k).then(function (r) { return r.blob(); }).then(function (b) {\n")
+  val () = $B.bput(b, "                var name = decodeURIComponent(k.url.split('/').pop());\n")
+  val () = $B.bput(b, "                c.delete(k);\n")
+  val () = $B.bput(b, "                return new File([b], name, { type: b.type });\n")
+  val () = $B.bput(b, "              });\n")
+  val () = $B.bput(b, "            }));\n")
+  val () = $B.bput(b, "          });\n")
+  val () = $B.bput(b, "        }).then(drop, function () {});\n")
+  val () = $B.bput(b, "      }\n")
+  val () = $B.bput(b, "    })();\n")
+in $B.bput(b, "  </script>\n") end
 
 (* Sharing (Web Share, or the Capacitor Share plugin in the Android
    app, whose WebView has no navigator.share): the root is marked
@@ -567,6 +727,7 @@ implement build_html (b, app_name) = let
   val () = $B.bput(b, "  </script>\n")
   val () = _speech_script(b)
   val () = _share_script(b)
+  val () = _screen_script(b)
   val () = $B.bput(b, "</body>\n</html>\n")
 in end
 
@@ -588,6 +749,54 @@ implement build_manifest (b, app_name) = let
   val () = $B.bput(b, "    { \"src\": \"icon-512.png\", \"sizes\": \"512x512\", \"type\": \"image/png\" }\n")
   val () = $B.bput(b, "  ]\n")
   val () = $B.bput(b, "}\n")
+in end
+
+implement build_manifest_opening (b, app_name, mime, ext) = let
+  val () = $B.bput(b, "{\n")
+  val () = $B.bput(b, "  \"name\": \"")
+  val () = $B.bput(b, app_name)
+  val () = $B.bput(b, "\",\n")
+  val () = $B.bput(b, "  \"short_name\": \"")
+  val () = $B.bput(b, app_name)
+  val () = $B.bput(b, "\",\n")
+  val () = $B.bput(b, "  \"start_url\": \".\",\n")
+  val () = $B.bput(b, "  \"display\": \"standalone\",\n")
+  val () = $B.bput(b, "  \"background_color\": \"#ffffff\",\n")
+  val () = $B.bput(b, "  \"theme_color\": \"#ffffff\",\n")
+  val () = $B.bput(b, "  \"icons\": [\n")
+  val () = $B.bput(b, "    { \"src\": \"icon-192.png\", \"sizes\": \"192x192\", \"type\": \"image/png\" },\n")
+  val () = $B.bput(b, "    { \"src\": \"icon-512.png\", \"sizes\": \"512x512\", \"type\": \"image/png\" }\n")
+  val () = $B.bput(b, "  ],\n")
+  val () = $B.bput(b, "  \"file_handlers\": [{ \"action\": \"./\", \"accept\": { \"")
+  val () = $B.bput(b, mime)
+  val () = $B.bput(b, "\": [\"")
+  val () = $B.bput(b, ext)
+  val () = $B.bput(b, "\"] } }],\n")
+  val () = $B.bput(b, "  \"share_target\": { \"action\": \"./share-target\", \"method\": \"POST\", \"enctype\": \"multipart/form-data\",\n")
+  val () = $B.bput(b, "    \"params\": { \"files\": [{ \"name\": \"file\", \"accept\": [\"")
+  val () = $B.bput(b, mime)
+  val () = $B.bput(b, "\", \"")
+  val () = $B.bput(b, ext)
+  val () = $B.bput(b, "\"] }] } }\n")
+  val () = $B.bput(b, "}\n")
+in end
+
+implement build_share_target_worker (b) = let
+  val () = $B.bput(b, "// files shared with the installed app (the manifest's share_target)\n")
+  val () = $B.bput(b, "self.addEventListener('fetch', function (e) {\n")
+  val () = $B.bput(b, "  var u = new URL(e.request.url);\n")
+  val () = $B.bput(b, "  if (e.request.method !== 'POST' || !/\\/share-target$/.test(u.pathname)) return;\n")
+  val () = $B.bput(b, "  e.stopImmediatePropagation();\n")
+  val () = $B.bput(b, "  e.respondWith((async function () {\n")
+  val () = $B.bput(b, "    var files = (await e.request.formData()).getAll('file');\n")
+  val () = $B.bput(b, "    var cache = await caches.open('pwa-shared');\n")
+  val () = $B.bput(b, "    await Promise.all(files.map(function (f, i) {\n")
+  val () = $B.bput(b, "      return cache.put(new URL('shared/' + i + '/' + encodeURIComponent(f.name), self.registration.scope).href,\n")
+  val () = $B.bput(b, "        new Response(f, { headers: { 'content-type': f.type || 'application/octet-stream' } }));\n")
+  val () = $B.bput(b, "    }));\n")
+  val () = $B.bput(b, "    return Response.redirect(new URL('./?shared=' + files.length, self.registration.scope).href, 303);\n")
+  val () = $B.bput(b, "  })());\n")
+  val () = $B.bput(b, "});\n")
 in end
 
 implement build_capacitor_config (b, app_name, app_id, web_dir) = let
@@ -629,8 +838,13 @@ implement build_capacitor_package (b) = let
   val () = $B.bput(b, "  \"dependencies\": {\n")
   val () = $B.bput(b, "    \"@capacitor/android\": \"^8.1.0\",\n")
   val () = $B.bput(b, "    \"@capacitor/core\": \"^8.1.0\",\n")
-  (* the page's sharing, where the WebView has no navigator.share *)
-  val () = $B.bput(b, "    \"@capacitor/share\": \"^8.0.2\"\n")
+  (* the page's sharing, where the WebView has no navigator.share; its
+     screen: the status bar hidden for full screen, the rotation locked,
+     the brightness *)
+  val () = $B.bput(b, "    \"@capacitor/share\": \"^8.0.2\",\n")
+  val () = $B.bput(b, "    \"@capacitor/screen-orientation\": \"^8.0.1\",\n")
+  val () = $B.bput(b, "    \"@capacitor/status-bar\": \"^8.0.3\",\n")
+  val () = $B.bput(b, "    \"@capacitor-community/screen-brightness\": \"^8.0.0\"\n")
   val () = $B.bput(b, "  },\n")
   val () = $B.bput(b, "  \"devDependencies\": {\n")
   val () = $B.bput(b, "    \"@capacitor/cli\": \"^8.1.0\"\n")
@@ -1044,6 +1258,26 @@ implement create_pwa (app_name, app_id, wasm_path, wasm_name, out_dir, assets, a
   val () = _write_to(out_dir, "service-worker.js", sw_b)
   var mf_b = $B.create()
   val () = build_manifest(mf_b, app_name)
+  val () = _write_to(out_dir, "manifest.json", mf_b)
+  val () = _copy_to(wasm_path, out_dir, wasm_name)
+  val () = _copy_assets(assets, 0, asset_len, out_dir)
+in end
+
+implement create_pwa_opening (app_name, app_id, wasm_path, wasm_name, out_dir, assets, asset_len, asset_max, mime, ext) = let
+  val () = _mkdir(out_dir)
+  var html_b = $B.create()
+  val () = build_html(html_b, app_name)
+  val () = _write_to(out_dir, "index.html", html_b)
+  var br_b = $B.create()
+  val () = $BR.produce_bridge_app(br_b, wasm_name, "bats-root")
+  val () = _write_to(out_dir, "bridge.js", br_b)
+  var sw_b = $B.create()
+  (* first, so that it takes the share's POST before the bridge's own *)
+  val () = build_share_target_worker(sw_b)
+  val () = $BR.produce_service_worker(sw_b, wasm_name)
+  val () = _write_to(out_dir, "service-worker.js", sw_b)
+  var mf_b = $B.create()
+  val () = build_manifest_opening(mf_b, app_name, mime, ext)
   val () = _write_to(out_dir, "manifest.json", mf_b)
   val () = _copy_to(wasm_path, out_dir, wasm_name)
   val () = _copy_assets(assets, 0, asset_len, out_dir)
