@@ -16,7 +16,7 @@ test('WASM app renders BATS PWA text', async ({ page }) => {
   expect(errors.length).toBe(0);
 });
 
-test('storage is asked to be persistent once the user gives the app a file, and only once', async ({ page }) => {
+test('storage is asked to be persistent once the user gives the app a file, and only once, and the page marked as it is', async ({ page }) => {
   await page.addInitScript(() => {
     window.persistAsked = 0;
     navigator.storage.persisted = () => Promise.resolve(false);
@@ -34,8 +34,15 @@ test('storage is asked to be persistent once the user gives the app a file, and 
   await page.mouse.click(5, 5);
   expect(await page.evaluate(() => window.persistAsked)).toBe(0);
   const file = { name: 'book.txt', mimeType: 'text/plain', buffer: Buffer.from('a book') };
+  const marked = name => page.evaluate(n => document.documentElement.classList.contains(n), name);
+  // not kept yet: at risk
+  expect(await marked('pwa-storage-at-risk')).toBe(true);
+  expect(await marked('pwa-storage-kept')).toBe(false);
   await page.setInputFiles('#given-file', file);
   await expect.poll(() => page.evaluate(() => window.persistAsked)).toBe(1);
+  // granted: kept
+  await expect.poll(() => marked('pwa-storage-kept')).toBe(true);
+  expect(await marked('pwa-storage-at-risk')).toBe(false);
   await page.setInputFiles('#given-file', { ...file, name: 'another.txt' });
   await page.waitForTimeout(200);
   expect(await page.evaluate(() => window.persistAsked)).toBe(1);
