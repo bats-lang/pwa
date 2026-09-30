@@ -18,8 +18,8 @@
    Builder-based API (generate file contents into builders)
    ============================================================ *)
 
-#pub fn build_html {na:nat | na < 256}{n:nat | n + 20400 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 20400] $B.builder(m), app_name: string na): void
+#pub fn build_html {na:nat | na < 256}{n:nat | n + 24400 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 24400] $B.builder(m), app_name: string na): void
 
 #pub fn build_manifest {na:nat | na < 256}{n:nat | n + 900 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 900] $B.builder(m), app_name: string na): void
@@ -31,8 +31,8 @@
 
 (* package.json of the Capacitor project: Capacitor 8's core, Android
    platform and CLI *)
-#pub fn build_capacitor_package {n:nat | n + 600 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 600] $B.builder(m)): void
+#pub fn build_capacitor_package {n:nat | n + 700 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 700] $B.builder(m)): void
 
 (* Gradle appended to android/app/build.gradle: the release build is
    signed with android/app/release.jks when it is there, with the
@@ -202,6 +202,49 @@ fn _copy_to {ns:nat | ns < 256}{nd:nat | nd < 256}{nf:nat | nf < 256}
 (* ============================================================
    Implementations -- builder API
    ============================================================ *)
+
+(* Sharing (Web Share, or the Capacitor Share plugin in the Android
+   app, whose WebView has no navigator.share): the root is marked
+   pwa-can-share. A click on an element marked
+   data-pwa-share-selection shares the selection, quoted, with the text
+   of the element it names as its citation; one marked
+   data-pwa-share-file, the text of the element it names as a Markdown
+   file named by data-pwa-share-name (as its text where files cannot be
+   shared). It is taken in the bubbling phase,
+   after the app's own listener has written what is shared *)
+fn _share_script {n:nat | n + 4000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 4000] $B.builder(m)): void = let
+  val () = $B.bput(b, "  <script>\n")
+  val () = $B.bput(b, "    (function () {\n")
+  val () = $B.bput(b, "      var root = document.documentElement;\n")
+  val () = $B.bput(b, "      var plugin = window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.Share;\n")
+  val () = $B.bput(b, "      if (!navigator.share && !plugin) return;\n")
+  val () = $B.bput(b, "      root.classList.add('pwa-can-share');\n")
+  val () = $B.bput(b, "      var files = false;\n")
+  val () = $B.bput(b, "      try { files = !!(navigator.canShare && navigator.canShare({ files: [new File(['.'], 'a.md', { type: 'text/markdown' })] })); } catch (e) {}\n")
+  val () = $B.bput(b, "      function share(d) {\n")
+  val () = $B.bput(b, "        var p = navigator.share ? navigator.share(d) : plugin.share({ title: d.title, text: d.text });\n")
+  val () = $B.bput(b, "        if (p && p.catch) p.catch(function () {});\n")
+  val () = $B.bput(b, "      }\n")
+  val () = $B.bput(b, "      document.addEventListener('click', function (e) {\n")
+  val () = $B.bput(b, "        var t = e.target && e.target.closest && e.target.closest('[data-pwa-share-selection],[data-pwa-share-file]');\n")
+  val () = $B.bput(b, "        if (!t) return;\n")
+  val () = $B.bput(b, "        if (t.hasAttribute('data-pwa-share-selection')) {\n")
+  val () = $B.bput(b, "          var s = String(window.getSelection() || '').trim();\n")
+  val () = $B.bput(b, "          if (!s) return;\n")
+  val () = $B.bput(b, "          var c = document.getElementById(t.getAttribute('data-pwa-share-selection'));\n")
+  val () = $B.bput(b, "          var cite = c ? c.textContent.trim() : '';\n")
+  val () = $B.bput(b, "          return share({ text: '\\u201c' + s + '\\u201d' + (cite ? '\\n\\u2014 ' + cite : '') });\n")
+  val () = $B.bput(b, "        }\n")
+  val () = $B.bput(b, "        var src = document.getElementById(t.getAttribute('data-pwa-share-file'));\n")
+  val () = $B.bput(b, "        var text = src ? src.textContent : '';\n")
+  val () = $B.bput(b, "        if (!text) return;\n")
+  val () = $B.bput(b, "        var name = t.getAttribute('data-pwa-share-name') || 'shared.md';\n")
+  val () = $B.bput(b, "        if (files) share({ files: [new File([text], name, { type: 'text/markdown' })], title: name });\n")
+  val () = $B.bput(b, "        else share({ title: name, text: text });\n")
+  val () = $B.bput(b, "      });\n")
+  val () = $B.bput(b, "    })();\n")
+in $B.bput(b, "  </script>\n") end
 
 (* Reading aloud, for an app that offers it (the Web Speech API): the
    root is marked pwa-can-speak where the browser speaks. A click on an
@@ -523,6 +566,7 @@ implement build_html (b, app_name) = let
   val () = $B.bput(b, "    })();\n")
   val () = $B.bput(b, "  </script>\n")
   val () = _speech_script(b)
+  val () = _share_script(b)
   val () = $B.bput(b, "</body>\n</html>\n")
 in end
 
@@ -584,7 +628,9 @@ implement build_capacitor_package (b) = let
   val () = $B.bput(b, "  \"private\": true,\n")
   val () = $B.bput(b, "  \"dependencies\": {\n")
   val () = $B.bput(b, "    \"@capacitor/android\": \"^8.1.0\",\n")
-  val () = $B.bput(b, "    \"@capacitor/core\": \"^8.1.0\"\n")
+  val () = $B.bput(b, "    \"@capacitor/core\": \"^8.1.0\",\n")
+  (* the page's sharing, where the WebView has no navigator.share *)
+  val () = $B.bput(b, "    \"@capacitor/share\": \"^8.0.2\"\n")
   val () = $B.bput(b, "  },\n")
   val () = $B.bput(b, "  \"devDependencies\": {\n")
   val () = $B.bput(b, "    \"@capacitor/cli\": \"^8.1.0\"\n")
