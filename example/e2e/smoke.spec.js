@@ -228,7 +228,7 @@ test('in the Android app: the status bar hidden, the rotation locked, the bright
 
 test('a file the system opens with the app is dropped on the app', async ({ page }) => {
   await page.addInitScript(() => {
-    window.launchQueue = { setConsumer: f => { window.consume = f; } };
+    Object.defineProperty(window, 'launchQueue', { value: { setConsumer: f => { window.consume = f; } }, configurable: true });
   });
   await loaded(page);
   await page.evaluate(() => {
