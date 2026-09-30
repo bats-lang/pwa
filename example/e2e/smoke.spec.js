@@ -40,3 +40,38 @@ test('storage is asked to be persistent once the user gives the app a file, and 
   await page.waitForTimeout(200);
   expect(await page.evaluate(() => window.persistAsked)).toBe(1);
 });
+
+test('where the browser offers to install the app, the page is marked, and a click on an install element asks it to', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForFunction(() => document.body.textContent.includes('BATS PWA'), { timeout: 15000 });
+  const marked = name => page.evaluate(n => document.documentElement.classList.contains(n), name);
+  expect(await marked('pwa-can-install')).toBe(false);
+  await page.evaluate(() => {
+    window.prompted = 0;
+    const e = new Event('beforeinstallprompt', { cancelable: true });
+    e.prompt = () => { window.prompted++; return Promise.resolve(); };
+    window.dispatchEvent(e);
+    window.bannerKept = e.defaultPrevented;
+    const b = document.createElement('button');
+    b.textContent = 'Install';
+    b.dataset.pwaInstall = 'y';
+    document.body.append(b);
+  });
+  expect(await marked('pwa-can-install')).toBe(true);
+  expect(await page.evaluate(() => window.bannerKept)).toBe(true);
+  await page.getByRole('button', { name: 'Install' }).click();
+  expect(await page.evaluate(() => window.prompted)).toBe(1);
+  // the offer is used once
+  expect(await marked('pwa-can-install')).toBe(false);
+  await page.getByRole('button', { name: 'Install' }).click();
+  expect(await page.evaluate(() => window.prompted)).toBe(1);
+  // not iOS: no Home Screen mark
+  expect(await marked('pwa-ios-browser')).toBe(false);
+});
+
+test('on iOS Safari outside the Home Screen, the page is marked for the app to say how to add it', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value: false }));
+  await page.goto('/');
+  await page.waitForFunction(() => document.body.textContent.includes('BATS PWA'), { timeout: 15000 });
+  expect(await page.evaluate(() => document.documentElement.classList.contains('pwa-ios-browser'))).toBe(true);
+});
