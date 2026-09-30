@@ -125,3 +125,20 @@ test('read aloud: sentence by sentence, marked, turning on with the next element
   await expect(page.getByRole('button', { name: 'Read' })).toHaveAttribute('aria-pressed', 'false');
   expect(await page.evaluate(() => CSS.highlights.has('pwa-spoken'))).toBe(false);
 });
+
+test.describe('night by the local clock', () => {
+  test.use({ timezoneId: 'Europe/Paris' });
+  test('the page is marked pwa-night from 22:00 to 07:00 local time', async ({ page }) => {
+    // 21:59 in Paris (UTC+2 in June)
+    await page.clock.install({ time: new Date('2026-06-01T19:59:00Z') });
+    await page.goto('/');
+    await page.waitForFunction(() => document.body.textContent.includes('BATS PWA'), { timeout: 15000 });
+    const night = () => page.evaluate(() => document.documentElement.classList.contains('pwa-night'));
+    expect(await night()).toBe(false);
+    await page.clock.fastForward('02:00');
+    expect(await night()).toBe(true);
+    // 07:00 the next morning
+    await page.clock.fastForward('09:00');
+    expect(await night()).toBe(false);
+  });
+});

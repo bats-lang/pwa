@@ -501,6 +501,12 @@ implement build_html (b, app_name) = let
   val () = $B.bput(b, "  <script>\n")
   val () = $B.bput(b, "    (function () {\n")
   val () = $B.bput(b, "      var root = document.documentElement, offer = null;\n")
+  (* night by the local clock, 22:00 to 07:00 (iOS Night Shift's
+     default schedule), which an app's wasm cannot tell (its time is
+     UTC): pwa-night, checked each minute *)
+  val () = $B.bput(b, "      function night() { var h = new Date().getHours(); root.classList.toggle('pwa-night', h >= 22 || h < 7); }\n")
+  val () = $B.bput(b, "      night(); setInterval(night, 60000);\n")
+  val () = $B.bput(b, "      document.addEventListener('visibilitychange', night);\n")
   val () = $B.bput(b, "      if (navigator.standalone === false) root.classList.add('pwa-ios-browser');\n")
   val () = $B.bput(b, "      window.addEventListener('beforeinstallprompt', function (e) {\n")
   val () = $B.bput(b, "        e.preventDefault(); offer = e; root.classList.add('pwa-can-install');\n")
