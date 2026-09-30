@@ -18,8 +18,8 @@
    Builder-based API (generate file contents into builders)
    ============================================================ *)
 
-#pub fn build_html {na:nat | na < 256}{n:nat | n + 2800 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 2800] $B.builder(m), app_name: string na): void
+#pub fn build_html {na:nat | na < 256}{n:nat | n + 4400 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 4400] $B.builder(m), app_name: string na): void
 
 #pub fn build_manifest {na:nat | na < 256}{n:nat | n + 900 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 900] $B.builder(m), app_name: string na): void
@@ -255,6 +255,33 @@ implement build_html (b, app_name) = let
   val () = $B.bput(b, "      }\n")
   val () = $B.bput(b, "      document.addEventListener('change', given, true);\n")
   val () = $B.bput(b, "      document.addEventListener('drop', given, true);\n")
+  val () = $B.bput(b, "    })();\n")
+  val () = $B.bput(b, "  </script>\n")
+  (* Installing. The root element is marked pwa-can-install while the
+     browser offers to install the app (beforeinstallprompt: Chrome and
+     Edge; its own mini-infobar is kept back, as for an app's own
+     install button), and a click on an element marked data-pwa-install
+     asks it to; the app shows that element only under the mark. On iOS
+     Safari outside the Home Screen (navigator.standalone false, which
+     only iOS defines) there is no such prompt: the root is marked
+     pwa-ios-browser, for the app to say how to add it there
+     (web.dev/articles/promote-install, firt.dev/notes/pwa-ios) *)
+  val () = $B.bput(b, "  <script>\n")
+  val () = $B.bput(b, "    (function () {\n")
+  val () = $B.bput(b, "      var root = document.documentElement, offer = null;\n")
+  val () = $B.bput(b, "      if (navigator.standalone === false) root.classList.add('pwa-ios-browser');\n")
+  val () = $B.bput(b, "      window.addEventListener('beforeinstallprompt', function (e) {\n")
+  val () = $B.bput(b, "        e.preventDefault(); offer = e; root.classList.add('pwa-can-install');\n")
+  val () = $B.bput(b, "      });\n")
+  val () = $B.bput(b, "      window.addEventListener('appinstalled', function () {\n")
+  val () = $B.bput(b, "        offer = null; root.classList.remove('pwa-can-install');\n")
+  val () = $B.bput(b, "      });\n")
+  val () = $B.bput(b, "      document.addEventListener('click', function (e) {\n")
+  val () = $B.bput(b, "        var t = e.target && e.target.closest && e.target.closest('[data-pwa-install]');\n")
+  val () = $B.bput(b, "        if (!t || !offer) return;\n")
+  val () = $B.bput(b, "        var o = offer; offer = null; root.classList.remove('pwa-can-install');\n")
+  val () = $B.bput(b, "        o.prompt();\n")
+  val () = $B.bput(b, "      }, true);\n")
   val () = $B.bput(b, "    })();\n")
   val () = $B.bput(b, "  </script>\n")
   val () = $B.bput(b, "</body>\n</html>\n")
