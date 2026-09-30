@@ -18,8 +18,8 @@
    Builder-based API (generate file contents into builders)
    ============================================================ *)
 
-#pub fn build_html {na:nat | na < 256}{n:nat | n + 1600 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 1600] $B.builder(m), app_name: string na): void
+#pub fn build_html {na:nat | na < 256}{n:nat | n + 2800 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 2800] $B.builder(m), app_name: string na): void
 
 #pub fn build_manifest {na:nat | na < 256}{n:nat | n + 900 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 900] $B.builder(m), app_name: string na): void
@@ -234,6 +234,29 @@ implement build_html (b, app_name) = let
   val () = $B.bput(b, "    </div>\n")
   val () = $B.bput(b, "  </div>\n")
   val () = $B.bput(b, "  <script type=\"module\" src=\"bridge.js\"></script>\n")
+  (* What the app keeps (IndexedDB) is best effort until it is made
+     persistent: under storage pressure the browser may clear it. It is
+     asked for once the user has given the app a file (picked or
+     dropped), the moment its storage holds something of theirs: Chrome
+     grants it by the site's engagement without asking, Firefox asks
+     the user, so it is not asked before
+     (web.dev/articles/persistent-storage) *)
+  val () = $B.bput(b, "  <script>\n")
+  val () = $B.bput(b, "    (function () {\n")
+  val () = $B.bput(b, "      var s = navigator.storage;\n")
+  val () = $B.bput(b, "      if (!s || !s.persist || !s.persisted) return;\n")
+  val () = $B.bput(b, "      var asked = false;\n")
+  val () = $B.bput(b, "      function given(e) {\n")
+  val () = $B.bput(b, "        var f = e.type === 'drop' ? e.dataTransfer && e.dataTransfer.files\n")
+  val () = $B.bput(b, "          : e.target && e.target.type === 'file' && e.target.files;\n")
+  val () = $B.bput(b, "        if (asked || !f || !f.length) return;\n")
+  val () = $B.bput(b, "        asked = true;\n")
+  val () = $B.bput(b, "        s.persisted().then(function (p) { if (!p) return s.persist(); }).catch(function () {});\n")
+  val () = $B.bput(b, "      }\n")
+  val () = $B.bput(b, "      document.addEventListener('change', given, true);\n")
+  val () = $B.bput(b, "      document.addEventListener('drop', given, true);\n")
+  val () = $B.bput(b, "    })();\n")
+  val () = $B.bput(b, "  </script>\n")
   val () = $B.bput(b, "</body>\n</html>\n")
 in end
 
