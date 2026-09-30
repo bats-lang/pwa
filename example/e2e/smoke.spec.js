@@ -75,3 +75,46 @@ test('on iOS Safari outside the Home Screen, the page is marked for the app to s
   await page.waitForFunction(() => document.body.textContent.includes('BATS PWA'), { timeout: 15000 });
   expect(await page.evaluate(() => document.documentElement.classList.contains('pwa-ios-browser'))).toBe(true);
 });
+
+test('read aloud: sentence by sentence, marked, turning on with the next element, at the speed chosen', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.spoken = [];
+    window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
+    const synth = {
+      current: null,
+      getVoices: () => [{ name: 'Reader', lang: 'en-US', voiceURI: 'reader', default: true }],
+      speak(u) { window.spoken.push({ text: u.text, rate: u.rate }); this.current = u; },
+      cancel() { this.current = null; },
+      addEventListener() {},
+    };
+    Object.defineProperty(window, 'speechSynthesis', { value: synth });
+    window.sentenceSpoken = () => { const u = synth.current; synth.current = null; if (u && u.onend) u.onend({}); };
+  });
+  await page.goto('/');
+  await page.waitForFunction(() => document.body.textContent.includes('BATS PWA'), { timeout: 15000 });
+  expect(await page.evaluate(() => document.documentElement.classList.contains('pwa-can-speak'))).toBe(true);
+  // a text with its next part behind a button, as a reader's pages are
+  await page.evaluate(() => {
+    document.body.insertAdjacentHTML('beforeend',
+      '<div id="text" lang="en"><p>First one. Second one!</p></div>' +
+      '<button data-pwa-speak="text" aria-pressed="false">Read</button>' +
+      '<button data-pwa-speech-next="y" id="more">More</button>' +
+      '<select data-pwa-speech-rate="y" aria-label="Speed"></select>');
+    document.getElementById('more').addEventListener('click', () => {
+      document.getElementById('text').innerHTML = '<p>Third one.</p>';
+    });
+  });
+  await expect(page.getByRole('combobox', { name: 'Speed' }).locator('option')).toHaveCount(6);
+  await page.getByRole('combobox', { name: 'Speed' }).selectOption('1.25');
+  await page.getByRole('button', { name: 'Read' }).click();
+  await expect(page.getByRole('button', { name: 'Read' })).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => page.evaluate(() => window.spoken)).toEqual([{ text: 'First one.', rate: 1.25 }]);
+  expect(await page.evaluate(() => CSS.highlights.has('pwa-spoken'))).toBe(true);
+  await page.evaluate(() => window.sentenceSpoken());
+  await page.evaluate(() => window.sentenceSpoken());
+  await expect.poll(() => page.evaluate(() => window.spoken.map(s => s.text))).toEqual(['First one.', 'Second one!', 'Third one.']);
+  // paused
+  await page.getByRole('button', { name: 'Read' }).click();
+  await expect(page.getByRole('button', { name: 'Read' })).toHaveAttribute('aria-pressed', 'false');
+  expect(await page.evaluate(() => CSS.highlights.has('pwa-spoken'))).toBe(false);
+});
