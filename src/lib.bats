@@ -707,7 +707,12 @@ implement build_html (b, app_name) = let
   (* night by the local clock, 22:00 to 07:00 (iOS Night Shift's
      default schedule), which an app's wasm cannot tell (its time is
      UTC): pwa-night, checked each minute *)
-  val () = $B.bput(b, "      function night() { var h = new Date().getHours(); root.classList.toggle('pwa-night', h >= 22 || h < 7); }\n")
+  (* and the local time's offset from UTC, for the local day: a hidden
+     element whose id is pwa-utc-offset- and the minutes east of UTC
+     plus 1440 (never below 0), which wasm reads with querySelector *)
+  val () = $B.bput(b, "      var zone = document.createElement('i'); zone.hidden = true; document.body.appendChild(zone);\n")
+  val () = $B.bput(b, "      function night() { var d = new Date(), h = d.getHours(); root.classList.toggle('pwa-night', h >= 22 || h < 7);\n")
+  val () = $B.bput(b, "        zone.id = 'pwa-utc-offset-' + (1440 - d.getTimezoneOffset()); }\n")
   val () = $B.bput(b, "      night(); setInterval(night, 60000);\n")
   val () = $B.bput(b, "      document.addEventListener('visibilitychange', night);\n")
   val () = $B.bput(b, "      if (navigator.standalone === false) root.classList.add('pwa-ios-browser');\n")
