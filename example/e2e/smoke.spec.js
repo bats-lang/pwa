@@ -171,3 +171,97 @@ test('sharing: the selection with its citation, and a text as a Markdown file, a
     { title: 'notes.md', files: ['notes.md:text/markdown'] },
   ]);
 });
+
+const loaded = async page => {
+  await page.goto('/');
+  await page.waitForFunction(() => document.body.textContent.includes('BATS PWA'), { timeout: 15000 });
+};
+const marked = (page, name) => page.evaluate(n => document.documentElement.classList.contains(n), name);
+
+test('full screen, by the Fullscreen API: marked where it can be, and a click goes in and out', async ({ page }) => {
+  await page.addInitScript(() => {
+    let el = null;
+    Object.defineProperty(Document.prototype, 'fullscreenElement', { get: () => el, configurable: true });
+    Object.defineProperty(Document.prototype, 'fullscreenEnabled', { get: () => true, configurable: true });
+    Element.prototype.requestFullscreen = function () { el = this; document.dispatchEvent(new Event('fullscreenchange')); return Promise.resolve(); };
+    Document.prototype.exitFullscreen = function () { el = null; document.dispatchEvent(new Event('fullscreenchange')); return Promise.resolve(); };
+  });
+  await loaded(page);
+  expect(await marked(page, 'pwa-can-fullscreen')).toBe(true);
+  await page.evaluate(() => document.body.insertAdjacentHTML('beforeend', '<button data-pwa-fullscreen aria-pressed="false">Full screen</button>'));
+  const b = page.getByRole('button', { name: 'Full screen' });
+  await b.click();
+  await expect(b).toHaveAttribute('aria-pressed', 'true');
+  expect(await marked(page, 'pwa-fullscreen')).toBe(true);
+  await b.click();
+  await expect(b).toHaveAttribute('aria-pressed', 'false');
+  expect(await marked(page, 'pwa-fullscreen')).toBe(false);
+});
+
+test('in the Android app: the status bar hidden, the rotation locked, the brightness set and kept', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.calls = [];
+    const call = name => a => { window.calls.push(name + (a ? ' ' + JSON.stringify(a) : '')); return Promise.resolve(); };
+    window.Capacitor = { isNativePlatform: () => true, Plugins: {
+      StatusBar: { hide: call('hide'), show: call('show') },
+      ScreenOrientation: { lock: call('lock'), unlock: call('unlock') },
+      ScreenBrightness: { setBrightness: call('brightness') },
+    } };
+  });
+  await loaded(page);
+  for (const n of ['pwa-can-fullscreen', 'pwa-can-lock', 'pwa-can-brightness']) expect(await marked(page, n)).toBe(true);
+  await page.evaluate(() => document.body.insertAdjacentHTML('beforeend',
+    '<button data-pwa-fullscreen>Full screen</button><button data-pwa-orientation-lock>Lock rotation</button>' +
+    '<select data-pwa-brightness aria-label="Brightness"></select>'));
+  await page.getByRole('button', { name: 'Full screen' }).click();
+  await page.getByRole('button', { name: 'Lock rotation' }).click();
+  await expect(page.getByRole('button', { name: 'Lock rotation' })).toHaveAttribute('aria-pressed', 'true');
+  const brightness = page.getByRole('combobox', { name: 'Brightness' });
+  await expect(brightness.locator('option')).toHaveText(['System', '10%', '25%', '50%', '75%', '100%']);
+  await brightness.selectOption({ label: '50%' });
+  await expect.poll(() => page.evaluate(() => window.calls)).toEqual(['hide', expect.stringMatching(/^lock \{"orientation":"(landscape|portrait)-primary"\}$/), 'brightness {"brightness":0.5}']);
+  // kept: set again when the app starts, and the rotation locked again
+  await page.evaluate(() => { window.calls = []; });
+  await loaded(page);
+  await expect.poll(() => page.evaluate(() => window.calls.map(c => c.split(' ')[0]).sort())).toEqual(['brightness', 'lock']);
+});
+
+test('a file the system opens with the app is dropped on the app', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.launchQueue = { setConsumer: f => { window.consume = f; } };
+  });
+  await loaded(page);
+  await page.evaluate(() => {
+    document.body.insertAdjacentHTML('beforeend', '<div data-pwa-file-drop id="drop"></div>');
+    window.dropped = [];
+    document.getElementById('drop').addEventListener('drop', e => window.dropped.push(...[...e.dataTransfer.files].map(f => f.name)));
+    window.consume({ files: [{ getFile: () => Promise.resolve(new File(['a book'], 'opened.txt', { type: 'text/plain' })) }] });
+  });
+  await expect.poll(() => page.evaluate(() => window.dropped)).toEqual(['opened.txt']);
+});
+
+test('a file shared with the installed app is kept by the service worker and dropped on the app', async ({ page }) => {
+  await loaded(page);
+  // once the service worker has the page
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.reload();
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller, { timeout: 15000 });
+  const redirected = await page.evaluate(async () => {
+    const form = new FormData();
+    form.append('file', new File(['shared words'], 'shared.txt', { type: 'text/plain' }));
+    const r = await fetch('share-target', { method: 'POST', body: form, redirect: 'manual' });
+    return r.type;
+  });
+  expect(redirected).toBe('opaqueredirect');
+  await page.addInitScript(() => {
+    window.dropped = [];
+    new MutationObserver(() => {
+      const el = document.getElementById('drop');
+      if (el && !el.dataset.watched) { el.dataset.watched = 'y'; el.addEventListener('drop', e => window.dropped.push(...[...e.dataTransfer.files].map(f => f.name + ':' + f.size))); }
+    }).observe(document, { childList: true, subtree: true });
+    document.addEventListener('DOMContentLoaded', () => document.body.insertAdjacentHTML('beforeend', '<div data-pwa-file-drop id="drop"></div>'));
+  });
+  await page.goto('/?shared=1');
+  await expect.poll(() => page.evaluate(() => window.dropped)).toEqual(['shared.txt:12']);
+  expect(await page.evaluate(() => location.search)).toBe('');
+});

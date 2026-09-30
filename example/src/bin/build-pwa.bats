@@ -5,9 +5,10 @@
 
 implement main0 () = let
   val assets = $A.alloc<byte>(1)
-  val () = $P.create_pwa("Example App", "dev.bats.example",
+  (* installed, it opens and is shared text files *)
+  val () = $P.create_pwa_opening("Example App", "dev.bats.example",
     "dist/release/pwa-web.wasm", "app.wasm", "dist/pwa",
-    assets, 0, 1)
+    assets, 0, 1, "text/plain", ".txt")
   val () = $A.free<byte>(assets)
   (* The Capacitor project around it: dist/android/build-android.sh
      builds the Android app *)
