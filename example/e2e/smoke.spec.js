@@ -135,10 +135,11 @@ test.describe('night by the local clock', () => {
     await page.waitForFunction(() => document.body.textContent.includes('BATS PWA'), { timeout: 15000 });
     const night = () => page.evaluate(() => document.documentElement.classList.contains('pwa-night'));
     expect(await night()).toBe(false);
-    await page.clock.fastForward('02:00');
+    // two minutes on: 22:01
+    await page.clock.runFor('02:00');
     expect(await night()).toBe(true);
-    // 07:00 the next morning
-    await page.clock.fastForward('09:00');
+    // nine hours on: 07:01 the next morning
+    await page.clock.runFor('09:00:00');
     expect(await night()).toBe(false);
   });
 });
