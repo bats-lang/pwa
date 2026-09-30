@@ -143,3 +143,31 @@ test.describe('night by the local clock', () => {
     expect(await night()).toBe(false);
   });
 });
+
+test('sharing: the selection with its citation, and a text as a Markdown file, after the app has written it', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.shared = [];
+    navigator.share = d => { window.shared.push({ text: d.text, title: d.title, files: (d.files || []).map(f => f.name + ':' + f.type) }); return Promise.resolve(); };
+    navigator.canShare = d => !!d.files;
+  });
+  await page.goto('/');
+  await page.waitForFunction(() => document.body.textContent.includes('BATS PWA'), { timeout: 15000 });
+  expect(await page.evaluate(() => document.documentElement.classList.contains('pwa-can-share'))).toBe(true);
+  await page.evaluate(() => {
+    document.body.insertAdjacentHTML('beforeend',
+      '<p id="words">Some words worth keeping</p><span id="cite" hidden>A Book, Its Author</span>' +
+      '<button data-pwa-share-selection="cite">Share selection</button>' +
+      '<pre id="notes" hidden></pre><button data-pwa-share-file="notes" data-pwa-share-name="notes.md" id="export">Share notes</button>');
+    // the app writes what is shared in its own listener, before the page's
+    document.getElementById('export').addEventListener('click', () => { document.getElementById('notes').textContent = '# Notes\n'; });
+    const r = document.createRange();
+    r.selectNodeContents(document.getElementById('words'));
+    getSelection().removeAllRanges(); getSelection().addRange(r);
+  });
+  await page.evaluate(() => document.querySelector('[data-pwa-share-selection]').click());
+  await page.getByRole('button', { name: 'Share notes' }).click();
+  await expect.poll(() => page.evaluate(() => window.shared)).toEqual([
+    { text: '“Some words worth keeping”\n— A Book, Its Author', files: [] },
+    { title: 'notes.md', files: ['notes.md:text/markdown'] },
+  ]);
+});
