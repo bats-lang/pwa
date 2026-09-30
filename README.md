@@ -35,6 +35,13 @@ PWA in `web_dir` (relative to `project_dir`, e.g. `"../pwa"`):
 (`ANDROID_HOME`), `sh <project_dir>/build-android.sh` builds a release
 AAB and APK into `<project_dir>/android/app/build/outputs/`.
 
+The activity (`MainActivity.java`) hands the page the files the app is
+opened with or shared (VIEW, SEND), and the volume keys, which a
+WebView never gives the page: each is offered to it as the `keydown` a
+browser sends (`AudioVolumeUp`, `AudioVolumeDown`). A page that takes
+one (`preventDefault`, say to turn a page) has it; otherwise the volume
+changes, as the key would have changed it.
+
 Signing: set `ANDROID_KEYSTORE` to a keystore file and
 `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`;
 without `ANDROID_KEYSTORE` the build is unsigned. `ANDROID_VERSION_CODE`
