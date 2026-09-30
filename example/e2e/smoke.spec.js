@@ -16,7 +16,7 @@ test('WASM app renders BATS PWA text', async ({ page }) => {
   expect(errors.length).toBe(0);
 });
 
-test('storage is asked to be persistent once the user gives the app a file, and only once', async ({ page }) => {
+test('storage is asked to be persistent once the user gives the app a file, and only once, and the page marked as it is', async ({ page }) => {
   await page.addInitScript(() => {
     window.persistAsked = 0;
     navigator.storage.persisted = () => Promise.resolve(false);
@@ -34,8 +34,15 @@ test('storage is asked to be persistent once the user gives the app a file, and 
   await page.mouse.click(5, 5);
   expect(await page.evaluate(() => window.persistAsked)).toBe(0);
   const file = { name: 'book.txt', mimeType: 'text/plain', buffer: Buffer.from('a book') };
+  const marked = name => page.evaluate(n => document.documentElement.classList.contains(n), name);
+  // not kept yet: at risk
+  expect(await marked('pwa-storage-at-risk')).toBe(true);
+  expect(await marked('pwa-storage-kept')).toBe(false);
   await page.setInputFiles('#given-file', file);
   await expect.poll(() => page.evaluate(() => window.persistAsked)).toBe(1);
+  // granted: kept
+  await expect.poll(() => marked('pwa-storage-kept')).toBe(true);
+  expect(await marked('pwa-storage-at-risk')).toBe(false);
   await page.setInputFiles('#given-file', { ...file, name: 'another.txt' });
   await page.waitForTimeout(200);
   expect(await page.evaluate(() => window.persistAsked)).toBe(1);
@@ -117,4 +124,22 @@ test('read aloud: sentence by sentence, marked, turning on with the next element
   await page.getByRole('button', { name: 'Read' }).click();
   await expect(page.getByRole('button', { name: 'Read' })).toHaveAttribute('aria-pressed', 'false');
   expect(await page.evaluate(() => CSS.highlights.has('pwa-spoken'))).toBe(false);
+});
+
+test.describe('night by the local clock', () => {
+  test.use({ timezoneId: 'Europe/Paris' });
+  test('the page is marked pwa-night from 22:00 to 07:00 local time', async ({ page }) => {
+    // 21:59 in Paris (UTC+2 in June)
+    await page.clock.install({ time: new Date('2026-06-01T19:59:00Z') });
+    await page.goto('/');
+    await page.waitForFunction(() => document.body.textContent.includes('BATS PWA'), { timeout: 15000 });
+    const night = () => page.evaluate(() => document.documentElement.classList.contains('pwa-night'));
+    expect(await night()).toBe(false);
+    // two minutes on: 22:01
+    await page.clock.runFor('02:00');
+    expect(await night()).toBe(true);
+    // nine hours on: 07:01 the next morning
+    await page.clock.runFor('09:00:00');
+    expect(await night()).toBe(false);
+  });
 });
