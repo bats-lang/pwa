@@ -831,6 +831,13 @@ implement build_capacitor_config (b, app_name, app_id, web_dir) = let
   val () = $B.bput(b, "  \"plugins\": {\n")
   val () = $B.bput(b, "    \"SystemBars\": {\n")
   val () = $B.bput(b, "      \"insetsHandling\": \"native\"\n")
+  val () = $B.bput(b, "    },\n")
+  (* fetch and XMLHttpRequest to another origin go through the
+     platform's HTTP, which CORS does not restrict: an app can read a
+     server (an OPDS catalogue, say) that a browser page cannot. The
+     app's own files (relative URLs) still load through the WebView *)
+  val () = $B.bput(b, "    \"CapacitorHttp\": {\n")
+  val () = $B.bput(b, "      \"enabled\": true\n")
   val () = $B.bput(b, "    }\n")
   val () = $B.bput(b, "  }\n")
   val () = $B.bput(b, "}\n")
