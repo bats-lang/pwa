@@ -35,7 +35,8 @@
 # With publish false (a branch or pull request, say) the AAB and APK are
 # built, signed and checked the same way, but not uploaded as artifacts:
 # the smoke test gets the APK through an artifact that it deletes once
-# it has it. So a branch shows that the signed release will build,
+# it passes (a failed one keeps it for its day, so the test alone can be
+# re-run). So a branch shows that the signed release will build,
 # without publishing one.
 name: android
 
@@ -198,6 +199,7 @@ jobs:
           path: app/${{ inputs.project-dir }}/android/app/build/outputs/apk/release/*.apk
 
       # Not published: the smoke test's copy of the APK, which it deletes
+      # once it passes
       - name: Hand the APK to the smoke test
         if: ${{ !inputs.publish && inputs.smoke-test-text != '' }}
         uses: actions/upload-artifact@v4
@@ -220,12 +222,6 @@ jobs:
         with:
           name: ${{ inputs.publish && 'release-apk' || 'smoke-apk' }}
           path: apk
-
-      - name: Delete the smoke test's copy of the APK
-        if: ${{ !inputs.publish }}
-        uses: geekyeggo/delete-artifact@v5
-        with:
-          name: smoke-apk
 
       - uses: actions/setup-java@v4
         with:
@@ -269,3 +265,11 @@ jobs:
             smoke/ui.xml
             smoke/logcat.txt
           if-no-files-found: ignore
+
+      # Only once the test passed: a failed test keeps the APK (for a
+      # day), so a re-run of this job alone can install it again
+      - name: Delete the smoke test's copy of the APK
+        if: ${{ success() && !inputs.publish }}
+        uses: geekyeggo/delete-artifact@v5
+        with:
+          name: smoke-apk
