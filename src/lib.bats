@@ -493,7 +493,9 @@ fn _speech_script {n:nat | n + 16000 <= $B.BUILDER_CAP}
   val () = $B.bput(b, "      }\n")
   val () = $B.bput(b, "      // A block's sentences: their text and ranges\n")
   val () = $B.bput(b, "      function sentences(block, lang) {\n")
-  val () = $B.bput(b, "        var nodes = [], text = '', w = document.createTreeWalker(block, NodeFilter.SHOW_TEXT), n;\n")
+  (* a ruby's readings (rt, rtc) and its fallback parentheses (rp) are
+     not read: only its base is *)
+  val () = $B.bput(b, "        var nodes = [], text = '', w = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, { acceptNode: function (t) { return t.parentElement && t.parentElement.closest('rt,rtc,rp') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; } }), n;\n")
   val () = $B.bput(b, "        while ((n = w.nextNode())) { nodes.push({ node: n, at: text.length }); text += n.data; }\n")
   val () = $B.bput(b, "        var spans = [];\n")
   val () = $B.bput(b, "        if (window.Intl && Intl.Segmenter) {\n")
