@@ -141,24 +141,25 @@ fun _put_range {l:agz}{na:nat}{i,e:nat | i <= e; e <= na}{n:nat | n + e - i <= $
     val () = $B.put_byte(b, $AR.low_byte(byte2int0($A.get<byte>(a, i))))
   in _put_range(a, i + 1, e, b) end
 
-(* Opens the NUL-terminated path in b (consumed) with flags and mode *)
-fn _open_built (b: $B.builder_v, flags: int, mode: int): $R.result($F.fd, int) = let
+(* Opens the NUL-terminated path in b (consumed) for access, as opening
+   says, with mode *)
+fn _open_built (b: $B.builder_v, access: $F.access, opening: $F.opening, mode: int): $R.result($F.fd, $F.io_error) = let
   val @(pa, _) = $B.to_arr(b)
   val @(fz, bv) = $A.freeze<byte>(pa)
-  val r = $F.file_open(bv, 524288, flags, mode)
+  val r = $F.file_open(bv, 524288, access, opening, mode)
   val () = $A.drop<byte>(fz, bv)
   val () = $A.free<byte>($A.thaw<byte>(fz))
 in r end
 
 (* Opens dir/filename for writing (created with mode, truncated) *)
 fn _open_out {nd:nat | nd < 256}{nf:nat | nf < 256}
-  (dir: string nd, filename: string nf, mode: int): $R.result($F.fd, int) = let
+  (dir: string nd, filename: string nf, mode: int): $R.result($F.fd, $F.io_error) = let
   var pb = $B.create()
   val () = $B.bput(pb, dir)
   val () = $B.put_char(pb, 47)
   val () = $B.bput(pb, filename)
   val () = $B.put_char(pb, 0)
-in _open_built(pb, 1 + 64 + 512, mode) end
+in _open_built(pb, $F.WriteOnly(), $F.CreateOrTruncate(), mode) end
 
 (* Creates the directory dir (mode 0755); nothing when it exists *)
 fn _mkdir {nd:nat | nd < 256} (dir: string nd): void = let
@@ -167,7 +168,7 @@ fn _mkdir {nd:nat | nd < 256} (dir: string nd): void = let
   val () = $B.put_char(mb, 0)
   val @(ma, _) = $B.to_arr(mb)
   val @(fzm, bvm) = $A.freeze<byte>(ma)
-  val () = $R.discard<int><int>($F.file_mkdir(bvm, 524288, 493))
+  val () = $R.discard<int><$F.io_error>($F.file_mkdir(bvm, 524288, 493))
   val () = $A.drop<byte>(fzm, bvm)
 in $A.free<byte>($A.thaw<byte>(fzm)) end
 
@@ -178,8 +179,8 @@ fn _write_builder (f: !$F.fd, content: $B.builder_v): void = let
 in
   if cl > 0 then let
     val @(left, right) = $A.borrow_split<byte>(fz, bv, cl)
-    val () = $R.discard<int><int>((case+ $F.file_write(f, left, cl) of
-      | ~$R.ok(w) => $R.ok(w) | ~$R.err(e) => $R.err(e)): $R.result(int, int))
+    val () = $R.discard<int><$F.io_error>((case+ $F.file_write(f, left, cl) of
+      | ~$R.ok(w) => $R.ok(w) | ~$R.err(e) => $R.err(e)): $R.result(int, $F.io_error))
     val () = $A.drop<byte>(fz, $A.borrow_join<byte>(fz, left, right))
   in $A.free<byte>($A.thaw<byte>(fz)) end
   else let
@@ -193,7 +194,7 @@ fn _write_mode {nd:nat | nd < 256}{nf:nat | nf < 256}
   case+ _open_out(dir, filename, mode) of
   | ~$R.ok(fd) => let
       val () = _write_builder(fd, content)
-    in $R.discard<int><int>($F.file_close(fd)) end
+    in $R.discard<int><$F.io_error>($F.file_close(fd)) end
   | ~$R.err(_) => $B.builder_free(content)
 
 (* Writes content to dir/filename (mode 0644) *)
@@ -203,11 +204,11 @@ fn _write_to {nd:nat | nd < 256}{nf:nat | nf < 256}
 
 (* Copies the file src (opened by the NUL-terminated path in sb) to f *)
 fn _copy_from (sb: $B.builder_v, f: !$F.fd): void =
-  case+ _open_built(sb, 0, 0) of
+  case+ _open_built(sb, $F.ReadOnly(), $F.OpenExisting(), 0) of
   | ~$R.ok(sfd) => let
-      val () = $R.discard<int><int>((case+ $F.fd_copy(sfd, f) of
-        | ~$R.ok(c) => $R.ok(c) | ~$R.err(e) => $R.err(e)): $R.result(int, int))
-    in $R.discard<int><int>($F.file_close(sfd)) end
+      val () = $R.discard<int><$F.io_error>((case+ $F.fd_copy(sfd, f) of
+        | ~$R.ok(c) => $R.ok(c) | ~$R.err(e) => $R.err(e)): $R.result(int, $F.io_error))
+    in $R.discard<int><$F.io_error>($F.file_close(sfd)) end
   | ~$R.err(_) => ()
 
 (* Copy file from src to dir/filename *)
@@ -219,7 +220,7 @@ fn _copy_to {ns:nat | ns < 256}{nd:nat | nd < 256}{nf:nat | nf < 256}
       val () = $B.bput(sb, src)
       val () = $B.put_char(sb, 0)
       val () = _copy_from(sb, fd)
-    in $R.discard<int><int>($F.file_close(fd)) end
+    in $R.discard<int><$F.io_error>($F.file_close(fd)) end
   | ~$R.err(_) => ()
 
 (* ============================================================
@@ -741,13 +742,13 @@ fn _copy_one_asset {la:agz}{nas:nat | nas + 257 <= $B.BUILDER_CAP}{p,e:nat | p <
   val () = _put_range(assets, base, e, db)
   val () = $B.put_char(db, 0)
 in
-  case+ _open_built(db, 1 + 64 + 512, 420) of
+  case+ _open_built(db, $F.WriteOnly(), $F.CreateOrTruncate(), 420) of
   | ~$R.ok(fd) => let
       var sb = $B.create()
       val () = _put_range(assets, p, e, sb)
       val () = $B.put_char(sb, 0)
       val () = _copy_from(sb, fd)
-    in $R.discard<int><int>($F.file_close(fd)) end
+    in $R.discard<int><$F.io_error>($F.file_close(fd)) end
   | ~$R.err(_) => ()
 end
 
