@@ -54,7 +54,9 @@
    ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD), never from a file; the
    version code is ANDROID_VERSION_CODE (1 when unset); the Kotlin
    standard library is pinned to one version, which Capacitor's
-   dependencies otherwise pull in twice *)
+   dependencies otherwise pull in twice: the one bridge's plugins need
+   (produce_kotlin_version, the newest any is compiled with; an older
+   one crashed the app at a plugin's first call, quire#223) *)
 #pub fn build_android_gradle {n:nat | n + 2000 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 2000] $B.builder(m)): void
 
@@ -392,9 +394,15 @@ implement build_android_gradle (b) = let
   val () = $B.bput(b, "}\n")
   val () = $B.bput(b, "configurations.all {\n")
   val () = $B.bput(b, "    resolutionStrategy {\n")
-  val () = $B.bput(b, "        force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'\n")
-  val () = $B.bput(b, "        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22'\n")
-  val () = $B.bput(b, "        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22'\n")
+  val () = $B.bput(b, "        force 'org.jetbrains.kotlin:kotlin-stdlib:")
+  val () = $B.bput(b, $BR.produce_kotlin_version())
+  val () = $B.bput(b, "'\n")
+  val () = $B.bput(b, "        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:")
+  val () = $B.bput(b, $BR.produce_kotlin_version())
+  val () = $B.bput(b, "'\n")
+  val () = $B.bput(b, "        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:")
+  val () = $B.bput(b, $BR.produce_kotlin_version())
+  val () = $B.bput(b, "'\n")
   val () = $B.bput(b, "    }\n")
   val () = $B.bput(b, "}\n")
 in end
