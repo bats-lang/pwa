@@ -104,6 +104,11 @@ jobs:
           # the app's activity (package from the app id) and the types it opens
           grep -q '^package dev.bats.example;' example/dist/android/MainActivity.java
           grep -q 'android:mimeType="text/plain"' example/dist/android/intent-filters.xml
+          # Auto Backup keeps bridge's backed-up files and nothing else
+          for f in backup-rules data-extraction-rules; do
+            python3 -c "import sys, xml.dom.minidom as m; d = m.parse(sys.argv[1]); i = d.getElementsByTagName('include'); assert i and all(e.getAttribute('domain') == 'file' and e.getAttribute('path') == 'backup/' for e in i); assert not d.getElementsByTagName('exclude')" "example/dist/android/$f.xml"
+          done
+          grep -q 'android:fullBackupContent=' example/dist/android/build-android.sh
           # the plugins it installs are exactly those of bridge's table
           python3 tests/android/plugins.py example/dist/android/package.json \
             example/bats_modules/wasm.bats-packages.dev/bridge/src/plugins.bats

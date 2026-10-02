@@ -123,7 +123,8 @@
 (* Writes a Capacitor project in project_dir for the PWA in web_dir
    (relative to project_dir): capacitor.config.json, package.json,
    android-release.gradle, MainActivity.java, intent-filters.xml,
-   build-android.sh and smoke-test.sh. Running build-android.sh (Node,
+   backup-rules.xml and data-extraction-rules.xml (Auto Backup keeps
+   bridge's backed-up files only), build-android.sh and smoke-test.sh. Running build-android.sh (Node,
    a JDK and the Android SDK needed) builds the Android app, which opens
    and is shared files of type mime. No secret is written: signing
    reads the keystore and its passwords when the build runs. *)
@@ -421,6 +422,13 @@ implement build_android_script (b, web_dir) = let
   val () = $B.bput(b, "cp MainActivity.java \"$(find android/app/src/main/java -name MainActivity.java)\"\n")
   val () = $B.bput(b, "m=android/app/src/main/AndroidManifest.xml\n")
   val () = $B.bput(b, "awk 'FNR==NR { f = f $0 \"\\n\"; next } /<\\/activity>/ && !d { printf \"%s\", f; d = 1 } { print }' intent-filters.xml \"$m\" > \"$m.new\"\n")
+  val () = $B.bput(b, "mv \"$m.new\" \"$m\"\n")
+  val () = $B.bput(b, "# Auto Backup keeps the directory of bridge's backed-up files and\n")
+  val () = $B.bput(b, "# nothing else of the app's (the WebView's data, the books, stay out)\n")
+  val () = $B.bput(b, "mkdir -p android/app/src/main/res/xml\n")
+  val () = $B.bput(b, "cp backup-rules.xml android/app/src/main/res/xml/backup_rules.xml\n")
+  val () = $B.bput(b, "cp data-extraction-rules.xml android/app/src/main/res/xml/data_extraction_rules.xml\n")
+  val () = $B.bput(b, "awk '/<application/ && !d { sub(/<application/, \"<application android:fullBackupContent=\\\"@xml/backup_rules\\\" android:dataExtractionRules=\\\"@xml/data_extraction_rules\\\"\"); d = 1 } { print }' \"$m\" > \"$m.new\"\n")
   val () = $B.bput(b, "mv \"$m.new\" \"$m\"\n")
   val () = $B.bput(b, "# the launcher icon: the PWA's\n")
   val () = $B.bput(b, "icon=\"")
@@ -812,6 +820,14 @@ implement create_android (app_name, app_id, web_dir, project_dir, mime) = let
   var if_b = $B.create()
   val () = build_intent_filters(if_b, mime)
   val () = _write_to(project_dir, "intent-filters.xml", if_b)
+  (* the backup rules the manifest names: bridge's, since bridge keeps
+     the files they name (its backup_file) *)
+  var full_backup_b = $B.create()
+  val () = $BR.produce_full_backup_content(full_backup_b)
+  val () = _write_to(project_dir, "backup-rules.xml", full_backup_b)
+  var extraction_b = $B.create()
+  val () = $BR.produce_data_extraction_rules(extraction_b)
+  val () = _write_to(project_dir, "data-extraction-rules.xml", extraction_b)
   var sh_b = $B.create()
   val () = build_android_script(sh_b, web_dir)
   val () = _write_mode(project_dir, "build-android.sh", sh_b, 493)
