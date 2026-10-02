@@ -27,7 +27,7 @@ fn _opened_make (): void = let
   val doc = $D.open_document($A.text_lit("bats-root"), 9)
   val @(root_frozen, root_bytes) = $A.freeze<byte>(_literal_bytes("bats-root", 9))
   val @(opened_frozen, opened_bytes) = $A.freeze<byte>(_literal_bytes("opened", 6))
-  val () = $D.add_element(doc, root_bytes, 9, opened_bytes, 6, "p")
+  val () = $D.add_element(doc, root_bytes, 9, opened_bytes, 6, $D.P)
   val () = _release_bytes(opened_frozen, opened_bytes)
   val () = _release_bytes(root_frozen, root_bytes)
 in $D.destroy(doc) end
