@@ -1,6 +1,7 @@
 (* pwa -- PWA and Android app shell generator for bats WASM apps *)
 (* Native build tool: writes index.html, bridge.js, service-worker.js, manifest.json to disk *)
-(* All JS generation is delegated to the bridge package. *)
+(* All JS generation is delegated to the bridge package: the page holds
+   bridge.js and nothing else, and the service worker is bridge's. *)
 (* For Android: writes a Capacitor project around the PWA (create_android) *)
 
 #include "share/atspre_staload.hats"
@@ -18,8 +19,10 @@
    Builder-based API (generate file contents into builders)
    ============================================================ *)
 
-#pub fn build_html {na:nat | na < 256}{n:nat | n + 36400 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 36400] $B.builder(m), app_name: string na): void
+(* index.html: the app's name while it loads, and bridge.js, which loads
+   the app; no script of its own *)
+#pub fn build_html {na:nat | na < 256}{n:nat | n + 2000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 2000] $B.builder(m), app_name: string na): void
 
 #pub fn build_manifest {na:nat | na < 256}{n:nat | n + 900 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 900] $B.builder(m), app_name: string na): void
@@ -28,16 +31,10 @@
    with its dot): as build_manifest, and the system opens those files
    with the installed app (file_handlers: bridge reads launchQueue and
    hands them to the app's listen_external_files) and
-   shares them with it (share_target, a POST the service worker keeps:
-   build_share_target_worker) *)
+   shares them with it (share_target: a POST bridge's service worker
+   keeps, and bridge hands to the app's listen_external_files) *)
 #pub fn build_manifest_opening {na:nat | na < 256}{nm,ne:nat | nm < 256; ne < 256}{n:nat | n + 2600 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 2600] $B.builder(m), app_name: string na, mime: string nm, ext: string ne): void
-
-(* The service worker's part for share_target: a file shared with the
-   installed app is POSTed to share-target, kept (the cache pwa-shared)
-   and the app opened at ?shared=, whose page drops it on the app *)
-#pub fn build_share_target_worker {n:nat | n + 1600 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 1600] $B.builder(m)): void
 
 (* capacitor.config.json: the app's name and id, and web_dir, the PWA's
    directory relative to the Capacitor project's *)
@@ -73,7 +70,7 @@
    each file the app is opened with (VIEW) or shared (SEND,
    SEND_MULTIPLE) to the page. The file is copied to the app's cache,
    and the page is given its local URL and name through
-   batsFetchExternal (the bridge's external files), once the page has
+   bridge's batsNative.deliverFile (the bridge's external files), once the page has
    it. *)
 #pub fn build_main_activity {ni:nat | ni < 256}{n:nat | n + 7000 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 7000] $B.builder(m), app_id: string ni): void
@@ -99,8 +96,8 @@
 
 (* As create_pwa, for an app that opens files of type mime (extension
    ext, with its dot): the installed app is offered them by the system
-   (build_manifest_opening), and its service worker keeps those shared
-   with it (build_share_target_worker) *)
+   (build_manifest_opening), and bridge's service worker keeps those
+   shared with it, for bridge to hand them to the app *)
 #pub fn create_pwa_opening {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nn:nat | nn < 200}{nd:nat | nd < 256}{la:agz}{nas:pos | nas + 257 <= $B.BUILDER_CAP}{k:nat | k <= nas}{nm,ne:nat | nm < 256; ne < 256}
   (app_name: string na, app_id: string ni,
    wasm_path: string nw, wasm_name: string nn,
@@ -229,403 +226,6 @@ fn _copy_to {ns:nat | ns < 256}{nd:nat | nd < 256}{nf:nat | nf < 256}
    Implementations -- builder API
    ============================================================ *)
 
-(* The screen and the system, for an app that offers them. Full screen
-   (the Fullscreen API, or the Android app's status bar hidden): the root
-   is marked pwa-can-fullscreen, a click on an element marked
-   data-pwa-fullscreen goes into or out of it, and while in it the root
-   is marked pwa-fullscreen. The rotation locked to the one the screen
-   has (the Android app's ScreenOrientation plugin, or screen.orientation
-   where it can lock: installed, or in full screen): pwa-can-lock, and a
-   click on data-pwa-orientation-lock. The screen's brightness, in the
-   Android app only (the ScreenBrightness plugin; a web page cannot set
-   it): pwa-can-brightness, and a select marked data-pwa-brightness,
-   which it fills and keeps. Those elements are marked aria-pressed as
-   they are. And the files the system shares with the app (share_target,
-   kept by the service worker): dropped on the element marked
-   data-pwa-file-drop, as a user's drop would be. The files it opens the
-   app with (file_handlers, launchQueue) reach the app through bridge's
-   listen_external_files, whose consumer is launchQueue's only one *)
-fn _screen_script {n:nat | n + 12000 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 12000] $B.builder(m)): void = let
-  val () = $B.bput(b, "  <script>\n")
-  val () = $B.bput(b, "    (function () {\n")
-  val () = $B.bput(b, "      var root = document.documentElement;\n")
-  val () = $B.bput(b, "      var P = (window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform() && Capacitor.Plugins) || {};\n")
-  val () = $B.bput(b, "      function kept(k, v) {\n")
-  val () = $B.bput(b, "        try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {}\n")
-  val () = $B.bput(b, "        return null;\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      function press(sel, on) {\n")
-  val () = $B.bput(b, "        document.querySelectorAll(sel).forEach(function (e) { e.setAttribute('aria-pressed', on ? 'true' : 'false'); });\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      function ignore(p) { if (p && p.catch) p.catch(function () {}); }\n")
-  val () = $B.bput(b, "      // Full screen: the Fullscreen API, or the Android app's status bar hidden\n")
-  val () = $B.bput(b, "      var full = false;\n")
-  val () = $B.bput(b, "      function fullNow() { return P.StatusBar ? full : !!document.fullscreenElement; }\n")
-  val () = $B.bput(b, "      function fullShown() {\n")
-  val () = $B.bput(b, "        root.classList.toggle('pwa-fullscreen', fullNow());\n")
-  val () = $B.bput(b, "        press('[data-pwa-fullscreen]', fullNow());\n")
-  val () = $B.bput(b, "        lockable();\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      if (P.StatusBar || document.fullscreenEnabled) root.classList.add('pwa-can-fullscreen');\n")
-  val () = $B.bput(b, "      document.addEventListener('fullscreenchange', fullShown);\n")
-  val () = $B.bput(b, "      function setFull(on) {\n")
-  val () = $B.bput(b, "        if (P.StatusBar) { full = on; ignore(on ? P.StatusBar.hide() : P.StatusBar.show()); fullShown(); return; }\n")
-  val () = $B.bput(b, "        ignore(on ? root.requestFullscreen() : document.exitFullscreen());\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      // The rotation, locked to the one the screen has now: the Android app's\n")
-  val () = $B.bput(b, "      // plugin, or screen.orientation where it can lock (installed, or full\n")
-  val () = $B.bput(b, "      // screen)\n")
-  val () = $B.bput(b, "      var locked = false;\n")
-  val () = $B.bput(b, "      function lockable() {\n")
-  val () = $B.bput(b, "        var web = !!(screen.orientation && screen.orientation.lock) &&\n")
-  val () = $B.bput(b, "          (fullNow() || matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches);\n")
-  val () = $B.bput(b, "        root.classList.toggle('pwa-can-lock', !!P.ScreenOrientation || web);\n")
-  val () = $B.bput(b, "        if (!P.ScreenOrientation && !web && locked) { locked = false; press('[data-pwa-orientation-lock]', false); }\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      function current() {\n")
-  val () = $B.bput(b, "        var t = (screen.orientation && screen.orientation.type) || (innerWidth > innerHeight ? 'landscape-primary' : 'portrait-primary');\n")
-  val () = $B.bput(b, "        return t;\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      function setLock(on) {\n")
-  val () = $B.bput(b, "        var p = P.ScreenOrientation ? (on ? P.ScreenOrientation.lock({ orientation: current() }) : P.ScreenOrientation.unlock())\n")
-  val () = $B.bput(b, "          : (on ? screen.orientation.lock(current()) : Promise.resolve(screen.orientation.unlock()));\n")
-  val () = $B.bput(b, "        Promise.resolve(p).then(function () {\n")
-  val () = $B.bput(b, "          locked = on; press('[data-pwa-orientation-lock]', on); kept('pwa-orientation-lock', on ? '1' : null);\n")
-  val () = $B.bput(b, "        }, function () { locked = false; press('[data-pwa-orientation-lock]', false); });\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      // The screen's brightness, in the Android app (a web page cannot set it)\n")
-  val () = $B.bput(b, "      var LEVELS = [['System', '-1'], ['10%', '0.1'], ['25%', '0.25'], ['50%', '0.5'], ['75%', '0.75'], ['100%', '1']];\n")
-  val () = $B.bput(b, "      function fillBrightness(s) {\n")
-  val () = $B.bput(b, "        if (s.options.length) return;\n")
-  val () = $B.bput(b, "        var cur = kept('pwa-brightness') || '-1';\n")
-  val () = $B.bput(b, "        LEVELS.forEach(function (l) { s.add(new Option(l[0], l[1], false, l[1] === cur)); });\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      if (P.ScreenBrightness) {\n")
-  val () = $B.bput(b, "        root.classList.add('pwa-can-brightness');\n")
-  val () = $B.bput(b, "        var b = kept('pwa-brightness');\n")
-  val () = $B.bput(b, "        if (b && b !== '-1') ignore(P.ScreenBrightness.setBrightness({ brightness: +b }));\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      if (P.ScreenOrientation && kept('pwa-orientation-lock')) setLock(true);\n")
-  val () = $B.bput(b, "      lockable();\n")
-  val () = $B.bput(b, "      new MutationObserver(function () {\n")
-  val () = $B.bput(b, "        document.querySelectorAll('select[data-pwa-brightness]:empty').forEach(fillBrightness);\n")
-  val () = $B.bput(b, "        press('[data-pwa-fullscreen]', fullNow());\n")
-  val () = $B.bput(b, "        press('[data-pwa-orientation-lock]', locked);\n")
-  val () = $B.bput(b, "      }).observe(root, { childList: true, subtree: true });\n")
-  val () = $B.bput(b, "      document.addEventListener('change', function (e) {\n")
-  val () = $B.bput(b, "        var s = e.target;\n")
-  val () = $B.bput(b, "        if (!s || !s.matches || !s.matches('select[data-pwa-brightness]') || !P.ScreenBrightness) return;\n")
-  val () = $B.bput(b, "        kept('pwa-brightness', s.value);\n")
-  val () = $B.bput(b, "        ignore(P.ScreenBrightness.setBrightness({ brightness: +s.value }));\n")
-  val () = $B.bput(b, "      }, true);\n")
-  val () = $B.bput(b, "      document.addEventListener('click', function (e) {\n")
-  val () = $B.bput(b, "        var t = e.target && e.target.closest && e.target.closest('[data-pwa-fullscreen],[data-pwa-orientation-lock]');\n")
-  val () = $B.bput(b, "        if (!t) return;\n")
-  val () = $B.bput(b, "        if (t.hasAttribute('data-pwa-fullscreen')) setFull(!fullNow());\n")
-  val () = $B.bput(b, "        else setLock(!locked);\n")
-  val () = $B.bput(b, "      }, true);\n")
-  val () = $B.bput(b, "    \n")
-  val () = $B.bput(b, "      // Files shared with the app (share_target, kept by the service worker):\n")
-  val () = $B.bput(b, "      // dropped on the element marked data-pwa-file-drop, as a user's drop\n")
-  val () = $B.bput(b, "      // would be\n")
-  val () = $B.bput(b, "      function drop(files) {\n")
-  val () = $B.bput(b, "        if (!files.length) return;\n")
-  val () = $B.bput(b, "        var tries = 0;\n")
-  val () = $B.bput(b, "        (function go() {\n")
-  val () = $B.bput(b, "          var el = document.querySelector('[data-pwa-file-drop]');\n")
-  val () = $B.bput(b, "          if (!el) { if (tries++ < 100) setTimeout(go, 100); return; }\n")
-  val () = $B.bput(b, "          setTimeout(function () {\n")
-  val () = $B.bput(b, "            var dt = new DataTransfer();\n")
-  val () = $B.bput(b, "            files.forEach(function (f) { dt.items.add(f); });\n")
-  val () = $B.bput(b, "            el.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));\n")
-  val () = $B.bput(b, "          }, 300);\n")
-  val () = $B.bput(b, "        })();\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      if (/[?&]shared=/.test(location.search) && window.caches) {\n")
-  val () = $B.bput(b, "        history.replaceState(null, '', location.pathname);\n")
-  val () = $B.bput(b, "        caches.open('pwa-shared').then(function (c) {\n")
-  val () = $B.bput(b, "          return c.keys().then(function (ks) {\n")
-  val () = $B.bput(b, "            return Promise.all(ks.map(function (k) {\n")
-  val () = $B.bput(b, "              return c.match(k).then(function (r) { return r.blob(); }).then(function (b) {\n")
-  val () = $B.bput(b, "                var name = decodeURIComponent(k.url.split('/').pop());\n")
-  val () = $B.bput(b, "                c.delete(k);\n")
-  val () = $B.bput(b, "                return new File([b], name, { type: b.type });\n")
-  val () = $B.bput(b, "              });\n")
-  val () = $B.bput(b, "            }));\n")
-  val () = $B.bput(b, "          });\n")
-  val () = $B.bput(b, "        }).then(drop, function () {});\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "    })();\n")
-in $B.bput(b, "  </script>\n") end
-
-(* Sharing (Web Share, or the Capacitor Share plugin in the Android
-   app, whose WebView has no navigator.share): the root is marked
-   pwa-can-share. A click on an element marked
-   data-pwa-share-selection shares the selection, quoted, with the text
-   of the element it names as its citation; one marked
-   data-pwa-share-file, the text of the element it names as a Markdown
-   file named by data-pwa-share-name (as its text where files cannot be
-   shared). It is taken in the bubbling phase,
-   after the app's own listener has written what is shared *)
-fn _share_script {n:nat | n + 4000 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 4000] $B.builder(m)): void = let
-  val () = $B.bput(b, "  <script>\n")
-  val () = $B.bput(b, "    (function () {\n")
-  val () = $B.bput(b, "      var root = document.documentElement;\n")
-  val () = $B.bput(b, "      var plugin = window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.Share;\n")
-  val () = $B.bput(b, "      if (!navigator.share && !plugin) return;\n")
-  val () = $B.bput(b, "      root.classList.add('pwa-can-share');\n")
-  val () = $B.bput(b, "      var files = false;\n")
-  val () = $B.bput(b, "      try { files = !!(navigator.canShare && navigator.canShare({ files: [new File(['.'], 'a.md', { type: 'text/markdown' })] })); } catch (e) {}\n")
-  val () = $B.bput(b, "      function share(d) {\n")
-  val () = $B.bput(b, "        var p = navigator.share ? navigator.share(d) : plugin.share({ title: d.title, text: d.text });\n")
-  val () = $B.bput(b, "        if (p && p.catch) p.catch(function () {});\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      document.addEventListener('click', function (e) {\n")
-  val () = $B.bput(b, "        var t = e.target && e.target.closest && e.target.closest('[data-pwa-share-selection],[data-pwa-share-file]');\n")
-  val () = $B.bput(b, "        if (!t) return;\n")
-  val () = $B.bput(b, "        if (t.hasAttribute('data-pwa-share-selection')) {\n")
-  val () = $B.bput(b, "          var s = String(window.getSelection() || '').trim();\n")
-  val () = $B.bput(b, "          if (!s) return;\n")
-  val () = $B.bput(b, "          var c = document.getElementById(t.getAttribute('data-pwa-share-selection'));\n")
-  val () = $B.bput(b, "          var cite = c ? c.textContent.trim() : '';\n")
-  val () = $B.bput(b, "          return share({ text: '\\u201c' + s + '\\u201d' + (cite ? '\\n\\u2014 ' + cite : '') });\n")
-  val () = $B.bput(b, "        }\n")
-  val () = $B.bput(b, "        var src = document.getElementById(t.getAttribute('data-pwa-share-file'));\n")
-  val () = $B.bput(b, "        var text = src ? src.textContent : '';\n")
-  val () = $B.bput(b, "        if (!text) return;\n")
-  val () = $B.bput(b, "        var name = t.getAttribute('data-pwa-share-name') || 'shared.md';\n")
-  val () = $B.bput(b, "        if (files) share({ files: [new File([text], name, { type: 'text/markdown' })], title: name });\n")
-  val () = $B.bput(b, "        else share({ title: name, text: text });\n")
-  val () = $B.bput(b, "      });\n")
-  val () = $B.bput(b, "    })();\n")
-in $B.bput(b, "  </script>\n") end
-
-(* Reading aloud, for an app that offers it (the Web Speech API): the
-   root is marked pwa-can-speak where the browser speaks. A click on an
-   element marked data-pwa-speak reads the element it names aloud, from
-   the first sentence on screen (or pauses it, and a click again goes on
-   where it was, if that is still on screen); on one marked
-   data-pwa-speak-selection, from the sentence the selection starts in.
-   It reads a sentence at a time (Intl.Segmenter), marked as the CSS
-   highlight pwa-spoken while it is read; when the next one is not on
-   screen it clicks the element marked data-pwa-speech-next (the app's
-   own next page, so the app turns it, into the next chapter too), and it
-   stops where that turns nothing. It speaks in the language of the text
-   (its lang), in the voice and at the speed chosen in the selects marked
-   data-pwa-speech-voice (naming the element read, whose language's
-   voices it offers) and data-pwa-speech-rate, which it fills and keeps
-   (localStorage), keeps the screen awake meanwhile (wake lock), and
-   marks the root pwa-speaking and the speak elements aria-pressed *)
-fn _speech_script {n:nat | n + 16000 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 16000] $B.builder(m)): void = let
-  val () = $B.bput(b, "  <script>\n")
-  val () = $B.bput(b, "    (function () {\n")
-  val () = $B.bput(b, "      var synth = window.speechSynthesis;\n")
-  val () = $B.bput(b, "      if (!synth || !window.SpeechSynthesisUtterance) return;\n")
-  val () = $B.bput(b, "      var root = document.documentElement;\n")
-  val () = $B.bput(b, "      root.classList.add('pwa-can-speak');\n")
-  val () = $B.bput(b, "      var RATES = [0.75, 1, 1.25, 1.5, 1.75, 2];\n")
-  val () = $B.bput(b, "      var BLOCKS = 'p,h1,h2,h3,h4,h5,h6,li,blockquote,dt,dd,figcaption,td,th,pre';\n")
-  val () = $B.bput(b, "      var run = null, wake = null;\n")
-  val () = $B.bput(b, "      function kept(k, v) {\n")
-  val () = $B.bput(b, "        try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {}\n")
-  val () = $B.bput(b, "        return null;\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      function langOf(box) {\n")
-  val () = $B.bput(b, "        var e = box.querySelector('[lang]') || box.closest('[lang]');\n")
-  val () = $B.bput(b, "        return ((e && e.getAttribute('lang')) || navigator.language || 'en').toLowerCase();\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      function same(a, b) { return a.split('-')[0] === b.split('-')[0]; }\n")
-  val () = $B.bput(b, "      function voices(lang) {\n")
-  val () = $B.bput(b, "        return synth.getVoices().filter(function (v) { return same(v.lang.toLowerCase(), lang); });\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      function rate() { return +(kept('pwa-speech-rate') || 1) || 1; }\n")
-  val () = $B.bput(b, "      function voice(lang) {\n")
-  val () = $B.bput(b, "        var want = kept('pwa-speech-voice:' + lang.split('-')[0]);\n")
-  val () = $B.bput(b, "        var vs = voices(lang);\n")
-  val () = $B.bput(b, "        return vs.filter(function (v) { return v.voiceURI === want; })[0] || vs.filter(function (v) { return v.default; })[0] || vs[0] || null;\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      function fill(s) {\n")
-  val () = $B.bput(b, "        s.textContent = '';\n")
-  val () = $B.bput(b, "        if (s.hasAttribute('data-pwa-speech-rate')) {\n")
-  val () = $B.bput(b, "          RATES.forEach(function (r) { s.add(new Option(r + '×', String(r), false, r === rate())); });\n")
-  val () = $B.bput(b, "          return;\n")
-  val () = $B.bput(b, "        }\n")
-  val () = $B.bput(b, "        var box = document.getElementById(s.getAttribute('data-pwa-speech-voice'));\n")
-  val () = $B.bput(b, "        var lang = box ? langOf(box) : (navigator.language || 'en').toLowerCase();\n")
-  val () = $B.bput(b, "        var cur = voice(lang);\n")
-  val () = $B.bput(b, "        s.add(new Option('Automatic', ''));\n")
-  val () = $B.bput(b, "        voices(lang).forEach(function (v) { s.add(new Option(v.name, v.voiceURI, false, cur === v && !!kept('pwa-speech-voice:' + lang.split('-')[0]))); });\n")
-  val () = $B.bput(b, "        s.dataset.pwaLang = lang;\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      function fillAll() {\n")
-  val () = $B.bput(b, "        document.querySelectorAll('select[data-pwa-speech-rate],select[data-pwa-speech-voice]').forEach(fill);\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      if (synth.addEventListener) synth.addEventListener('voiceschanged', fillAll);\n")
-  val () = $B.bput(b, "      document.addEventListener('focusin', function (e) {\n")
-  val () = $B.bput(b, "        var s = e.target;\n")
-  val () = $B.bput(b, "        if (s && s.matches && s.matches('select[data-pwa-speech-rate],select[data-pwa-speech-voice]')) fill(s);\n")
-  val () = $B.bput(b, "      }, true);\n")
-  val () = $B.bput(b, "      document.addEventListener('change', function (e) {\n")
-  val () = $B.bput(b, "        var s = e.target;\n")
-  val () = $B.bput(b, "        if (!s || !s.matches) return;\n")
-  val () = $B.bput(b, "        if (s.matches('select[data-pwa-speech-rate]')) kept('pwa-speech-rate', s.value);\n")
-  val () = $B.bput(b, "        else if (s.matches('select[data-pwa-speech-voice]')) kept('pwa-speech-voice:' + (s.dataset.pwaLang || 'en').split('-')[0], s.value);\n")
-  val () = $B.bput(b, "        else return;\n")
-  val () = $B.bput(b, "        if (run && !run.paused) { var r = run; stop(true); r.paused = false; play(r); }\n")
-  val () = $B.bput(b, "      }, true);\n")
-  val () = $B.bput(b, "      new MutationObserver(function () {\n")
-  val () = $B.bput(b, "        document.querySelectorAll('select[data-pwa-speech-rate]:empty,select[data-pwa-speech-voice]:empty').forEach(fill);\n")
-  val () = $B.bput(b, "      }).observe(document.documentElement, { childList: true, subtree: true });\n")
-  val () = $B.bput(b, "    \n")
-  val () = $B.bput(b, "      // The block elements of box, in order, from the one holding node (or\n")
-  val () = $B.bput(b, "      // the first)\n")
-  val () = $B.bput(b, "      function blocks(box) {\n")
-  val () = $B.bput(b, "        return Array.prototype.filter.call(box.querySelectorAll(BLOCKS), function (e) {\n")
-  val () = $B.bput(b, "          return !e.querySelector(BLOCKS) && /\\S/.test(e.textContent);\n")
-  val () = $B.bput(b, "        });\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      // A block's sentences: their text and ranges\n")
-  val () = $B.bput(b, "      function sentences(block, lang) {\n")
-  (* a ruby's readings (rt, rtc) and its fallback parentheses (rp) are
-     not read: only its base is *)
-  val () = $B.bput(b, "        var nodes = [], text = '', w = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, { acceptNode: function (t) { return t.parentElement && t.parentElement.closest('rt,rtc,rp') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; } }), n;\n")
-  val () = $B.bput(b, "        while ((n = w.nextNode())) { nodes.push({ node: n, at: text.length }); text += n.data; }\n")
-  val () = $B.bput(b, "        var spans = [];\n")
-  val () = $B.bput(b, "        if (window.Intl && Intl.Segmenter) {\n")
-  val () = $B.bput(b, "          var seg = new Intl.Segmenter(lang, { granularity: 'sentence' }).segment(text);\n")
-  val () = $B.bput(b, "          for (var it = seg[Symbol.iterator](), x = it.next(); !x.done; x = it.next()) spans.push([x.value.index, x.value.index + x.value.segment.length]);\n")
-  val () = $B.bput(b, "        } else {\n")
-  val () = $B.bput(b, "          var re = /[^.!?…]+[.!?…]*[\"'”’)\\]]*\\s*/g, m;\n")
-  val () = $B.bput(b, "          while ((m = re.exec(text))) spans.push([m.index, m.index + m[0].length]);\n")
-  val () = $B.bput(b, "        }\n")
-  val () = $B.bput(b, "        function point(i) {\n")
-  val () = $B.bput(b, "          for (var k = nodes.length - 1; k >= 0; k--) if (nodes[k].at <= i) return [nodes[k].node, Math.min(i - nodes[k].at, nodes[k].node.data.length)];\n")
-  val () = $B.bput(b, "          return [block, 0];\n")
-  val () = $B.bput(b, "        }\n")
-  val () = $B.bput(b, "        return spans.filter(function (s) { return /\\S/.test(text.slice(s[0], s[1])); }).map(function (s) {\n")
-  val () = $B.bput(b, "          var r = document.createRange(), a = point(s[0]), b = point(s[1]);\n")
-  val () = $B.bput(b, "          r.setStart(a[0], a[1]); r.setEnd(b[0], b[1]);\n")
-  val () = $B.bput(b, "          return { text: text.slice(s[0], s[1]).trim(), range: r };\n")
-  val () = $B.bput(b, "        });\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      function shown(box) { return box.isConnected && box.getClientRects().length > 0; }\n")
-  val () = $B.bput(b, "      // Where the range starts, against box: -1 before it, 0 in it, 1 after\n")
-  val () = $B.bput(b, "      function where(range, box) {\n")
-  val () = $B.bput(b, "        var r = range.getClientRects()[0] || range.getBoundingClientRect(), b = box.getBoundingClientRect();\n")
-  val () = $B.bput(b, "        if (r.left >= b.right - 1 || r.top >= b.bottom - 1) return 1;\n")
-  val () = $B.bput(b, "        if (r.right <= b.left + 1 || r.bottom <= b.top + 1) return -1;\n")
-  val () = $B.bput(b, "        return 0;\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      function mark(range) {\n")
-  val () = $B.bput(b, "        if (!window.CSS || !CSS.highlights || !window.Highlight) return;\n")
-  val () = $B.bput(b, "        if (range) CSS.highlights.set('pwa-spoken', new Highlight(range)); else CSS.highlights.delete('pwa-spoken');\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      function pressed(on) {\n")
-  val () = $B.bput(b, "        root.classList.toggle('pwa-speaking', on);\n")
-  val () = $B.bput(b, "        document.querySelectorAll('[data-pwa-speak]').forEach(function (e) { e.setAttribute('aria-pressed', on ? 'true' : 'false'); });\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      function awake(on) {\n")
-  val () = $B.bput(b, "        if (on && navigator.wakeLock && !wake) navigator.wakeLock.request('screen').then(function (l) { wake = l; }, function () {});\n")
-  val () = $B.bput(b, "        if (!on && wake) { wake.release().catch(function () {}); wake = null; }\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      function next(then) {\n")
-  val () = $B.bput(b, "        var e = document.querySelector('[data-pwa-speech-next]');\n")
-  val () = $B.bput(b, "        if (!e) return then();\n")
-  val () = $B.bput(b, "        e.click();\n")
-  val () = $B.bput(b, "        setTimeout(then, 300);\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      function stop(keep) {\n")
-  val () = $B.bput(b, "        if (!run) return;\n")
-  val () = $B.bput(b, "        run.gen++;\n")
-  val () = $B.bput(b, "        synth.cancel();\n")
-  val () = $B.bput(b, "        mark(null); pressed(false); awake(false);\n")
-  val () = $B.bput(b, "        if (keep) run.paused = true; else run = null;\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      // Reads run on from its block bi, sentence si: the page turned on (by\n")
-  val () = $B.bput(b, "      // the app's own next button) until the sentence is on it\n")
-  val () = $B.bput(b, "      function step(r, tries) {\n")
-  val () = $B.bput(b, "        if (run !== r || r.paused) return;\n")
-  val () = $B.bput(b, "        var box = r.box;\n")
-  val () = $B.bput(b, "        if (!shown(box)) return stop(false);\n")
-  val () = $B.bput(b, "        if (r.bi >= r.blocks.length || !r.blocks[r.bi].isConnected) {\n")
-  val () = $B.bput(b, "          // the chapter read (or replaced): on to the next one\n")
-  val () = $B.bput(b, "          var before = r.blocks[0];\n")
-  val () = $B.bput(b, "          if (tries > 2) return stop(false);\n")
-  val () = $B.bput(b, "          return next(function () {\n")
-  val () = $B.bput(b, "            if (run !== r) return;\n")
-  val () = $B.bput(b, "            var bs = blocks(box);\n")
-  val () = $B.bput(b, "            if (!bs.length || bs[0] === before) return step(r, tries + 1);\n")
-  val () = $B.bput(b, "            r.blocks = bs; r.bi = 0; r.si = 0; r.list = null;\n")
-  val () = $B.bput(b, "            step(r, 0);\n")
-  val () = $B.bput(b, "          });\n")
-  val () = $B.bput(b, "        }\n")
-  val () = $B.bput(b, "        if (!r.list) r.list = sentences(r.blocks[r.bi], r.lang);\n")
-  val () = $B.bput(b, "        if (r.si >= r.list.length) { r.bi++; r.si = 0; r.list = null; return step(r, 0); }\n")
-  val () = $B.bput(b, "        var s = r.list[r.si];\n")
-  val () = $B.bput(b, "        if (where(s.range, box) > 0 && tries < 3) return next(function () { step(r, tries + 1); });\n")
-  val () = $B.bput(b, "        mark(s.range);\n")
-  val () = $B.bput(b, "        var u = new SpeechSynthesisUtterance(s.text), g = r.gen, v = voice(r.lang);\n")
-  val () = $B.bput(b, "        u.lang = r.lang; u.rate = rate();\n")
-  val () = $B.bput(b, "        if (v) u.voice = v;\n")
-  val () = $B.bput(b, "        u.onend = function () { if (run === r && r.gen === g) { r.si++; step(r, 0); } };\n")
-  val () = $B.bput(b, "        u.onerror = function (e) { if (run === r && r.gen === g && e.error !== 'interrupted' && e.error !== 'canceled') stop(false); };\n")
-  val () = $B.bput(b, "        synth.speak(u);\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      function play(r) {\n")
-  val () = $B.bput(b, "        run = r;\n")
-  val () = $B.bput(b, "        pressed(true); awake(true);\n")
-  val () = $B.bput(b, "        step(r, 0);\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      // A run of box from the sentence holding node at offset (or from the\n")
-  val () = $B.bput(b, "      // first sentence on the page)\n")
-  val () = $B.bput(b, "      function start(box, node, offset) {\n")
-  val () = $B.bput(b, "        var bs = blocks(box), lang = langOf(box), bi = 0, si = 0;\n")
-  val () = $B.bput(b, "        if (node) {\n")
-  val () = $B.bput(b, "          for (bi = 0; bi < bs.length && !bs[bi].contains(node); bi++);\n")
-  val () = $B.bput(b, "          if (bi < bs.length) {\n")
-  val () = $B.bput(b, "            // the sentence the point is in, or the first after it\n")
-  val () = $B.bput(b, "            var list = sentences(bs[bi], lang);\n")
-  val () = $B.bput(b, "            for (si = 0; si < list.length - 1 && list[si + 1].range.comparePoint(node, offset) >= 0; si++);\n")
-  val () = $B.bput(b, "          } else bi = 0;\n")
-  val () = $B.bput(b, "        } else {\n")
-  val () = $B.bput(b, "          while (bi < bs.length) {\n")
-  val () = $B.bput(b, "            var l = sentences(bs[bi], lang), k = 0;\n")
-  val () = $B.bput(b, "            while (k < l.length && where(l[k].range, box) < 0) k++;\n")
-  val () = $B.bput(b, "            if (k < l.length) { si = k; break; }\n")
-  val () = $B.bput(b, "            bi++;\n")
-  val () = $B.bput(b, "          }\n")
-  val () = $B.bput(b, "        }\n")
-  val () = $B.bput(b, "        return { box: box, blocks: bs, bi: bi, si: si, list: null, lang: lang, gen: 0, paused: false };\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      document.addEventListener('click', function (e) {\n")
-  val () = $B.bput(b, "        var t = e.target && e.target.closest && e.target.closest('[data-pwa-speak],[data-pwa-speak-selection]');\n")
-  val () = $B.bput(b, "        if (!t) return;\n")
-  val () = $B.bput(b, "        var sel = t.hasAttribute('data-pwa-speak-selection');\n")
-  val () = $B.bput(b, "        var box = document.getElementById(t.getAttribute(sel ? 'data-pwa-speak-selection' : 'data-pwa-speak'));\n")
-  val () = $B.bput(b, "        if (!box) return;\n")
-  val () = $B.bput(b, "        if (sel) {\n")
-  val () = $B.bput(b, "          var s = window.getSelection();\n")
-  val () = $B.bput(b, "          if (!s || !s.rangeCount || !box.contains(s.getRangeAt(0).startContainer)) return;\n")
-  val () = $B.bput(b, "          var a = s.getRangeAt(0);\n")
-  val () = $B.bput(b, "          stop(false);\n")
-  val () = $B.bput(b, "          return play(start(box, a.startContainer, a.startOffset));\n")
-  val () = $B.bput(b, "        }\n")
-  val () = $B.bput(b, "        if (run && !run.paused) return stop(true);\n")
-  val () = $B.bput(b, "        // go on from where it was paused, if that is still on the page\n")
-  val () = $B.bput(b, "        if (run && run.paused && run.box === box && run.list && run.list[run.si] && run.blocks[run.bi].isConnected && where(run.list[run.si].range, box) === 0) {\n")
-  val () = $B.bput(b, "          run.paused = false;\n")
-  val () = $B.bput(b, "          return play(run);\n")
-  val () = $B.bput(b, "        }\n")
-  val () = $B.bput(b, "        stop(false);\n")
-  val () = $B.bput(b, "        play(start(box, null, 0));\n")
-  val () = $B.bput(b, "      }, true);\n")
-  val () = $B.bput(b, "      window.addEventListener('pagehide', function () { stop(false); });\n")
-  val () = $B.bput(b, "    })();\n")
-in $B.bput(b, "  </script>\n") end
-
 implement build_html (b, app_name) = let
   val () = $B.bput(b, "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n")
   val () = $B.bput(b, "  <meta charset=\"UTF-8\">\n")
@@ -657,80 +257,6 @@ implement build_html (b, app_name) = let
   val () = $B.bput(b, "    </div>\n")
   val () = $B.bput(b, "  </div>\n")
   val () = $B.bput(b, "  <script type=\"module\" src=\"bridge.js\"></script>\n")
-  (* What the app keeps (IndexedDB) is best effort until it is made
-     persistent: under storage pressure the browser may clear it. It is
-     asked for once the user has given the app a file (picked or
-     dropped), the moment its storage holds something of theirs: Chrome
-     grants it by the site's engagement without asking, Firefox asks
-     the user, so it is not asked before
-     (web.dev/articles/persistent-storage) *)
-  val () = $B.bput(b, "  <script>\n")
-  val () = $B.bput(b, "    (function () {\n")
-  val () = $B.bput(b, "      var s = navigator.storage, root = document.documentElement;\n")
-  (* whether it is kept, for the app to say so: pwa-storage-kept, or
-     pwa-storage-at-risk; an app of its own (Capacitor) keeps its
-     storage as an app's data, which only the user clears *)
-  val () = $B.bput(b, "      function mark(kept) {\n")
-  val () = $B.bput(b, "        root.classList.toggle('pwa-storage-kept', kept);\n")
-  val () = $B.bput(b, "        root.classList.toggle('pwa-storage-at-risk', !kept);\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      var native = window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform();\n")
-  val () = $B.bput(b, "      if (native) return mark(true);\n")
-  val () = $B.bput(b, "      if (!s || !s.persist || !s.persisted) return;\n")
-  val () = $B.bput(b, "      s.persisted().then(mark).catch(function () {});\n")
-  val () = $B.bput(b, "      var asked = false;\n")
-  val () = $B.bput(b, "      function given(e) {\n")
-  val () = $B.bput(b, "        var f = e.type === 'drop' ? e.dataTransfer && e.dataTransfer.files\n")
-  val () = $B.bput(b, "          : e.target && e.target.type === 'file' && e.target.files;\n")
-  val () = $B.bput(b, "        if (asked || !f || !f.length) return;\n")
-  val () = $B.bput(b, "        asked = true;\n")
-  val () = $B.bput(b, "        s.persisted().then(function (p) { return p || s.persist(); }).then(mark).catch(function () {});\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      document.addEventListener('change', given, true);\n")
-  val () = $B.bput(b, "      document.addEventListener('drop', given, true);\n")
-  val () = $B.bput(b, "    })();\n")
-  val () = $B.bput(b, "  </script>\n")
-  (* Installing. The root element is marked pwa-can-install while the
-     browser offers to install the app (beforeinstallprompt: Chrome and
-     Edge; its own mini-infobar is kept back, as for an app's own
-     install button), and a click on an element marked data-pwa-install
-     asks it to; the app shows that element only under the mark. On iOS
-     Safari outside the Home Screen (navigator.standalone false, which
-     only iOS defines) there is no such prompt: the root is marked
-     pwa-ios-browser, for the app to say how to add it there
-     (web.dev/articles/promote-install, firt.dev/notes/pwa-ios) *)
-  val () = $B.bput(b, "  <script>\n")
-  val () = $B.bput(b, "    (function () {\n")
-  val () = $B.bput(b, "      var root = document.documentElement, offer = null;\n")
-  (* night by the local clock, 22:00 to 07:00 (iOS Night Shift's
-     default schedule), which an app's wasm cannot tell (its time is
-     UTC): pwa-night, checked each minute *)
-  (* and the local time's offset from UTC, for the local day: a hidden
-     element whose id is pwa-utc-offset- and the minutes east of UTC
-     plus 1440 (never below 0), which wasm reads with querySelector *)
-  val () = $B.bput(b, "      var zone = document.createElement('i'); zone.hidden = true; document.body.appendChild(zone);\n")
-  val () = $B.bput(b, "      function night() { var d = new Date(), h = d.getHours(); root.classList.toggle('pwa-night', h >= 22 || h < 7);\n")
-  val () = $B.bput(b, "        zone.id = 'pwa-utc-offset-' + (1440 - d.getTimezoneOffset()); }\n")
-  val () = $B.bput(b, "      night(); setInterval(night, 60000);\n")
-  val () = $B.bput(b, "      document.addEventListener('visibilitychange', night);\n")
-  val () = $B.bput(b, "      if (navigator.standalone === false) root.classList.add('pwa-ios-browser');\n")
-  val () = $B.bput(b, "      window.addEventListener('beforeinstallprompt', function (e) {\n")
-  val () = $B.bput(b, "        e.preventDefault(); offer = e; root.classList.add('pwa-can-install');\n")
-  val () = $B.bput(b, "      });\n")
-  val () = $B.bput(b, "      window.addEventListener('appinstalled', function () {\n")
-  val () = $B.bput(b, "        offer = null; root.classList.remove('pwa-can-install');\n")
-  val () = $B.bput(b, "      });\n")
-  val () = $B.bput(b, "      document.addEventListener('click', function (e) {\n")
-  val () = $B.bput(b, "        var t = e.target && e.target.closest && e.target.closest('[data-pwa-install]');\n")
-  val () = $B.bput(b, "        if (!t || !offer) return;\n")
-  val () = $B.bput(b, "        var o = offer; offer = null; root.classList.remove('pwa-can-install');\n")
-  val () = $B.bput(b, "        o.prompt();\n")
-  val () = $B.bput(b, "      }, true);\n")
-  val () = $B.bput(b, "    })();\n")
-  val () = $B.bput(b, "  </script>\n")
-  val () = _speech_script(b)
-  val () = _share_script(b)
-  val () = _screen_script(b)
   val () = $B.bput(b, "</body>\n</html>\n")
 in end
 
@@ -782,24 +308,6 @@ implement build_manifest_opening (b, app_name, mime, ext) = let
   val () = $B.bput(b, ext)
   val () = $B.bput(b, "\"] }] } }\n")
   val () = $B.bput(b, "}\n")
-in end
-
-implement build_share_target_worker (b) = let
-  val () = $B.bput(b, "// files shared with the installed app (the manifest's share_target)\n")
-  val () = $B.bput(b, "self.addEventListener('fetch', function (e) {\n")
-  val () = $B.bput(b, "  var u = new URL(e.request.url);\n")
-  val () = $B.bput(b, "  if (e.request.method !== 'POST' || !/\\/share-target$/.test(u.pathname)) return;\n")
-  val () = $B.bput(b, "  e.stopImmediatePropagation();\n")
-  val () = $B.bput(b, "  e.respondWith((async function () {\n")
-  val () = $B.bput(b, "    var files = (await e.request.formData()).getAll('file');\n")
-  val () = $B.bput(b, "    var cache = await caches.open('pwa-shared');\n")
-  val () = $B.bput(b, "    await Promise.all(files.map(function (f, i) {\n")
-  val () = $B.bput(b, "      return cache.put(new URL('shared/' + i + '/' + encodeURIComponent(f.name), self.registration.scope).href,\n")
-  val () = $B.bput(b, "        new Response(f, { headers: { 'content-type': f.type || 'application/octet-stream' } }));\n")
-  val () = $B.bput(b, "    }));\n")
-  val () = $B.bput(b, "    return Response.redirect(new URL('./?shared=' + files.length, self.registration.scope).href, 303);\n")
-  val () = $B.bput(b, "  })());\n")
-  val () = $B.bput(b, "});\n")
 in end
 
 implement build_capacitor_config (b, app_name, app_id, web_dir) = let
@@ -996,11 +504,10 @@ implement build_main_activity (b, app_id) = let
   val () = $B.bput(b, "        if (bridge == null || bridge.getWebView() == null) return super.dispatchKeyEvent(event);\n")
   val () = $B.bput(b, "        if (event.getAction() != KeyEvent.ACTION_DOWN) return true;\n")
   val () = $B.bput(b, "        final boolean up = code == KeyEvent.KEYCODE_VOLUME_UP;\n")
-  val () = $B.bput(b, "        final String js = \"(function(){var t=document.activeElement||document.body;\"\n")
-  val () = $B.bput(b, "            + \"return t.dispatchEvent(new KeyboardEvent('keydown',{key:'\"\n")
-  val () = $B.bput(b, "            + (up ? \"AudioVolumeUp\" : \"AudioVolumeDown\") + \"',bubbles:true,cancelable:true}));})()\";\n")
+  val () = $B.bput(b, "        final String js = \"globalThis.batsNative.key(\"\n")
+  val () = $B.bput(b, "            + JSONObject.quote(up ? \"AudioVolumeUp\" : \"AudioVolumeDown\") + \")\";\n")
   val () = $B.bput(b, "        bridge.getWebView().evaluateJavascript(js, r -> {\n")
-  val () = $B.bput(b, "            boolean taken = \"false\".equals(r);\n")
+  val () = $B.bput(b, "            boolean taken = \"true\".equals(r);\n")
   val () = $B.bput(b, "            Log.i(TAG, \"volume key: \" + (taken ? \"the page took it\" : \"the page left it\"));\n")
   val () = $B.bput(b, "            if (taken) return;\n")
   val () = $B.bput(b, "            AudioManager audio = (AudioManager) getSystemService(AUDIO_SERVICE);\n")
@@ -1056,9 +563,9 @@ implement build_main_activity (b, app_id) = let
   val () = $B.bput(b, "                    int n;\n")
   val () = $B.bput(b, "                    while ((n = in.read(buf)) > 0) os.write(buf, 0, n);\n")
   val () = $B.bput(b, "                }\n")
-  val () = $B.bput(b, "                final String js = \"(function(){if(!globalThis.batsFetchExternal)return false;\"\n")
-  val () = $B.bput(b, "                    + \"globalThis.batsFetchExternal(\" + JSONObject.quote(\"/_capacitor_file_\" + out.getAbsolutePath())\n")
-  val () = $B.bput(b, "                    + \",\" + JSONObject.quote(name) + \");return true;})()\";\n")
+  val () = $B.bput(b, "                final String js = \"globalThis.batsNative.deliverFile(\"\n")
+  val () = $B.bput(b, "                    + JSONObject.quote(\"/_capacitor_file_\" + out.getAbsolutePath())\n")
+  val () = $B.bput(b, "                    + \",\" + JSONObject.quote(name) + \")\";\n")
   val () = $B.bput(b, "                Log.i(TAG, \"copied \" + out.length() + \" bytes to \" + out);\n")
   val () = $B.bput(b, "                handler.post(() -> hand(js, 240));\n")
   val () = $B.bput(b, "            } catch (Exception e) {\n")
@@ -1282,8 +789,6 @@ implement create_pwa_opening (app_name, app_id, wasm_path, wasm_name, out_dir, a
   val () = $BR.produce_bridge_app(br_b, wasm_name, "bats-root")
   val () = _write_to(out_dir, "bridge.js", br_b)
   var sw_b = $B.create()
-  (* first, so that it takes the share's POST before the bridge's own *)
-  val () = build_share_target_worker(sw_b)
   val () = $BR.produce_service_worker(sw_b, wasm_name)
   val () = _write_to(out_dir, "service-worker.js", sw_b)
   var mf_b = $B.create()
