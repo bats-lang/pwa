@@ -14,39 +14,44 @@ fn _write {n:pos | n < 1048576}{m:pos | m <= 1048576}
   (path: &(@[char][n]), n: int n, body: &(@[char][m]), m: int m): void = let
   val @(fp, bp) = $A.freeze<byte>($S.from_char_array(path, n))
   val @(fb, bb) = $A.freeze<byte>($S.from_char_array(body, m))
-  val () = (case+ $F.file_open(bp, n, 577, 420) of
+  val () = (case+ $F.file_open(bp, n, $F.WriteOnly(), $F.CreateOrTruncate(), 420) of
     | ~$R.ok(fd) => let
-        val () = $R.discard<int(m)><int>($F.file_write(fd, bb, m))
-      in $R.discard<int><int>($F.file_close(fd)) end
+        val () = $R.discard<int(m)><$F.io_error>($F.file_write(fd, bb, m))
+      in $R.discard<int><$F.io_error>($F.file_close(fd)) end
     | ~$R.err(_) => ()): void
   val () = $A.drop<byte>(fp, bp)
   val () = $A.free<byte>($A.thaw<byte>(fp))
   val () = $A.drop<byte>(fb, bb)
 in $A.free<byte>($A.thaw<byte>(fb)) end
 
-(* Bytes read from an open result into buf, or ~1 if it failed. *)
-fn _read {l:agz} (r: $R.result($F.fd, int), buf: !$A.arr(byte, l, 64)): [k:int | ~1 <= k; k <= 64] int k =
+(* Bytes read from an open result into buf, or none if it did not open. *)
+fn _read {l:agz} (r: $R.result($F.fd, $F.io_error), buf: !$A.arr(byte, l, 64)): $R.option([k:nat | k <= 64] int k) =
   case+ r of
   | ~$R.ok(fd) => let
       val k = (case+ $F.file_read(fd, buf, 64) of
         | ~$R.ok(k) => k | ~$R.err(_) => 0): [k:nat | k <= 64] int k
-      val () = $R.discard<int><int>($F.file_close(fd))
-    in k end
-  | ~$R.err(_) => ~1
+      val () = $R.discard<int><$F.io_error>($F.file_close(fd))
+    in $R.some(k) end
+  | ~$R.err(_) => $R.none()
 
 fun _pr {l:agz}{i:nat | i <= 64} .<64 - i>. (buf: !$A.arr(byte, l, 64), i: int i, k: int): void =
   if i >= 64 then () else if i >= k then ()
   else let val () = print_char(int2char0(byte2int0($A.get<byte>(buf, i)))) in _pr(buf, i + 1, k) end
 
+(* Prints label: <length> [<bytes>] for what was read, or label: missing *)
+fn _print_got {l:agz} (label: string, got: $R.option([k:nat | k <= 64] int k), buf: !$A.arr(byte, l, 64)): void =
+  case+ got of
+  | ~$R.some(k) => let
+      val () = print! (label, ": ", k, " [")
+      val () = _pr(buf, 0, k)
+    in println! ("]") end
+  | ~$R.none() => println! (label, ": missing")
+
 (* Prints path: <length> [<bytes>], or path: missing. *)
 fn _show {n:pos | n < 1048576} (label: string, path: &(@[char][n]), n: int n): void = let
   val @(fp, bp) = $A.freeze<byte>($S.from_char_array(path, n))
   val buf = $A.alloc<byte>(64)
-  val k = _read($F.file_open(bp, n, 0, 0), buf)
-  val () = (if k < 0 then println! (label, ": missing")
-            else print! (label, ": ", k, " [")): void
-  val () = _pr(buf, 0, k)
-  val () = (if k >= 0 then println! ("]") else ()): void
+  val () = _print_got(label, _read($F.file_open(bp, n, $F.ReadOnly(), $F.OpenExisting(), 0), buf), buf)
   val () = $A.free<byte>(buf)
   val () = $A.drop<byte>(fp, bp)
 in $A.free<byte>($A.thaw<byte>(fp)) end
@@ -54,7 +59,7 @@ in $A.free<byte>($A.thaw<byte>(fp)) end
 implement main0 () = let
   var d_in = @[char][2]('i', 'n')
   val @(fd0, bd0) = $A.freeze<byte>($S.from_char_array(d_in, 2))
-  val () = $R.discard<int><int>($F.file_mkdir(bd0, 2, 493))
+  val () = $R.discard<int><$F.io_error>($F.file_mkdir(bd0, 2, 493))
   val () = $A.drop<byte>(fd0, bd0)
   val () = $A.free<byte>($A.thaw<byte>(fd0))
   var p1 = @[char][10]('i', 'n', '/', 'o', 'n', 'e', '.', 't', 'x', 't')
