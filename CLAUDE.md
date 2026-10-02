@@ -18,7 +18,14 @@ app, in Bats, on those atoms (bats-lang/pwa#49).
 * The Android activity (`MainActivity.java`) runs no JS of its own: it
   calls bridge's entry points, `globalThis.batsNative.deliverFile(url,
   name)` for a file it hands over and `globalThis.batsNative.key(name)`
-  for a volume key, one call each, and reads their answer.
+  for a volume key, one call each, and reads their answer. It calls one
+  only once `batsNative` exists (a share can start the app before its
+  page has loaded bridge.js); until then the answer is false.
+* The Android smoke test runs on AOSP's emulator image, without Google
+  Play services: on a fresh boot they restart their process at no set
+  time, and Android kills every app holding a connection to one of
+  their providers, as Android System WebView does to their FontsProvider
+  (quire#220). The system image is cached between runs.
 
 ## Changes to pwa
 
