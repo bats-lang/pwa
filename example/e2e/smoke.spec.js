@@ -228,18 +228,19 @@ test('in the Android app: the status bar hidden, the rotation locked, the bright
   await expect.poll(() => page.evaluate(() => window.calls.map(c => c.split(' ')[0]).sort())).toEqual(['brightness', 'lock']);
 });
 
-test('a file the system opens with the app is dropped on the app', async ({ page }) => {
+test('a file the system opens with the app reaches it through the bridge, launchQueue\'s only consumer', async ({ page }) => {
   await page.addInitScript(() => {
-    Object.defineProperty(window, 'launchQueue', { value: { setConsumer: f => { window.consume = f; } }, configurable: true });
+    window.consumers = [];
+    Object.defineProperty(window, 'launchQueue', { value: { setConsumer: f => { window.consumers.push(f); } }, configurable: true });
   });
   await loaded(page);
+  // one consumer, bridge's: the page's own scripts set none
+  expect(await page.evaluate(() => window.consumers.length)).toBe(1);
   await page.evaluate(() => {
-    document.body.insertAdjacentHTML('beforeend', '<div data-pwa-file-drop id="drop"></div>');
-    window.dropped = [];
-    document.getElementById('drop').addEventListener('drop', e => window.dropped.push(...[...e.dataTransfer.files].map(f => f.name)));
-    window.consume({ files: [{ getFile: () => Promise.resolve(new File(['a book'], 'opened.txt', { type: 'text/plain' })) }] });
+    window.consumers[0]({ files: [{ getFile: () => Promise.resolve(new File(['a book'], 'opened.txt', { type: 'text/plain' })) }] });
   });
-  await expect.poll(() => page.evaluate(() => window.dropped)).toEqual(['opened.txt']);
+  // the app, listening for external files, shows the file's name
+  await expect(page.locator('#opened')).toHaveText('opened.txt');
 });
 
 test('a file shared with the installed app is kept by the service worker and dropped on the app', async ({ page }) => {
