@@ -21,13 +21,11 @@ app, in Bats, on those atoms (bats-lang/pwa#49).
   for a volume key, one call each, and reads their answer. It calls one
   only once `batsNative` exists (a share can start the app before its
   page has loaded bridge.js); until then the answer is false.
-* The Android app depends on no other app's process: Android kills an
-  app holding a connection to a provider whose process dies, and Google
-  Play services restarts its own now and then. So build-android.sh drops
-  emoji2's initializer (androidx.appcompat's, which holds one to Play
-  services' FontsProvider for an emoji font the WebView never uses), and
-  the smoke test fails when the app holds a connection to Play services
-  (quire#220).
+* The Android smoke test runs on AOSP's emulator image, without Google
+  Play services: on a fresh boot they restart their process at no set
+  time, and Android kills every app holding a connection to one of
+  their providers, as Android System WebView does to their FontsProvider
+  (quire#220). The system image is cached between runs.
 
 ## Changes to pwa
 

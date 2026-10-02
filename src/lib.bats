@@ -115,10 +115,8 @@
    given as its third. With a fourth, fifth and sixth (a file, its type
    and a text), it then shares the file with the app (SEND, on an
    emulator where adb can be root) and waits for that text too. Fails
-   when a text never shows, the app crashes, the page logs an error to
-   the console, or the app holds a connection to a provider of Google
-   Play services (which restart now and then, and Android kills the app
-   with them). *)
+   when a text never shows, the app crashes, or the page logs an error
+   to the console. *)
 #pub fn build_smoke_test_script {ni:nat | ni < 256}{n:nat | n + 7000 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 7000] $B.builder(m), app_id: string ni): void
 
@@ -425,15 +423,6 @@ implement build_android_script (b, web_dir) = let
   val () = $B.bput(b, "m=android/app/src/main/AndroidManifest.xml\n")
   val () = $B.bput(b, "awk 'FNR==NR { f = f $0 \"\\n\"; next } /<\\/activity>/ && !d { printf \"%s\", f; d = 1 } { print }' intent-filters.xml \"$m\" > \"$m.new\"\n")
   val () = $B.bput(b, "mv \"$m.new\" \"$m\"\n")
-  val () = $B.bput(b, "# Google Play services restarts its process now and then (once after a\n")
-  val () = $B.bput(b, "# fresh boot, and whenever it updates a module), and Android then kills\n")
-  val () = $B.bput(b, "# every app holding a connection to one of its providers. emoji2 (which\n")
-  val () = $B.bput(b, "# androidx.appcompat brings) holds one to its FontsProvider from the\n")
-  val () = $B.bput(b, "# app's start, for an emoji font the WebView never uses: its\n")
-  val () = $B.bput(b, "# initializer is dropped, so the app depends on no other app's process\n")
-  val () = $B.bput(b, "grep -q 'xmlns:tools=' \"$m\" || { awk '/<manifest / && !d { sub(/<manifest /, \"<manifest xmlns:tools=\\\"http://schemas.android.com/tools\\\" \"); d = 1 } { print }' \"$m\" > \"$m.new\"; mv \"$m.new\" \"$m\"; }\n")
-  val () = $B.bput(b, "awk '/<\\/application>/ && !d { print \"        <provider android:name=\\\"androidx.startup.InitializationProvider\\\" android:authorities=\\\"${applicationId}.androidx-startup\\\" android:exported=\\\"false\\\" tools:node=\\\"merge\\\">\"; print \"            <meta-data android:name=\\\"androidx.emoji2.text.EmojiCompatInitializer\\\" tools:node=\\\"remove\\\" />\"; print \"        </provider>\"; d = 1 } { print }' \"$m\" > \"$m.new\"\n")
-  val () = $B.bput(b, "mv \"$m.new\" \"$m\"\n")
   val () = $B.bput(b, "# Auto Backup keeps the directory of bridge's backed-up files and\n")
   val () = $B.bput(b, "# nothing else of the app's (the WebView's data, the books, stay out)\n")
   val () = $B.bput(b, "mkdir -p android/app/src/main/res/xml\n")
@@ -634,8 +623,7 @@ implement build_smoke_test_script (b, app_id) = let
   val () = $B.bput(b, "# with a throwaway key when unsigned), launches the app, and waits\n")
   val () = $B.bput(b, "# up to two minutes for <text> on the screen. Writes screenshot.png,\n")
   val () = $B.bput(b, "# ui.xml and logcat.txt to <out-dir>. Fails when the text never\n")
-  val () = $B.bput(b, "# shows, the app crashes, the page logs a console error, or the app\n")
-  val () = $B.bput(b, "# holds a connection to Google Play services. With\n")
+  val () = $B.bput(b, "# shows, the app crashes, or the page logs a console error. With\n")
   val () = $B.bput(b, "# <file> <type> <text>, then shares the file with the app and waits\n")
   val () = $B.bput(b, "# for that text too.\n")
   val () = $B.bput(b, "set -eu\n")
@@ -683,14 +671,6 @@ implement build_smoke_test_script (b, app_id) = let
   val () = $B.bput(b, "    if adb logcat -d | grep -q \"volume key: the page\"; then volume=1; break; fi\n")
   val () = $B.bput(b, "  done\n")
   val () = $B.bput(b, "fi\n")
-  val () = $B.bput(b, "# The app must hold no connection to a provider of Google Play services:\n")
-  val () = $B.bput(b, "# Android kills it when that process dies, and Play services restarts\n")
-  val () = $B.bput(b, "# it now and then (once after a fresh boot, whenever it updates a module)\n")
-  val () = $B.bput(b, "play=0\n")
-  val () = $B.bput(b, "if [ $found = 1 ]; then\n")
-  val () = $B.bput(b, "  adb shell dumpsys activity processes > \"$OUT/processes.txt\"\n")
-  val () = $B.bput(b, "  if grep -E \"com\\.google\\.android\\.gms[^ ]*/[^ ]*->[0-9]+:$APP_ID/\" \"$OUT/processes.txt\"; then play=1; fi\n")
-  val () = $B.bput(b, "fi\n")
   val () = $B.bput(b, "# Sharing a file with the app: it is put in the app's cache (adb as\n")
   val () = $B.bput(b, "# root, on an emulator) and handed to it with SEND, as another app\n")
   val () = $B.bput(b, "# would share it\n")
@@ -723,9 +703,6 @@ implement build_smoke_test_script (b, app_id) = let
   val () = $B.bput(b, "# Capacitor logs the page's console.error with level E and tag Capacitor/Console\n")
   val () = $B.bput(b, "if grep -E \" E Capacitor/Console\" \"$OUT/logcat.txt\"; then\n")
   val () = $B.bput(b, "  echo \"The page logged console errors (above)\"; status=1\n")
-  val () = $B.bput(b, "fi\n")
-  val () = $B.bput(b, "if [ $play = 1 ]; then\n")
-  val () = $B.bput(b, "  echo \"The app holds a connection to Google Play services (above): it dies when they restart\"; status=1\n")
   val () = $B.bput(b, "fi\n")
   val () = $B.bput(b, "if [ $found = 1 ] && [ $volume = 0 ]; then\n")
   val () = $B.bput(b, "  echo \"A volume key never reached the page\"; status=1\n")

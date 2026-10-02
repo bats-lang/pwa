@@ -14,7 +14,8 @@
 #       project-dir: android
 #
 # With smoke-test-text set, a second job installs the APK on an Android
-# emulator (API 34, hardware-accelerated on the Linux runner), launches
+# emulator (API 34, AOSP's image without Google Play services,
+# hardware-accelerated on the Linux runner), launches
 # it and waits for that text, which should be one only the app's wasm
 # renders; it fails when the text never shows, the app crashes or the
 # page logs a console error, and uploads a screenshot, the UI dump and
@@ -237,6 +238,15 @@ jobs:
       - name: Find the APK
         run: echo "SMOKE_APK=$(find apk -name '*.apk' | head -1)" >> "$GITHUB_ENV"
 
+      # The system image, kept between runs: a download cut short leaves
+      # sdkmanager an archive it cannot open, and no emulator starts
+      # (bats-lang/quire#220). The cache is saved only by a run that passed
+      - name: Keep the system image
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/lib/android/sdk/system-images/android-34/default/x86_64
+          key: system-image-android-34-default-x86_64
+
       - name: Run the app on an emulator
         uses: reactivecircus/android-emulator-runner@v2
         env:
@@ -247,7 +257,15 @@ jobs:
         with:
           api-level: 34
           arch: x86_64
-          target: google_apis
+          # AOSP's image, without Google Play services: on a fresh boot
+          # they restart their process once a module is updated, at no set
+          # time, and Android then kills every app holding a connection to
+          # one of their providers. Android System WebView holds one to
+          # their FontsProvider (its emoji font) for as long as it runs, so
+          # the app under test was killed whenever the restart came during
+          # the test (bats-lang/quire#220). The app uses nothing of Play
+          # services
+          target: default
           disable-animations: true
           script: >-
             if [ -n "$SMOKE_SHARE_FILE" ];
