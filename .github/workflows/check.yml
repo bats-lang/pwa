@@ -109,6 +109,11 @@ jobs:
             python3 -c "import sys, xml.dom.minidom as m; d = m.parse(sys.argv[1]); i = d.getElementsByTagName('include'); assert i and all(e.getAttribute('domain') == 'file' and e.getAttribute('path') == 'backup/' for e in i); assert not d.getElementsByTagName('exclude')" "example/dist/android/$f.xml"
           done
           grep -q 'android:fullBackupContent=' example/dist/android/build-android.sh
+          # no emoji2 initializer, so the app holds no connection to Play
+          # services (quire#220); the activity calls batsNative only once it exists
+          grep -q 'androidx.emoji2.text.EmojiCompatInitializer.*tools:node=' example/dist/android/build-android.sh
+          grep -q '(globalThis.batsNative ? globalThis.batsNative.deliverFile(' example/dist/android/MainActivity.java
+          grep -q '(globalThis.batsNative ? globalThis.batsNative.key(' example/dist/android/MainActivity.java
           # the plugins it installs are exactly those of bridge's table
           python3 tests/android/plugins.py example/dist/android/package.json \
             example/bats_modules/wasm.bats-packages.dev/bridge/src/plugins.bats

@@ -18,7 +18,16 @@ app, in Bats, on those atoms (bats-lang/pwa#49).
 * The Android activity (`MainActivity.java`) runs no JS of its own: it
   calls bridge's entry points, `globalThis.batsNative.deliverFile(url,
   name)` for a file it hands over and `globalThis.batsNative.key(name)`
-  for a volume key, one call each, and reads their answer.
+  for a volume key, one call each, and reads their answer. It calls one
+  only once `batsNative` exists (a share can start the app before its
+  page has loaded bridge.js); until then the answer is false.
+* The Android app depends on no other app's process: Android kills an
+  app holding a connection to a provider whose process dies, and Google
+  Play services restarts its own now and then. So build-android.sh drops
+  emoji2's initializer (androidx.appcompat's, which holds one to Play
+  services' FontsProvider for an emoji font the WebView never uses), and
+  the smoke test fails when the app holds a connection to Play services
+  (quire#220).
 
 ## Changes to pwa
 
