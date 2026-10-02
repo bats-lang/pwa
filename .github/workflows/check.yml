@@ -112,6 +112,10 @@ jobs:
           # the activity calls batsNative only once it exists (quire#220)
           grep -q '(globalThis.batsNative ? globalThis.batsNative.deliverFile(' example/dist/android/MainActivity.java
           grep -q '(globalThis.batsNative ? globalThis.batsNative.key(' example/dist/android/MainActivity.java
+          # the Kotlin standard library forced is the one bridge's plugins need
+          kotlin=$(sed -n 's/^implement plugins_kotlin () = "\(.*\)"$/\1/p' example/bats_modules/wasm.bats-packages.dev/bridge/src/plugins.bats)
+          test -n "$kotlin"
+          test "$(grep -c "org.jetbrains.kotlin:kotlin-stdlib[-a-z0-9]*:$kotlin'" example/dist/android/android-release.gradle)" = 3
           # the plugins it installs are exactly those of bridge's table
           python3 tests/android/plugins.py example/dist/android/package.json \
             example/bats_modules/wasm.bats-packages.dev/bridge/src/plugins.bats
