@@ -42,7 +42,9 @@
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 1200] $B.builder(m), app_name: string na, app_id: string ni, web_dir: string nd): void
 
 (* package.json of the Capacitor project: Capacitor 8's core, Android
-   platform and CLI *)
+   platform and CLI, and the plugins bridge's atoms use, from bridge's
+   table of them (bridge#119), so the app has every plugin an atom may
+   call and pwa names none itself *)
 #pub fn build_capacitor_package {n:nat | n + 900 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 900] $B.builder(m)): void
 
@@ -357,14 +359,8 @@ implement build_capacitor_package (b) = let
   val () = $B.bput(b, "  \"dependencies\": {\n")
   val () = $B.bput(b, "    \"@capacitor/android\": \"^8.1.0\",\n")
   val () = $B.bput(b, "    \"@capacitor/core\": \"^8.1.0\",\n")
-  (* the page's sharing, where the WebView has no navigator.share; its
-     screen: the status bar hidden for full screen, the rotation locked,
-     the brightness *)
-  val () = $B.bput(b, "    \"@capacitor/share\": \"^8.0.2\",\n")
-  val () = $B.bput(b, "    \"@capacitor/screen-orientation\": \"^8.0.1\",\n")
-  val () = $B.bput(b, "    \"@capacitor/status-bar\": \"^8.0.3\",\n")
-  val () = $B.bput(b, "    \"@capacitor-community/screen-brightness\": \"^8.0.0\"\n")
-  val () = $B.bput(b, "  },\n")
+  val () = $BR.produce_plugin_dependencies(b, "    ")
+  val () = $B.bput(b, "\n  },\n")
   val () = $B.bput(b, "  \"devDependencies\": {\n")
   val () = $B.bput(b, "    \"@capacitor/cli\": \"^8.1.0\"\n")
   val () = $B.bput(b, "  }\n")

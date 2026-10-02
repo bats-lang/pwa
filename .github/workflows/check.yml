@@ -104,6 +104,9 @@ jobs:
           # the app's activity (package from the app id) and the types it opens
           grep -q '^package dev.bats.example;' example/dist/android/MainActivity.java
           grep -q 'android:mimeType="text/plain"' example/dist/android/intent-filters.xml
+          # the plugins it installs are exactly those of bridge's table
+          python3 tests/android/plugins.py example/dist/android/package.json \
+            example/bats_modules/wasm.bats-packages.dev/bridge/src/plugins.bats
 
       - name: Upload Android project
         uses: actions/upload-artifact@v4
