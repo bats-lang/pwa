@@ -26,7 +26,8 @@
 
 (* The manifest of an app that opens files of type mime (extension ext,
    with its dot): as build_manifest, and the system opens those files
-   with the installed app (file_handlers, read from launchQueue) and
+   with the installed app (file_handlers: bridge reads launchQueue and
+   hands them to the app's listen_external_files) and
    shares them with it (share_target, a POST the service worker keeps:
    build_share_target_worker) *)
 #pub fn build_manifest_opening {na:nat | na < 256}{nm,ne:nat | nm < 256; ne < 256}{n:nat | n + 2600 <= $B.BUILDER_CAP}
@@ -239,10 +240,11 @@ fn _copy_to {ns:nat | ns < 256}{nd:nat | nd < 256}{nf:nat | nf < 256}
    Android app only (the ScreenBrightness plugin; a web page cannot set
    it): pwa-can-brightness, and a select marked data-pwa-brightness,
    which it fills and keeps. Those elements are marked aria-pressed as
-   they are. And the files the system opens with the app (file_handlers,
-   launchQueue) or shares with it (share_target, kept by the service
-   worker): dropped on the element marked data-pwa-file-drop, as a
-   user's drop would be *)
+   they are. And the files the system shares with the app (share_target,
+   kept by the service worker): dropped on the element marked
+   data-pwa-file-drop, as a user's drop would be. The files it opens the
+   app with (file_handlers, launchQueue) reach the app through bridge's
+   listen_external_files, whose consumer is launchQueue's only one *)
 fn _screen_script {n:nat | n + 12000 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 12000] $B.builder(m)): void = let
   val () = $B.bput(b, "  <script>\n")
@@ -324,9 +326,9 @@ fn _screen_script {n:nat | n + 12000 <= $B.BUILDER_CAP}
   val () = $B.bput(b, "        else setLock(!locked);\n")
   val () = $B.bput(b, "      }, true);\n")
   val () = $B.bput(b, "    \n")
-  val () = $B.bput(b, "      // Files the system opens with the app (file_handlers) or shares with it\n")
-  val () = $B.bput(b, "      // (share_target, kept by the service worker): dropped on the element\n")
-  val () = $B.bput(b, "      // marked data-pwa-file-drop, as a user's drop would be\n")
+  val () = $B.bput(b, "      // Files shared with the app (share_target, kept by the service worker):\n")
+  val () = $B.bput(b, "      // dropped on the element marked data-pwa-file-drop, as a user's drop\n")
+  val () = $B.bput(b, "      // would be\n")
   val () = $B.bput(b, "      function drop(files) {\n")
   val () = $B.bput(b, "        if (!files.length) return;\n")
   val () = $B.bput(b, "        var tries = 0;\n")
@@ -339,12 +341,6 @@ fn _screen_script {n:nat | n + 12000 <= $B.BUILDER_CAP}
   val () = $B.bput(b, "            el.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));\n")
   val () = $B.bput(b, "          }, 300);\n")
   val () = $B.bput(b, "        })();\n")
-  val () = $B.bput(b, "      }\n")
-  val () = $B.bput(b, "      if (window.launchQueue && launchQueue.setConsumer) {\n")
-  val () = $B.bput(b, "        launchQueue.setConsumer(function (p) {\n")
-  val () = $B.bput(b, "          if (!p.files || !p.files.length) return;\n")
-  val () = $B.bput(b, "          Promise.all(p.files.map(function (h) { return h.getFile(); })).then(drop, function () {});\n")
-  val () = $B.bput(b, "        });\n")
   val () = $B.bput(b, "      }\n")
   val () = $B.bput(b, "      if (/[?&]shared=/.test(location.search) && window.caches) {\n")
   val () = $B.bput(b, "        history.replaceState(null, '', location.pathname);\n")
