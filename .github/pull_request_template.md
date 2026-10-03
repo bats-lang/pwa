@@ -2,7 +2,7 @@
 
 <!-- What changes, and the issue or spec it answers. -->
 
-Kind: <!-- one of: bug fix / new capability / process, documentation or CI -->
+Kind: <!-- one of: bug fix / new platform / process, documentation or CI. pwa takes no other change ("Changes to pwa" in CLAUDE.md); the review confirms the kind from the diff. -->
 
 ## Bug fix
 
@@ -10,17 +10,18 @@ Kind: <!-- one of: bug fix / new capability / process, documentation or CI -->
 
 - The current functionality that misbehaves, and the spec it deviates from:
 - Why this is the minimal fix:
+- That it adds no native behaviour, plugin, JS handler or DOM write, and puts no policy in pwa:
 
-## New capability (a plugin, native connectivity, generated native code, a new platform)
+## New platform (iOS, Electron, …)
 
-<!-- Delete this section unless Kind is "new capability". Answer each with evidence: code, measurements, the platform's documentation. -->
+<!-- Delete this section unless Kind is "new platform". Answer each with evidence: code, measurements, the platform's documentation. A plugin, native connectivity or generated native code for a feature is not accepted: it is a bridge atom and the app's own code. -->
 
 1. Is there no way to do this with what exists (bridge's atoms and the app's own Bats), at reasonable performance?
-2. Is this the minimal wrapper? Does it map 1:1 to the platform API? If not, why can it not be broken into smaller pieces, each a bridge atom?
-3. Does the native side decide anything, or does it only hand an event or value to one of bridge's entry points (`batsNative`) and read its answer?
+2. Is this the minimal wrapper? Does each native piece map 1:1 to the platform's API? Why can it not be broken into smaller pieces, each a bridge atom? (Always answer; in detail when it is not 1:1.)
+3. Does the native side decide anything, or does it only hand an event or value to one of bridge's entry points (`batsNative`) and read its answer? Does anything of pwa's write to the DOM? (It must not: that is a bridge stream opcode issued by the app.)
 4. The plausible alternatives, and why each would not work:
 5. Where the app's policy (which attributes, roles, defaults, when) lives: it must be in the app's Bats, not in pwa's native code or page (bats-lang/pwa#49).
 
 ## Review
 
-No merge before an adversarial review: a comment by someone other than the author, first line `## Adversarial review`, with a line `Verdict: approved` or `Verdict: changes needed` and a line `Reviewed: <full head SHA>` (CLAUDE.md, "Adversarial review before merge"). The `adversarial-review` status follows the newest one, and is success only for an approval that names the current head: a push after approval needs a new review.
+No merge before an adversarial review (CLAUDE.md, "Adversarial review before merge"): a new comment by someone other than the author, whose first line is `## Adversarial review`, with exactly one line `Verdict: approved` or `Verdict: changes needed` and exactly one line `Reviewed: <full head SHA>`, outside code blocks. The newest such comment alone sets the `adversarial-review` status: success only for an unedited approval that names the current head, so a push after approval needs a new review.
