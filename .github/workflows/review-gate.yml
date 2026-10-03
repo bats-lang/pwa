@@ -1,114 +1,197 @@
 name: review-gate
 
 # No pull request merges before an adversarial review (CLAUDE.md,
-# "Adversarial review before merge"). The review is a comment on the pull
-# request whose first line is "## Adversarial review". The newest such
-# comment decides, alone: the commit status `adversarial-review` on the
-# pull request's head commit is success only when that comment, outside
-# fenced code blocks, has exactly one verdict line, `Verdict: approved`,
-# and exactly one Reviewed line, `Reviewed: <the head's full SHA>`, and
-# was never edited. Anything else is pending, never an older approval.
+# "Adversarial review before merge"). This sets the commit status
+# `adversarial-review` on the pull request's head commit. It fails closed:
+# success only for a perfectly formed approval of the current head, by a
+# trusted author, in the newest review attempt, with no newer "Request
+# changes" review; anything else, an error included, is pending.
 #
-# pull_request_target runs this file as the base branch has it, so a pull
-# request cannot rewrite its own gate. That is safe here: the job checks
-# out nothing and runs no code of the pull request, and comment bodies are
-# read by jq only, never put in a shell. It uses no action at all (only
-# the runner's gh and jq), so there is no action to pin.
+# Runs as the base branch has this file, never as the pull request has it:
+# pull_request_target, issue_comment and workflow_run all run the default
+# branch's workflow. That is safe because the job checks out nothing and
+# runs no code of the pull request; comment bodies are read as data by
+# python only, never put in a shell. A formal pull request review fires
+# pull_request_review, which would run the pull request's own copy, so
+# review-gate-relay.yml (no permissions, does nothing) takes that event
+# and its completion runs this gate through workflow_run.
+#
+# It uses no action at all (only the runner's gh and python3), so there is
+# no action to pin.
 
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, edited]
   issue_comment:
     types: [created, edited, deleted]
+  workflow_run:
+    workflows: [review-gate-relay]
+    types: [completed]
 
 permissions:
   pull-requests: read
   statuses: write
 
 concurrency:
-  group: review-gate-${{ github.event.pull_request.number || github.event.issue.number }}
+  group: review-gate-${{ github.event.pull_request.number || github.event.issue.number || github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.head_sha }}
   cancel-in-progress: false
 
 jobs:
   gate:
     # An issue_comment event also fires for issues: only a pull request's counts
-    if: github.event_name == 'pull_request_target' || github.event.issue.pull_request
+    if: github.event_name != 'issue_comment' || github.event.issue.pull_request
     runs-on: ubuntu-latest
     steps:
       - name: Set the adversarial-review status
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+          PR: ${{ github.event.pull_request.number || github.event.issue.number || github.event.workflow_run.pull_requests[0].number }}
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          # Neither event's GITHUB_SHA is the pull request's head (both are
-          # the base branch's), so the status goes to the head commit read
-          # from the pull request itself.
+          head="${EVENT_HEAD:-}"
+          posted=no
+
+          post() {
+            gh api --method POST "repos/$REPO/statuses/$head" \
+              -f state="$1" -f context=adversarial-review \
+              -f description="$2" -f target_url="$3" > /dev/null
+            posted=yes
+            echo "adversarial-review: $1 on $head ($2)"
+          }
+          # Any failure (an API error, a parse error, anything) posts
+          # pending, so an earlier success never outlives a failed run.
+          on_exit() {
+            code=$?
+            if [ "$posted" = no ] && [ -n "$head" ]; then
+              post pending "The gate failed: pending until it runs again" "$RUN_URL" || true
+            fi
+            exit "$code"
+          }
+          trap on_exit EXIT
+
+          # workflow_run gives no pull request for a fork's: find it by commit
+          if [ -z "${PR:-}" ]; then
+            PR=$(gh api "repos/$REPO/commits/$head/pulls" \
+              --jq '[.[] | select(.state == "open")][0].number // empty')
+          fi
+          if [ -z "${PR:-}" ]; then
+            echo "No open pull request for $head"
+            exit 1
+          fi
+          # Neither event's GITHUB_SHA is the pull request's head, so the
+          # status goes to the head read from the pull request itself.
           head=$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)
+          case "$head" in
+            [0-9a-f]*) ;;
+            *) head="${EVENT_HEAD:-}"; exit 1 ;;
+          esac
 
-          gh api --paginate "repos/$REPO/issues/$PR/comments?per_page=100" \
-            --jq '.[]' > comments.jsonl
+          gh api --paginate "repos/$REPO/issues/$PR/comments?per_page=100" --jq '.[]' > comments.jsonl
+          gh api --paginate "repos/$REPO/pulls/$PR/reviews?per_page=100" --jq '.[]' > reviews.jsonl
 
-          jq -s --arg head "$head" '
-            # The lines of a body, trailing blanks cut, outside fenced code
-            # blocks (``` or ~~~; an unclosed fence hides the rest)
-            def plain_lines:
-              reduce ((. + "\n") | split("\n")[] | sub("[ \t\r]+$"; "")) as $line
-                ({fence: null, out: []};
-                 if .fence == null then
-                   if ($line | test("^ {0,3}(```|~~~)"))
-                   then .fence = ($line | sub("^ +"; "") | .[0:1])
-                   else .out += [$line] end
-                 elif (.fence as $fence
-                       | $line | test("^ {0,3}" + (if $fence == "`" then "```+" else "~~~+" end) + "$"))
-                 then .fence = null
-                 else . end)
-              | .out;
-            # A line that, past markdown marks, starts with the word
-            def field_lines($word):
-              map(select(test("^[\\s*_>#`~|+\\-.0-9)]*" + $word + "\\b"; "i")));
+          HEAD_SHA="$head" python3 - > verdict.json <<'PY'
+          import json, os, re, unicodedata
 
-            map(select(((.body // "") + "\n" | split("\n")[0] | sub("[ \t\r]+$"; ""))
-                       == "## Adversarial review"))
-            | sort_by(.created_at, .id)
-            | last
-            | if . == null then
-                {state: "pending", url: "", text: "No adversarial review yet"}
-              elif .updated_at != .created_at then
-                {state: "pending", url: .html_url,
-                 text: "The newest review was edited: a new verdict needs a new comment"}
-              else
-                (.body | plain_lines) as $lines
-                | ($lines | field_lines("verdict")) as $verdicts
-                | ($lines | field_lines("reviewed")) as $reviewed
-                | if $verdicts == ["Verdict: changes needed"] then
-                    {state: "pending", url: .html_url, text: "Adversarial review: changes needed"}
-                  elif $verdicts != ["Verdict: approved"] then
-                    {state: "pending", url: .html_url,
-                     text: "The newest review has no single exact verdict line"}
-                  elif $reviewed != ["Reviewed: " + $head] then
-                    {state: "pending", url: .html_url,
-                     text: "Approved, but not with one line Reviewed: <head SHA>; review the head"}
-                  else
-                    {state: "success", url: .html_url,
-                     text: "Adversarial review: approved for this commit"}
-                  end
-              end
-          ' comments.jsonl > verdict.json \
-            || echo '{"state": "pending", "url": "", "text": "The gate could not read the reviews"}' > verdict.json
+          head = os.environ["HEAD_SHA"]
+          TRUSTED = {"OWNER", "MEMBER", "COLLABORATOR"}
+
+          def load(path):
+              dec, text, out, i = json.JSONDecoder(), open(path).read(), [], 0
+              while True:
+                  while i < len(text) and text[i].isspace():
+                      i += 1
+                  if i == len(text):
+                      return out
+                  obj, i = dec.raw_decode(text, i)
+                  out.append(obj)
+
+          def norm(s):
+              # NFKC, no format characters (zero-width ones, the BOM), no CR, lower case
+              s = unicodedata.normalize("NFKC", s)
+              s = "".join(ch for ch in s if unicodedata.category(ch) != "Cf")
+              return s.replace("\r", "").lower()
+
+          # "adversarial review", any non-ASCII letter standing for any
+          # letter (NFKC does not map look-alikes such as a Cyrillic e)
+          ATTEMPT = re.compile("".join(
+              "[%s?]" % ch if ch.isalpha() else r"[\s_-]*" for ch in "adversarial review"))
+
+          def skeleton(line):
+              return "".join("?" if ord(ch) > 127 and unicodedata.category(ch).startswith("L")
+                             else ch for ch in line)
+
+          def is_attempt(body):
+              lines = [l for l in norm(body).split("\n") if l.strip()]
+              for line in lines[:3]:
+                  for m in ATTEMPT.finditer(skeleton(line)):
+                      if sum(ch.isascii() and ch.isalpha() for ch in m.group()) >= 10:
+                          return True
+              return False
+
+          VERDICT = re.compile(r"verdict\s*:")
+          REVIEWED = re.compile(r"reviewed\s*:")
+
+          def why_not(body):
+              """None when the body is a perfectly formed approval of head."""
+              if "```" in body or "~~~" in body:
+                  return "The newest review has a code fence; use inline code"
+              if "<!--" in body or re.search(r"<[A-Za-z/]", body):
+                  return "The newest review has HTML; use plain text"
+              if any(unicodedata.category(ch) == "Cf" for ch in body):
+                  return "The newest review has invisible characters"
+              if any(ord(ch) > 127 and unicodedata.category(ch).startswith("L") for ch in body):
+                  return "The newest review has non-ASCII letters"
+              lines = body.replace("\r", "").split("\n")
+              if lines[0] != "## Adversarial review":
+                  return "The newest review's first line is not exactly ## Adversarial review"
+              verdicts = [l for l in lines if VERDICT.search(norm(l))]
+              reviewed = [l for l in lines if REVIEWED.search(norm(l))]
+              if verdicts == ["Verdict: changes needed"]:
+                  return "Adversarial review: changes needed"
+              if verdicts != ["Verdict: approved"]:
+                  return "The newest review has no single exact Verdict line"
+              if reviewed != ["Reviewed: " + head]:
+                  return "Approved, but not with one line Reviewed: <head SHA>"
+              return None
+
+          comments = [c for c in load("comments.jsonl")
+                      if c.get("author_association") in TRUSTED and is_attempt(c.get("body") or "")]
+          comments.sort(key=lambda c: (c["created_at"], c["id"]))
+          blocking = [r for r in load("reviews.jsonl")
+                      if r.get("author_association") in TRUSTED and r.get("state") == "CHANGES_REQUESTED"
+                      and r.get("submitted_at")]
+          blocking.sort(key=lambda r: (r["submitted_at"], r["id"]))
+
+          url = ""
+          if not comments:
+              state, text = "pending", "No adversarial review yet"
+          else:
+              newest = comments[-1]
+              url = newest["html_url"]
+              reason = why_not(newest.get("body") or "")
+              if newest["updated_at"] != newest["created_at"]:
+                  state, text = "pending", "The newest review was edited: a new verdict needs a new comment"
+              elif reason is not None:
+                  state, text = "pending", reason
+              elif blocking and blocking[-1]["submitted_at"] >= newest["created_at"]:
+                  state, text, url = "pending", "A newer review requests changes", blocking[-1]["html_url"]
+              else:
+                  state, text = "success", "Adversarial review: approved for this commit"
+          print(json.dumps({"state": state, "text": text, "url": url}))
+          PY
           cat verdict.json
 
-          state=$(jq -r .state verdict.json)
-          text=$(jq -r .text verdict.json)
-          url=$(jq -r .url verdict.json)
+          state=$(python3 -c 'import json; print(json.load(open("verdict.json"))["state"])')
+          text=$(python3 -c 'import json; print(json.load(open("verdict.json"))["text"])')
+          url=$(python3 -c 'import json; print(json.load(open("verdict.json"))["url"])')
+          case "$state" in
+            success|pending) ;;
+            *) exit 1 ;;
+          esac
           if [ -z "$url" ]; then
             url="${GITHUB_SERVER_URL}/${REPO}/pull/${PR}"
           fi
-
-          gh api --method POST "repos/$REPO/statuses/$head" \
-            -f state="$state" \
-            -f context=adversarial-review \
-            -f description="$text" \
-            -f target_url="$url" > /dev/null
-          echo "adversarial-review: $state on $head"
+          post "$state" "$text" "$url"

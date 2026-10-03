@@ -108,34 +108,66 @@ never lives in pwa's generated native code or page: it is the app's, in
 Bats (bats-lang/pwa#49). A pull request that puts either in pwa gets
 `Verdict: changes needed`.
 
+### Who reviews, and where
+
+Only a comment by a trusted author counts: its `author_association` is
+OWNER, MEMBER or COLLABORATOR. These repositories are public, so anyone
+else's comment, approving or not, is ignored. The reviewer is never the
+pull request's author; agents here post under one account, so the
+review names its reviewer.
+
+A review is a comment in the pull request's conversation, not a formal
+pull request review and not a line comment. A formal review that
+requests changes (GitHub's "Request changes") still blocks: while the
+newest one by a trusted author is newer than the deciding comment, the
+gate is pending. Dismiss it, or post a new review comment after it.
+
 ### The review comment
 
-The newest comment whose first line is `## Adversarial review` decides,
-alone; an older one never counts again. Outside fenced code blocks, it
-holds exactly one line that starts (past any markdown marks) with the
-word Verdict, and exactly one that starts with Reviewed:
+A comment is a review attempt when, after Unicode NFKC normalization,
+with zero-width characters, a BOM and carriage returns removed, and
+lower-cased, one of its first three non-blank lines contains
+"adversarial review" (a non-ASCII letter there stands for any letter).
+The newest attempt decides, alone; an older one never counts again. It
+approves only when it is perfectly formed:
 
-* `Verdict: approved` or `Verdict: changes needed`, exactly: no bold, no
-  trailing period, no other words;
-* `Reviewed: <SHA>`, the full 40-character lowercase SHA of the pull
-  request's head commit it reviewed.
+* its first line is exactly `## Adversarial review`;
+* it has exactly one line with `Verdict:` in it, and that line is
+  exactly `Verdict: approved` (or `Verdict: changes needed`): no bold,
+  no indent, no trailing space or period, no other words;
+* it has exactly one line with `Reviewed:` in it, and that line is
+  exactly `Reviewed: <SHA>`, the full 40-character lowercase SHA of the
+  pull request's head commit it reviewed;
+* its letters are ASCII, and it has no invisible (format) characters;
+* it has no code fence (three backticks or three tildes, anywhere), no
+  HTML comment and no HTML tag (`<` followed by a letter or `/`).
+  Reviews use inline code and plain text only.
 
 A verdict is never edited: an edited review counts as no approval, and a
-new verdict is a new comment.
+new verdict is a new comment. Anything short of the form above is
+pending, whatever it says; the status's description says what is wrong.
 
 ### The gate
 
 `.github/workflows/review-gate.yml` sets the commit status
-`adversarial-review` on the pull request's head commit, on every pull
-request event and every comment created, edited or deleted. It is
-success only when the newest review is unedited, its one verdict line is
-`Verdict: approved` and its one Reviewed line names the current head;
-anything else is pending. A push after an approval turns it back to
-pending, until a new review names the new head.
+`adversarial-review` on the pull request's head commit: success only
+for a perfectly formed, unedited approval of the current head in the
+newest attempt by a trusted author, with no newer request for changes.
+Anything else is pending, and so is any failure (an API error, a parse
+error, any unexpected exit), so an earlier success never outlives a
+failed run. A push after an approval turns it back to pending, until a
+new review names the new head.
 
-It runs on `pull_request_target`, so the gate that runs is the base
-branch's file, not the pull request's; it checks out nothing and runs no
-code of the pull request, which is what makes that safe.
+It runs on every pull request event (`pull_request_target`), every
+comment created, edited or deleted (`issue_comment`), and every formal
+review submitted, edited or dismissed: `pull_request_review` would run
+the pull request's own copy of a workflow, so
+`.github/workflows/review-gate-relay.yml`, with no permissions, does
+nothing but take that event, and its completion runs the gate
+(`workflow_run`). All three run the gate as the default branch has it,
+never as the pull request has it; it checks out nothing and runs no code
+of the pull request, which is what makes that safe. It uses no action,
+only the runner's `gh` and `python3`.
 
 Known limits:
 
@@ -145,10 +177,12 @@ Known limits:
   process change, and its review must check exactly this: that no
   workflow it adds or changes can post the status or widen its
   permissions to do so.
-* The gate checks the comment's form, not who wrote it: agents here post
-  under one account, so the review names its reviewer, and the reviewer
-  is never the author.
+* The gate checks the comment's form and its author's association, not
+  which agent or person wrote it.
 * Deleting the newest review makes the one before it the newest again.
+* An organization member whose membership is private may show as
+  CONTRIBUTOR to the workflow's token, so their reviews do not count:
+  make the membership public, or add them as a collaborator.
 
 `adversarial-review` must be made a required status check of `main` by
 a repository admin (Settings → Branches → the rule for `main` →
