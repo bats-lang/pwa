@@ -114,19 +114,27 @@ Only a comment by a trusted author counts: its `author_association` is
 OWNER, MEMBER or COLLABORATOR. These repositories are public, so anyone
 else's comment, approving or not, is ignored; the gate's log names each
 review attempt's author and association, and the status says "No review
-by a trusted author" with the associations it saw. The reviewer is never
-the pull request's author; agents here post under one account, so the
-review names its reviewer.
+by a trusted author" with the associations it saw. The reviewer is
+another agent or person than the one that wrote the change: all agents
+here post from one account, so the review is done by a separate
+reviewer agent, named on its `Reviewer:` line.
 
-A review is a comment in the pull request's conversation, not a formal
-pull request review and not a line comment. A formal review that
-requests changes (GitHub's "Request changes") by a trusted author still
-blocks, as GitHub's own rule does: it stands until it is dismissed,
-whatever comments follow.
+A review that approves is a comment in the pull request's conversation,
+not a formal pull request review and not a line comment. A formal review
+by a trusted author can only block:
+
+* its text is read like a comment's (as rendered), ordered with the
+  comments by when it was submitted, so a formal review that is the
+  newest review attempt makes the gate pending, whatever it says (the
+  agents post from the pull request author's account, so their formal
+  reviews can only be "Comment" reviews);
+* one that requests changes (GitHub's "Request changes") stands, as
+  GitHub's own rule does, until it is dismissed, whatever comments
+  follow.
 
 ### The review comment
 
-The gate reads each comment twice: as written, and as GitHub renders it
+The gate reads each comment (and each formal review's text) twice: as written, and as GitHub renders it
 (`body_text`, GitHub's own plain text of the comment), so what it judges
 is what a reader sees. A comment is a review attempt when one of the
 first three non-blank lines of either says "adversarial review", read
@@ -179,9 +187,9 @@ review submitted, edited or dismissed (through
 `.github/workflows/review-gate-relay.yml`, which has no permissions and
 does nothing: `pull_request_review` would run the pull request's own
 copy of a workflow, so the relay's completion runs the gate through
-`workflow_run`), and every 15 minutes over every open pull request
-(`schedule`). All of them run the gate as the default branch has it,
-never as the pull request has it; it checks out nothing and runs no code
+`workflow_run`), and over every open pull request about every 15
+minutes, best effort (`schedule`). All of them run the gate as the
+default branch has it, never as the pull request has it; it checks out nothing and runs no code
 of the pull request, which is what makes that safe. The relay is only a
 fast path; correctness rests on the schedule. It uses no action, only
 the runner's `gh` and `python3`.
@@ -200,12 +208,25 @@ Known limits:
   status, set by whichever ran last.
 * A pull request can change or delete its own copy of the relay, and a
   fork's runs can wait for "Approve and run": a formal review's effect
-  then waits for the next comment, push or scheduled run (at most 15
-  minutes, as GitHub schedules them).
+  then waits for the next comment, push or scheduled run.
+* The schedule is about every 15 minutes, best effort: GitHub delays
+  scheduled runs under load and sometimes drops them, and turns a public
+  repository's schedules off after 60 days without activity; they stay
+  off until someone enables the workflow again (Actions → review-gate →
+  Enable workflow). A scheduled run and an event's run are not in one
+  concurrency group, so a scheduled run that read the comments just
+  before a new review can post after that review's own run, until the
+  next run.
+* A review attempt is seen only by its first three non-blank lines, and
+  only its one Verdict line is judged: a header further down, or prose
+  that contradicts the exact approved line, is not caught. Each needs a
+  careless or bad-faith review that still writes the exact approved
+  line.
 * If every lookup of the head fails on a comment event, nothing can be
   marked; the next scheduled run decides.
 * The gate checks the comment's form and its author's association, not
-  which agent or person wrote it; and a header misspelt by more than two
+  which agent or person wrote it: under one account, the authoring
+  agent could post a perfectly formed approval itself; and a header misspelt by more than two
   letters is not seen as an attempt.
 * Deleting the newest review makes the one before it the newest again.
 * An organization member whose membership is private may show as

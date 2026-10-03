@@ -8,6 +8,9 @@ name: review-gate
 # and as it is written, with no standing "Request changes" review; anything
 # else, an error included, is pending.
 #
+# Formal pull request reviews are read too (their text, as rendered): one
+# that is the newest review attempt makes the gate pending, never success.
+#
 # Every trigger runs this file as the default branch has it, never as the
 # pull request has it: pull_request_target, issue_comment, workflow_run and
 # schedule. That is safe because the job checks out nothing and runs no
@@ -18,7 +21,8 @@ name: review-gate
 # the pull request's own copy of a workflow, so review-gate-relay.yml (no
 # permissions, does nothing) takes that event and its completion runs this
 # gate through workflow_run. The relay is only a fast path: the schedule
-# runs the gate over every open pull request every 15 minutes, so nothing
+# runs the gate over every open pull request (about every 15 minutes, as
+# GitHub schedules it, best effort), so nothing
 # depends on the relay running (a pull request can change it, and a fork's
 # runs can wait for approval).
 #
@@ -122,7 +126,8 @@ jobs:
           # own plain-text rendering of it
           gh api --paginate -H "Accept: application/vnd.github.full+json" \
             "repos/$REPO/issues/$PR/comments?per_page=100" --jq '.[]' > "$dir/comments.jsonl"
-          gh api --paginate "repos/$REPO/pulls/$PR/reviews?per_page=100" --jq '.[]' > "$dir/reviews.jsonl"
+          gh api --paginate -H "Accept: application/vnd.github.full+json" \
+            "repos/$REPO/pulls/$PR/reviews?per_page=100" --jq '.[]' > "$dir/reviews.jsonl"
 
           HEAD_SHA="$head" python3 "$GATE_DIR/decide.py" "$dir" > "$dir/verdict.json"
           state=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["state"])' "$dir/verdict.json")
@@ -231,16 +236,24 @@ jobs:
                   return "Approved, but not with one line Reviewed: <head SHA>"
               return None
 
-          comments = sorted(load("comments.jsonl"), key=lambda c: (c["created_at"], c["id"]))
-          attempts = [c for c in comments if is_attempt(c)]
-          for c in attempts:
-              log("attempt %s by %s (%s) at %s: %s" % (
-                  c.get("html_url"), (c.get("user") or {}).get("login"), c.get("author_association"),
-                  c.get("created_at"), "counts" if c.get("author_association") in TRUSTED
-                  else "ignored, not a trusted author"))
-          trusted = [c for c in attempts if c.get("author_association") in TRUSTED]
+          # Review attempts: conversation comments, and formal pull request
+          # reviews (a review's text, submitted; it can only ever block)
+          comments = load("comments.jsonl")
+          reviews = load("reviews.jsonl")
+          for c in comments:
+              c["kind"], c["at"] = "comment", c["created_at"]
+          for r in reviews:
+              r["kind"], r["at"] = "formal review", r.get("submitted_at")
+          attempts = [x for x in comments + [r for r in reviews if r["at"]] if is_attempt(x)]
+          attempts.sort(key=lambda x: (x["at"], x["kind"], x["id"]))
+          for x in attempts:
+              log("attempt (%s) %s by %s (%s) at %s: %s" % (
+                  x["kind"], x.get("html_url"), (x.get("user") or {}).get("login"),
+                  x.get("author_association"), x["at"],
+                  "counts" if x.get("author_association") in TRUSTED else "ignored, not a trusted author"))
+          trusted = [x for x in attempts if x.get("author_association") in TRUSTED]
           # A Request changes review stands until it is dismissed
-          standing = [r for r in load("reviews.jsonl")
+          standing = [r for r in reviews
                       if r.get("author_association") in TRUSTED and r.get("state") == "CHANGES_REQUESTED"]
           for r in standing:
               log("standing request for changes %s by %s (%s)" % (
@@ -259,7 +272,12 @@ jobs:
               newest = trusted[-1]
               url = newest["html_url"]
               reason = why_not(newest)
-              if newest["updated_at"] != newest["created_at"]:
+              if newest["kind"] != "comment":
+                  state = "pending"
+                  text = ("Adversarial review: changes needed (a formal review)"
+                          if reason == "Adversarial review: changes needed"
+                          else "The newest review is a formal review: only a comment can approve")
+              elif newest["updated_at"] != newest["created_at"]:
                   state, text = "pending", "The newest review was edited: a new verdict needs a new comment"
               elif reason is not None:
                   state, text = "pending", reason

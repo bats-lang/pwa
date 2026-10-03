@@ -7,7 +7,7 @@ name: review-gate-relay
 # gate through workflow_run, as the default branch has it. It is only a
 # fast path: a pull request can change or delete its own copy, and a fork's
 # runs can wait for approval, so nothing depends on it; the gate's schedule
-# runs over every open pull request every 15 minutes.
+# runs over every open pull request (about every 15 minutes, best effort).
 
 on:
   pull_request_review:
