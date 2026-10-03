@@ -42,6 +42,14 @@ browser sends (`AudioVolumeUp`, `AudioVolumeDown`). A page that takes
 one (`preventDefault`, say to turn a page) has it; otherwise the volume
 changes, as the key would have changed it.
 
+`create_android_linked(..., mime, scheme)` writes the same project for
+an app that is also opened at addresses of its own scheme
+(`scheme://...`), as an OAuth sign-in in the system browser comes back
+to a native app (RFC 8252's private-use URI scheme): the activity gets a
+VIEW intent filter for it. Such an address is not a file: the activity
+leaves it to Capacitor's App plugin, which bridge's `listen_app_link`
+passes to the page.
+
 Signing: set `ANDROID_KEYSTORE` to a keystore file and
 `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`;
 without `ANDROID_KEYSTORE` the build is unsigned. `ANDROID_VERSION_CODE`

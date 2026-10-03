@@ -117,6 +117,10 @@ jobs:
           # the app's activity (package from the app id) and the types it opens
           grep -q '^package dev.bats.example;' example/dist/android/MainActivity.java
           grep -q 'android:mimeType="text/plain"' example/dist/android/intent-filters.xml
+          # opened at its own scheme's addresses, which are not files
+          grep -q '<data android:scheme="example" />' example/dist/android/intent-filters.xml
+          python3 -c "import sys, xml.dom.minidom as m; m.parseString('<activity xmlns:android=\"http://schemas.android.com/apk/res/android\">' + open(sys.argv[1]).read() + '</activity>')" example/dist/android/intent-filters.xml
+          grep -q '"content".equals(data.getScheme())' example/dist/android/MainActivity.java
           # Auto Backup keeps bridge's backed-up files and nothing else
           for f in backup-rules data-extraction-rules; do
             python3 -c "import sys, xml.dom.minidom as m; d = m.parse(sys.argv[1]); i = d.getElementsByTagName('include'); assert i and all(e.getAttribute('domain') == 'file' and e.getAttribute('path') == 'backup/' for e in i); assert not d.getElementsByTagName('exclude')" "example/dist/android/$f.xml"
