@@ -69,9 +69,9 @@ No pull request merges before an adversarial review: a comment on the
 pull request (its form is below), written by someone other than its
 author (another agent or a person). The review first confirms the
 pull request's kind from its diff, whatever the author called it.
-Under "Changes to pwa", only two kinds of change to pwa itself are
-allowed, so a review knows only these (and changes to process,
-documentation or CI):
+A review knows three kinds: the two changes to pwa itself that "Changes
+to pwa" allows (a bug fix, a new platform), and a change to process,
+documentation or CI, which changes nothing pwa does:
 
 * **A bug fix** (current functionality that misbehaves, against what it
   is documented to do): the review confirms it really is a deviation
@@ -112,62 +112,79 @@ Bats (bats-lang/pwa#49). A pull request that puts either in pwa gets
 
 Only a comment by a trusted author counts: its `author_association` is
 OWNER, MEMBER or COLLABORATOR. These repositories are public, so anyone
-else's comment, approving or not, is ignored. The reviewer is never the
-pull request's author; agents here post under one account, so the
+else's comment, approving or not, is ignored; the gate's log names each
+review attempt's author and association, and the status says "No review
+by a trusted author" with the associations it saw. The reviewer is never
+the pull request's author; agents here post under one account, so the
 review names its reviewer.
 
 A review is a comment in the pull request's conversation, not a formal
 pull request review and not a line comment. A formal review that
-requests changes (GitHub's "Request changes") still blocks: while the
-newest one by a trusted author is newer than the deciding comment, the
-gate is pending. Dismiss it, or post a new review comment after it.
+requests changes (GitHub's "Request changes") by a trusted author still
+blocks, as GitHub's own rule does: it stands until it is dismissed,
+whatever comments follow.
 
 ### The review comment
 
-A comment is a review attempt when, after Unicode NFKC normalization,
-with zero-width characters, a BOM and carriage returns removed, and
-lower-cased, one of its first three non-blank lines contains
-"adversarial review" (a non-ASCII letter there stands for any letter).
-The newest attempt decides, alone; an older one never counts again. It
-approves only when it is perfectly formed:
+The gate reads each comment twice: as written, and as GitHub renders it
+(`body_text`, GitHub's own plain text of the comment), so what it judges
+is what a reader sees. A comment is a review attempt when one of the
+first three non-blank lines of either says "adversarial review", read
+loosely: NFKC, no zero-width characters, BOM, combining marks or CR,
+lower case, entities, escapes, link targets and marks dropped, digits
+read as the letters they look like, any non-ASCII letter standing for
+any letter, and up to two letters wrong. The newest attempt decides,
+alone; an older one never counts again. It approves only when it is
+perfectly formed:
 
-* its first line is exactly `## Adversarial review`;
-* it has exactly one line with `Verdict:` in it, and that line is
-  exactly `Verdict: approved` (or `Verdict: changes needed`): no bold,
-  no indent, no trailing space or period, no other words;
-* it has exactly one line with `Reviewed:` in it, and that line is
-  exactly `Reviewed: <SHA>`, the full 40-character lowercase SHA of the
-  pull request's head commit it reviewed;
-* its letters are ASCII, and it has no invisible (format) characters;
-* it has no code fence (three backticks or three tildes, anywhere), no
-  HTML comment and no HTML tag (`<` followed by a letter or `/`).
-  Reviews use inline code and plain text only.
+* written, its first line is exactly `## Adversarial review`, and shown,
+  its first line is `Adversarial review`;
+* written and shown, it has exactly one line with `Verdict:` in it (or
+  starting with the word), and that line is exactly `Verdict: approved`
+  (or `Verdict: changes needed`): no bold, no indent, no trailing space
+  or period, no other words;
+* written, it has exactly one line with `Reviewed:` in it (or starting
+  with the word), and that line is exactly `Reviewed: <SHA>`, the full
+  40-character lowercase SHA of the pull request's head commit it
+  reviewed; shown, that line is the same, with the SHA as GitHub
+  shortens it (7 digits) or in full;
+* written, its letters are ASCII, and it has no invisible (format)
+  characters, no combining marks, no code fence (three backticks or
+  three tildes, anywhere), no HTML comment, no HTML tag (`<` followed by
+  a letter or `/`) and no link or footnote definition (a line starting
+  `[…]:`). Reviews use inline code and plain text only.
 
 A verdict is never edited: an edited review counts as no approval, and a
 new verdict is a new comment. Anything short of the form above is
 pending, whatever it says; the status's description says what is wrong.
+Other comments should not say "adversarial review" in their first three
+lines: such a comment is an attempt, and as the newest it makes the gate
+pending.
 
 ### The gate
 
 `.github/workflows/review-gate.yml` sets the commit status
-`adversarial-review` on the pull request's head commit: success only
-for a perfectly formed, unedited approval of the current head in the
-newest attempt by a trusted author, with no newer request for changes.
-Anything else is pending, and so is any failure (an API error, a parse
-error, any unexpected exit), so an earlier success never outlives a
-failed run. A push after an approval turns it back to pending, until a
-new review names the new head.
+`adversarial-review` on the pull request's head commit (read from the
+pull request, exactly 40 lowercase hex digits, three tries): success
+only for a perfectly formed, unedited approval of the current head in
+the newest attempt by a trusted author, with no standing request for
+changes. Anything else is pending, and so is any failure (an API error,
+a parse error, any unexpected exit), so an earlier success never
+outlives a failed run. A push after an approval turns it back to
+pending, until a new review names the new head.
 
 It runs on every pull request event (`pull_request_target`), every
-comment created, edited or deleted (`issue_comment`), and every formal
-review submitted, edited or dismissed: `pull_request_review` would run
-the pull request's own copy of a workflow, so
-`.github/workflows/review-gate-relay.yml`, with no permissions, does
-nothing but take that event, and its completion runs the gate
-(`workflow_run`). All three run the gate as the default branch has it,
+comment created, edited or deleted (`issue_comment`), every formal
+review submitted, edited or dismissed (through
+`.github/workflows/review-gate-relay.yml`, which has no permissions and
+does nothing: `pull_request_review` would run the pull request's own
+copy of a workflow, so the relay's completion runs the gate through
+`workflow_run`), and every 15 minutes over every open pull request
+(`schedule`). All of them run the gate as the default branch has it,
 never as the pull request has it; it checks out nothing and runs no code
-of the pull request, which is what makes that safe. It uses no action,
-only the runner's `gh` and `python3`.
+of the pull request, which is what makes that safe. The relay is only a
+fast path; correctness rests on the schedule. It uses no action, only
+the runner's `gh` and `python3`.
 
 Known limits:
 
@@ -176,13 +193,25 @@ Known limits:
   file in `.github/workflows` could forge one. Such a pull request is a
   process change, and its review must check exactly this: that no
   workflow it adds or changes can post the status or widen its
-  permissions to do so.
+  permissions to do so, and that the gate and its relay stay as they
+  are.
+* A commit status belongs to a commit, not to a pull request: two pull
+  requests with the same head commit share one `adversarial-review`
+  status, set by whichever ran last.
+* A pull request can change or delete its own copy of the relay, and a
+  fork's runs can wait for "Approve and run": a formal review's effect
+  then waits for the next comment, push or scheduled run (at most 15
+  minutes, as GitHub schedules them).
+* If every lookup of the head fails on a comment event, nothing can be
+  marked; the next scheduled run decides.
 * The gate checks the comment's form and its author's association, not
-  which agent or person wrote it.
+  which agent or person wrote it; and a header misspelt by more than two
+  letters is not seen as an attempt.
 * Deleting the newest review makes the one before it the newest again.
 * An organization member whose membership is private may show as
   CONTRIBUTOR to the workflow's token, so their reviews do not count:
-  make the membership public, or add them as a collaborator.
+  the gate's log shows the association it saw. Make the membership
+  public, or add them as a collaborator.
 
 `adversarial-review` must be made a required status check of `main` by
 a repository admin (Settings → Branches → the rule for `main` →

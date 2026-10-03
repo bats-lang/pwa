@@ -4,8 +4,10 @@ name: review-gate-relay
 # review-gate.yml, but pull_request_review runs a workflow as the pull
 # request's head has it, which the pull request could rewrite. So this
 # workflow does nothing, with no permissions, and its completion runs the
-# gate through workflow_run, as the default branch has it. A pull request
-# that changes this file can at most run the gate more or less often.
+# gate through workflow_run, as the default branch has it. It is only a
+# fast path: a pull request can change or delete its own copy, and a fork's
+# runs can wait for approval, so nothing depends on it; the gate's schedule
+# runs over every open pull request every 15 minutes.
 
 on:
   pull_request_review:
