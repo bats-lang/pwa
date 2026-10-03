@@ -47,16 +47,14 @@ browser sends (`AudioVolumeUp`, `AudioVolumeDown`). A page that takes
 one (`preventDefault`, say to turn a page) has it; otherwise the volume
 changes, as the key would have changed it.
 
-`create_android_linked(..., mime, scheme)` writes the same project for
-an app that is also opened at addresses of its own scheme
-(`scheme://...`), as an OAuth sign-in in the system browser comes back
-to a native app (RFC 8252's private-use URI scheme): the activity gets a
-VIEW intent filter for it. Such an address is not a file: the activity
-leaves it to Capacitor's App plugin, which bridge's `listen_app_link`
-passes to the page. It too is handed over once: the intent `load()`
-hands over again on a recreation does not reach Capacitor's plugins
-either, so a sign-in's address that came back before (its code used,
-its state gone) is not given to the page again.
+An address the app is opened at that is not a file (a VIEW intent whose
+data is not `content:` or `file:`, such as an OAuth sign-in coming back
+at the app's own scheme) is left to Capacitor's App plugin, which
+bridge's `listen_app_link` passes to the page, and it too is handed
+over once: the intent `load()` hands over again on a recreation does
+not reach Capacitor's plugins either. The scheme's intent filter is the
+app's to write into `intent-filters.xml`, after `build_intent_filters`'
+own (as quire's `gen-pwa` does).
 
 Signing: set `ANDROID_KEYSTORE` to a keystore file and
 `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`;
