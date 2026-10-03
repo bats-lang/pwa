@@ -36,7 +36,12 @@ PWA in `web_dir` (relative to `project_dir`, e.g. `"../pwa"`):
 AAB and APK into `<project_dir>/android/app/build/outputs/`.
 
 The activity (`MainActivity.java`) hands the page the files the app is
-opened with or shared (VIEW, SEND), and the volume keys, which a
+opened with or shared (VIEW, SEND), each intent's once: Capacitor's
+`BridgeActivity.onCreate` hands the launch intent to `onNewIntent`
+(its `load()`), and an intent handed over before is not handed over
+again when the activity is recreated or started from the recent apps
+(`tests/android/activity.sh` runs it against Capacitor's activity). It
+also hands over the volume keys, which a
 WebView never gives the page: each is offered to it as the `keydown` a
 browser sends (`AudioVolumeUp`, `AudioVolumeDown`). A page that takes
 one (`preventDefault`, say to turn a page) has it; otherwise the volume
@@ -72,8 +77,13 @@ and waits for that text on the screen: pick one only the app's wasm
 renders, so the test shows the wasm ran. It fails when the text never
 shows, the app crashes, or the page logs a console error, and uploads
 the artifact `android-smoke-test` (a screenshot, the UI dump and the
-logcat). The project's `smoke-test.sh` does the work and runs against
-any device `adb` sees.
+logcat). With `smoke-share-file` (a file in the artifact),
+`smoke-share-type` and `smoke-share-text`, it then starts the app anew
+with that file (VIEW) until that text shows, turns and recreates it,
+and opens and shares the file with it while it is open (VIEW, SEND):
+it fails unless each intent's file is handed to the page once. The
+project's `smoke-test.sh` does the work and runs against any device
+`adb` sees.
 
 ## Example
 

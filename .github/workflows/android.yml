@@ -21,7 +21,11 @@
 # page logs a console error, and uploads a screenshot, the UI dump and
 # the logcat as the artifact android-smoke-test. With smoke-share-file
 # (a path in the artifact), smoke-share-type and smoke-share-text set,
-# it then shares that file with the app and waits for that text too.
+# it then starts the app anew with that file (VIEW) and waits for that
+# text too, turns and recreates the app, and opens and shares the file
+# with it while it is open (VIEW, SEND): each intent's file must be
+# handed to the page once, and none again as the app is turned or
+# recreated (bats-lang/quire#247).
 #
 # Signing uses the caller's secrets (passed with `secrets: inherit`):
 # KEYSTORE_BASE64 (the keystore file, base64-encoded), KEYSTORE_PASSWORD,
@@ -63,7 +67,7 @@ on:
         type: string
         default: ''
       smoke-share-file:
-        description: A file in the artifact to share with the app after it runs; empty for none
+        description: A file in the artifact to open the app with, and share with it, after it runs; empty for none
         required: false
         type: string
         default: ''
@@ -73,7 +77,7 @@ on:
         type: string
         default: ''
       smoke-share-text:
-        description: Text the app shows once it has taken the shared file
+        description: Text the app shows once it has taken the file
         required: false
         type: string
         default: ''
