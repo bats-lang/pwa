@@ -229,6 +229,15 @@ Known limits:
   agent could post a perfectly formed approval itself; and a header misspelt by more than two
   letters is not seen as an attempt.
 * Deleting the newest review makes the one before it the newest again.
+  So does editing a formal review: the API gives a formal review no edit
+  time, so an edit is not detected, and a trusted reviewer who edits a
+  blocking formal review so that it is no longer a review attempt makes
+  the older approval the newest again.
+* Dismissing a "Request changes" review ends the standing request, but
+  not the review attempt its text is: while it is the newest attempt,
+  the gate stays pending, and a new review comment is still needed.
+* Line comments on the diff are not read: a review posted only as a
+  line comment does not block.
 * An organization member whose membership is private may show as
   CONTRIBUTOR to the workflow's token, so their reviews do not count:
   the gate's log shows the association it saw. Make the membership
