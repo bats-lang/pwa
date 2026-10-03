@@ -62,3 +62,50 @@ that would move instead of moving it: move it in a pull request of its
 own. A pull request that needs newer packages runs `bats lock
 --repository <dir>` and commits `bats.lock` (and
 `.github/repository-version`) with the change.
+
+## Adversarial review before merge
+
+No pull request merges before an adversarial review. The review is a
+comment on the pull request, written by someone other than its author
+(another agent or a person; agents here post under one account, so the
+comment names its reviewer). Its first line is `## Adversarial review`,
+and it holds a line `Verdict: approved` or `Verdict: changes needed`.
+
+* **A bug fix** (pwa deviates from its spec: current functionality that
+  misbehaves, see "Changes to pwa"): the review confirms it really is a
+  deviation from the spec, and that the fix is minimal. Then the pull
+  request is fine.
+* **A new capability** (a Capacitor plugin, native connectivity, native
+  code pwa generates, a new platform): the review answers, with
+  evidence (code, measurements, the platform's documentation):
+  1. Is there no way to do this with what exists (bridge's atoms and the
+     app's own Bats), at reasonable performance?
+  2. Is this the minimal wrapper? Does it map 1:1 to the platform API,
+     and if not, why can it not be broken into smaller pieces, each a
+     bridge atom?
+  3. Does the native side decide anything? It may only hand an event or
+     a value to one of bridge's entry points (`batsNative`) and read its
+     answer, as `MainActivity.java` does.
+
+  The review analyzes the plausible alternatives and says why each
+  would not work: a bridge atom on the web API the WebView already
+  has, an existing entry point, the app doing it in Bats.
+* **Process, documentation or CI** changes add no capability: the review
+  confirms they do not.
+
+App policy (which attributes, roles, defaults, when) never lives in
+pwa's generated native code or page: it is the app's, in Bats
+(bats-lang/pwa#49). A pull request that puts policy in pwa gets
+`Verdict: changes needed`.
+
+The gate is `.github/workflows/review-gate.yml`: on every pull request
+event and every comment, it finds the newest review comment (the first
+line and a verdict line above) and sets the commit status
+`adversarial-review` on the pull request's head commit, success only
+for `Verdict: approved`, pending otherwise. The gate does not tie a
+verdict to a commit (a push keeps the newest verdict), so a pull request
+changed after its approval is reviewed again, in a new comment, before
+it merges. The pull request template
+(`.github/pull_request_template.md`) asks the author the same
+questions; the reviewer checks the answers, not just their presence.
+`adversarial-review` is a required status check of `main`'s branch rule.

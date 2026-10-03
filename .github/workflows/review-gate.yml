@@ -1,0 +1,79 @@
+name: review-gate
+
+# No pull request merges before an adversarial review (CLAUDE.md,
+# "Adversarial review before merge"). The review is a comment on the pull
+# request whose first line is "## Adversarial review" and which holds a
+# line "Verdict: approved" or "Verdict: changes needed". This workflow
+# finds the newest such comment and sets the commit status
+# `adversarial-review` on the pull request's head commit: success only
+# when that verdict is approved, pending otherwise.
+#
+# It uses no action at all (only the runner's gh and jq), so there is no
+# action to pin. It checks out nothing and runs no code of the pull
+# request; comment bodies are read by jq only, never put in a shell.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  pull-requests: read
+  issues: read
+  statuses: write
+
+concurrency:
+  group: review-gate-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    # An issue_comment event also fires for issues: only a pull request's counts
+    if: github.event_name == 'pull_request' || github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set the adversarial-review status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number || github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          # An issue_comment run comes from the default branch and its
+          # GITHUB_SHA is main's, so the status goes to the head commit
+          # read from the pull request itself.
+          head=$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)
+
+          gh api --paginate "repos/$REPO/issues/$PR/comments?per_page=100" \
+            --jq '.[]' > comments.jsonl
+
+          jq -s '
+            map(select(
+              ((.body // "") + "\n" | split("\n")[0] | sub("[\\s]+$"; "")) == "## Adversarial review"
+              and ((.body // "") | test("(?m)^Verdict: (approved|changes needed)[ \\t\\r]*$"))
+            ))
+            | sort_by(.created_at)
+            | last
+            | if . == null then {state: "pending", url: "", text: "No adversarial review yet"}
+              # A comment that holds both verdicts is not an approval
+              elif (.body | test("(?m)^Verdict: changes needed[ \\t\\r]*$"))
+              then {state: "pending", url: .html_url, text: "Adversarial review: changes needed"}
+              else {state: "success", url: .html_url, text: "Adversarial review: approved"}
+              end
+          ' comments.jsonl > verdict.json
+          cat verdict.json
+
+          state=$(jq -r .state verdict.json)
+          text=$(jq -r .text verdict.json)
+          url=$(jq -r .url verdict.json)
+          if [ -z "$url" ]; then
+            url="${GITHUB_SERVER_URL}/${REPO}/pull/${PR}"
+          fi
+
+          gh api --method POST "repos/$REPO/statuses/$head" \
+            -f state="$state" \
+            -f context=adversarial-review \
+            -f description="$text" \
+            -f target_url="$url" > /dev/null
+          echo "adversarial-review: $state on $head"
