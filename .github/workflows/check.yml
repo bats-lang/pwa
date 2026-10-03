@@ -129,9 +129,15 @@ jobs:
           kotlin=$(sed -n 's/^implement plugins_kotlin () = "\(.*\)"$/\1/p' example/bats_modules/wasm.bats-packages.dev/bridge/src/plugins.bats)
           test -n "$kotlin"
           test "$(grep -c "org.jetbrains.kotlin:kotlin-stdlib[-a-z0-9]*:$kotlin'" example/dist/android/android-release.gradle)" = 3
+          # its activity hands each intent's files to the page once (quire#247)
+          sh tests/android/activity.sh example/dist/android/MainActivity.java
           # the plugins it installs are exactly those of bridge's table
           python3 tests/android/plugins.py example/dist/android/package.json \
             example/bats_modules/wasm.bats-packages.dev/bridge/src/plugins.bats
+
+      # A file for the Android smoke test to open the app with
+      - name: Make the file to open
+        run: echo "A file the example app is opened with" > example/dist/android/smoke-share.txt
 
       - name: Upload Android project
         uses: actions/upload-artifact@v4
@@ -168,3 +174,8 @@ jobs:
       project-dir: android
       # Rendered by the example's wasm (not in its static files)
       smoke-test-text: BATS PWA
+      # then opened with a text file and shared it: each handed to the
+      # page once (the example shows its text whatever it is given)
+      smoke-share-file: android/smoke-share.txt
+      smoke-share-type: text/plain
+      smoke-share-text: BATS PWA
