@@ -79,7 +79,9 @@
    hands the launch intent to onNewIntent (its load()), which is its one
    hand-over, and an intent handed over before (the activity recreated,
    or started again from the recent apps) is not handed over again
-   (bats-lang/quire#247). *)
+   (bats-lang/quire#247), to the page or to Capacitor's plugins: an
+   address the app was opened at (the App plugin's appUrlOpen) reaches
+   the page once too. *)
 #pub fn build_main_activity {ni:nat | ni < 256}{n:nat | n + 9000 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 9000] $B.builder(m), app_id: string ni): void
 
@@ -535,13 +537,16 @@ implement build_main_activity (b, app_id) = let
   val () = $B.bput(b, "\n")
   val () = $B.bput(b, "    @Override\n")
   val () = $B.bput(b, "    protected void onNewIntent(Intent intent) {\n")
-  val () = $B.bput(b, "        super.onNewIntent(intent);\n")
   val () = $B.bput(b, "        setIntent(intent);\n")
   val () = $B.bput(b, "        if (launchHandedOver) {\n")
+  val () = $B.bput(b, "            // load()'s call, not the system's: neither the page nor\n")
+  val () = $B.bput(b, "            // Capacitor's plugins (the App plugin's appUrlOpen, an address\n")
+  val () = $B.bput(b, "            // the app was opened at) are given it again\n")
   val () = $B.bput(b, "            launchHandedOver = false;\n")
   val () = $B.bput(b, "            Log.i(TAG, \"the launch intent was handed over before\");\n")
   val () = $B.bput(b, "            return;\n")
   val () = $B.bput(b, "        }\n")
+  val () = $B.bput(b, "        super.onNewIntent(intent);\n")
   val () = $B.bput(b, "        handle(intent);\n")
   val () = $B.bput(b, "    }\n")
   val () = $B.bput(b, "\n")

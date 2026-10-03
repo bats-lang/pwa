@@ -53,7 +53,10 @@ an app that is also opened at addresses of its own scheme
 to a native app (RFC 8252's private-use URI scheme): the activity gets a
 VIEW intent filter for it. Such an address is not a file: the activity
 leaves it to Capacitor's App plugin, which bridge's `listen_app_link`
-passes to the page.
+passes to the page. It too is handed over once: the intent `load()`
+hands over again on a recreation does not reach Capacitor's plugins
+either, so a sign-in's address that came back before (its code used,
+its state gone) is not given to the page again.
 
 Signing: set `ANDROID_KEYSTORE` to a keystore file and
 `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`;

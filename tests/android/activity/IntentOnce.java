@@ -13,7 +13,8 @@ import java.util.Arrays;
 // The activity hands each intent's files to the page once
 // (bats-lang/quire#247): as it starts, not again when it is recreated
 // or started from the recent apps with the same intent, and once for
-// each intent while it is open. Run by tests/android/activity.sh on
+// each intent while it is open. An address at the app's own scheme
+// reaches Capacitor's plugins (the App plugin's appUrlOpen) once too. Run by tests/android/activity.sh on
 // the MainActivity.java pwa writes, against Capacitor's BridgeActivity.
 public class IntentOnce {
     static int failures = 0;
@@ -24,6 +25,7 @@ public class IntentOnce {
     }
 
     static final String HANDED = "handed to the page";
+    static final String ADDRESS = "appUrlOpen";
 
     // Waits up to five seconds for count hand-overs since since, then
     // half a second for any more; the hand-overs since since
@@ -31,6 +33,12 @@ public class IntentOnce {
         for (int i = 0; i < 100 && Log.count(HANDED) - since < count; i++) Thread.sleep(50);
         Thread.sleep(500);
         return Log.count(HANDED) - since;
+    }
+
+    // The addresses Capacitor's plugins (the App plugin's appUrlOpen) were
+    // given since since
+    static int addressesSince(int since) {
+        return Log.count(ADDRESS) - since;
     }
 
     static Intent view(String uri) {
@@ -96,6 +104,30 @@ public class IntentOnce {
         before = Log.count(HANDED);
         create(new Intent(Intent.ACTION_MAIN), null);
         expect(handedSince(before, 0) == 0, "started from the launcher, it hands nothing");
+
+        // An address at the app's own scheme (a sign-in in the system's
+        // browser coming back) is not a file: Capacitor's App plugin gives
+        // it to the page, once
+        String back = "example://oauth/provider?code=one&state=two";
+        before = Log.count(HANDED);
+        int addresses = Log.count(ADDRESS);
+        MainActivity linked = create(view(back), null);
+        expect(addressesSince(addresses) == 1, "started at its own address, the plugins are given it once");
+        expect(handedSince(before, 0) == 0, "and the page is handed no file");
+        addresses = Log.count(ADDRESS);
+        create(linked.getIntent(), new Bundle());
+        expect(addressesSince(addresses) == 0, "recreated, the plugins are not given that address again");
+        addresses = Log.count(ADDRESS);
+        before = Log.count(HANDED);
+        linked.onNewIntent(view(back));
+        expect(addressesSince(addresses) == 1, "opened at its own address while open, the plugins are given it once");
+        expect(handedSince(before, 0) == 0, "and the page is handed no file");
+        addresses = Log.count(ADDRESS);
+        create(linked.getIntent(), new Bundle());
+        expect(addressesSince(addresses) == 0, "recreated after that, the plugins are not given it again");
+        addresses = Log.count(ADDRESS);
+        create(view(back).addFlags(Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY), null);
+        expect(addressesSince(addresses) == 0, "started from the recent apps with that address, the plugins are not given it");
 
         System.exit(failures == 0 ? 0 : 1);
     }
