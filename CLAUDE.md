@@ -69,7 +69,9 @@ No pull request merges before an adversarial review. The review is a
 comment on the pull request, written by someone other than its author
 (another agent or a person; agents here post under one account, so the
 comment names its reviewer). Its first line is `## Adversarial review`,
-and it holds a line `Verdict: approved` or `Verdict: changes needed`.
+and it holds a line `Verdict: approved` or `Verdict: changes needed`
+and a line `Reviewed: <SHA>`, the full 40-character SHA of the pull
+request's head commit it reviewed.
 
 * **A bug fix** (pwa deviates from its spec: current functionality that
   misbehaves, see "Changes to pwa"): the review confirms it really is a
@@ -101,11 +103,10 @@ pwa's generated native code or page: it is the app's, in Bats
 The gate is `.github/workflows/review-gate.yml`: on every pull request
 event and every comment, it finds the newest review comment (the first
 line and a verdict line above) and sets the commit status
-`adversarial-review` on the pull request's head commit, success only
-for `Verdict: approved`, pending otherwise. The gate does not tie a
-verdict to a commit (a push keeps the newest verdict), so a pull request
-changed after its approval is reviewed again, in a new comment, before
-it merges. The pull request template
+`adversarial-review` on the pull request's head commit: success only
+for `Verdict: approved` whose `Reviewed:` line names that head commit,
+pending otherwise. A push after an approval turns it back to pending,
+until a new review names the new head. The pull request template
 (`.github/pull_request_template.md`) asks the author the same
 questions; the reviewer checks the answers, not just their presence.
 `adversarial-review` is a required status check of `main`'s branch rule.

@@ -3,10 +3,13 @@ name: review-gate
 # No pull request merges before an adversarial review (CLAUDE.md,
 # "Adversarial review before merge"). The review is a comment on the pull
 # request whose first line is "## Adversarial review" and which holds a
-# line "Verdict: approved" or "Verdict: changes needed". This workflow
+# line "Verdict: approved" or "Verdict: changes needed", and a line
+# "Reviewed: <full SHA>" naming the commit it reviewed. This workflow
 # finds the newest such comment and sets the commit status
 # `adversarial-review` on the pull request's head commit: success only
-# when that verdict is approved, pending otherwise.
+# when that verdict is approved and its Reviewed SHA is the head commit,
+# pending otherwise. A push after an approval turns it back to pending
+# until a new review names the new head.
 #
 # It uses no action at all (only the runner's gh and jq), so there is no
 # action to pin. It checks out nothing and runs no code of the pull
@@ -48,7 +51,7 @@ jobs:
           gh api --paginate "repos/$REPO/issues/$PR/comments?per_page=100" \
             --jq '.[]' > comments.jsonl
 
-          jq -s '
+          jq -s --arg head "$head" '
             map(select(
               ((.body // "") + "\n" | split("\n")[0] | sub("[\\s]+$"; "")) == "## Adversarial review"
               and ((.body // "") | test("(?m)^Verdict: (approved|changes needed)[ \\t\\r]*$"))
@@ -59,7 +62,10 @@ jobs:
               # A comment that holds both verdicts is not an approval
               elif (.body | test("(?m)^Verdict: changes needed[ \\t\\r]*$"))
               then {state: "pending", url: .html_url, text: "Adversarial review: changes needed"}
-              else {state: "success", url: .html_url, text: "Adversarial review: approved"}
+              # An approval counts only for the commit it names
+              elif ([.body | scan("(?m)^Reviewed: ([0-9a-f]{40})[ \\t\\r]*$") | .[0]] | unique) == [$head]
+              then {state: "success", url: .html_url, text: "Adversarial review: approved for this commit"}
+              else {state: "pending", url: .html_url, text: "Approved, but not with Reviewed: <head SHA>; review the head again"}
               end
           ' comments.jsonl > verdict.json
           cat verdict.json

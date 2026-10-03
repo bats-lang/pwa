@@ -23,4 +23,4 @@ Kind: <!-- one of: bug fix / new capability / process, documentation or CI -->
 
 ## Review
 
-No merge before an adversarial review: a comment by someone other than the author, first line `## Adversarial review`, with a line `Verdict: approved` or `Verdict: changes needed` (CLAUDE.md, "Adversarial review before merge"). The `adversarial-review` status follows the newest one.
+No merge before an adversarial review: a comment by someone other than the author, first line `## Adversarial review`, with a line `Verdict: approved` or `Verdict: changes needed` and a line `Reviewed: <full head SHA>` (CLAUDE.md, "Adversarial review before merge"). The `adversarial-review` status follows the newest one, and is success only for an approval that names the current head: a push after approval needs a new review.
