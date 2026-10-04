@@ -327,11 +327,84 @@ jobs:
             section "logcat: the app (last 300 lines)"
             adb logcat -d --pid="$PID" | tail -300
           fi
+          section "The page, through the WebView's DevTools (on a debuggable image, every app's)"
+          SOCKET=$(adb shell cat /proc/net/unix | grep -o "webview_devtools_remote_${PID:-none}" | head -1)
+          if [ -n "$SOCKET" ] && adb forward tcp:9222 "localabstract:$SOCKET" >/dev/null; then
+            timeout 60 python3 "$RUNNER_TEMP/page-state.py" 9222 || echo "DevTools did not answer"
+            adb forward --remove tcp:9222
+          else
+            echo "No DevTools socket for the app"
+          fi
+          section "Graphics properties"
+          adb shell getprop | grep -iE 'gles|opengl|vulkan|gfx|hwui|renderer|egl' || true
           section "logcat: every process's warnings and errors (last 150 lines)"
           adb logcat -d '*:W' | tail -150
           section "logcat: the graphics stack (last 120 lines)"
           adb logcat -d | grep -iE 'OpenGLRenderer|EGL|gralloc|goldfish|gfxstream|vulkan|SurfaceFlinger|HWComposer|chromium.*(gpu|GPU|viz|compositor)' | tail -120
           EVIDENCE
+          cat > "$RUNNER_TEMP/page-state.py" <<'PAGE'
+          # usage: page-state.py <port>: through the WebView's DevTools (forwarded
+          # to localhost:<port>), what each page's document holds and whether it
+          # still gets animation frames
+          import base64, json, os, socket, struct, sys, urllib.request
+          port = int(sys.argv[1])
+          direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          pages = json.load(direct.open(f"http://127.0.0.1:{port}/json", timeout=10))
+          EXPRESSION = """(async () => {
+            const frame = new Promise(r => requestAnimationFrame(() => r('yes')));
+            const late = new Promise(r => setTimeout(() => r('no, none in 3 s'), 3000));
+            return JSON.stringify({
+              url: location.href, readyState: document.readyState,
+              visibility: document.visibilityState, focus: document.hasFocus(),
+              elements: document.getElementsByTagName('*').length,
+              text: (document.body ? document.body.innerText : '').slice(0, 600),
+              animationFrame: await Promise.race([frame, late]),
+            });
+          })()"""
+          def frame(sock, text):
+              data = text.encode()
+              head = bytes([0x81])
+              n = len(data)
+              head += bytes([0x80 | n]) if n < 126 else bytes([0x80 | 126]) + struct.pack('>H', n) if n < 65536 else bytes([0x80 | 127]) + struct.pack('>Q', n)
+              mask = os.urandom(4)
+              sock.sendall(head + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+          def read_exact(sock, n):
+              b = b''
+              while len(b) < n:
+                  c = sock.recv(n - len(b))
+                  if not c: raise EOFError
+                  b += c
+              return b
+          def receive(sock):
+              b0, b1 = read_exact(sock, 2)
+              n = b1 & 0x7f
+              if n == 126: n = struct.unpack('>H', read_exact(sock, 2))[0]
+              elif n == 127: n = struct.unpack('>Q', read_exact(sock, 8))[0]
+              return read_exact(sock, n).decode(errors='replace')
+          for page in pages:
+              print(f"page: {page.get('type')} {page.get('url')} attached={page.get('attached')}")
+              ws = page.get('webSocketDebuggerUrl')
+              if not ws: continue
+              path = ws.split(str(port), 1)[1]
+              sock = socket.create_connection(('127.0.0.1', port), timeout=15)
+              key = base64.b64encode(os.urandom(16)).decode()
+              sock.sendall((f"GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\n"
+                            f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
+              reply = b''
+              while b'\r\n\r\n' not in reply: reply += sock.recv(1)
+              frame(sock, json.dumps({"id": 1, "method": "Runtime.evaluate",
+                                      "params": {"expression": EXPRESSION, "awaitPromise": True, "returnByValue": True}}))
+              try:
+                  while True:
+                      m = json.loads(receive(sock))
+                      if m.get('id') == 1:
+                          r = m.get('result', {}).get('result', {})
+                          print(r.get('value', m))
+                          break
+              except (socket.timeout, EOFError) as e:
+                  print(f"the page did not answer: {e!r}")
+              sock.close()
+          PAGE
 
       - name: Run the app on an emulator
         id: emulator
@@ -356,9 +429,11 @@ jobs:
           disable-animations: true
           # The action's own options, but the emulator's output goes to a
           # file, which is printed after the test (bats-lang/quire#258)
+          # (the file is made first: the emulator does not create it)
           emulator-options: >-
             -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
             -stdouterr-file ${{ runner.temp }}/emulator.log
+          pre-emulator-launch-script: touch "$RUNNER_TEMP/emulator.log"
           # A failed test prints, while the emulator still runs, what the
           # app, Android and the screen were doing (smoke-evidence.sh)
           script: >-
