@@ -15,7 +15,8 @@
 #
 # With smoke-test-text set, a second job installs the APK on an Android
 # emulator (API 34, AOSP's image without Google Play services,
-# hardware-accelerated on the Linux runner), launches
+# hardware-accelerated on the Linux runner, a screen 320 dp wide at 3x),
+# launches
 # it and waits for that text, which should be one only the app's wasm
 # renders; it fails when the text never shows, the app crashes or the
 # page logs a console error, and uploads a screenshot, the UI dump and
@@ -496,18 +497,30 @@ jobs:
           # services
           target: default
           disable-animations: true
+          # The screen: 320 dp wide, the narrowest width WCAG's Reflow
+          # asks for (bats-lang/quire#265 was found at it), at a phone's
+          # density of today: 960x1920 pixels at 480 dpi (3x), not the
+          # AVD's default 320x640 at 160 dpi, whose screenshots are
+          # blurred. The action has no input for the screen (`profile`
+          # names only a hardware profile, and none is 320 dp at 3x), so
+          # -skin sets the size and the AVD's config.ini, written after
+          # the action makes it, the density
           # The action's own options, but the emulator's output goes to a
           # file, which is printed after the test (bats-lang/quire#258)
           # (the file is made first: the emulator does not create it)
           emulator-options: >-
             -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+            -skin 960x1920
             -stdouterr-file ${{ runner.temp }}/emulator.log
-          pre-emulator-launch-script: touch "$RUNNER_TEMP/emulator.log"
+          pre-emulator-launch-script: |
+            touch "$RUNNER_TEMP/emulator.log"
+            config="${ANDROID_AVD_HOME:-$HOME/.android/avd}/test.avd/config.ini" && sed -i '/^hw\.lcd\.\(width\|height\|density\)=/d' "$config" && printf 'hw.lcd.width=960\nhw.lcd.height=1920\nhw.lcd.density=480\n' >> "$config" && grep -E '^(hw\.lcd|skin)\.' "$config"
           # A failed test prints, while the emulator still runs, what the
           # app, Android and the screen were doing (smoke-evidence.sh, for
           # at most 10 minutes: an adb call that hangs does not hold the
           # job to its 6-hour limit)
           script: >-
+            adb shell wm size; adb shell wm density;
             if [ -n "$SMOKE_SHARE_FILE" ];
             then sh "app/${{ inputs.project-dir }}/smoke-test.sh" "$SMOKE_APK" "$SMOKE_TEXT" smoke "app/$SMOKE_SHARE_FILE" "$SMOKE_SHARE_TYPE" "$SMOKE_SHARE_TEXT";
             else sh "app/${{ inputs.project-dir }}/smoke-test.sh" "$SMOKE_APK" "$SMOKE_TEXT" smoke;
