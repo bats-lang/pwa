@@ -152,18 +152,31 @@ jobs:
       # The npm packages and Maven artifacts the build downloads, kept
       # between runs: a build that fetched all of them from the network
       # each time failed whenever one fetch timed out (dl.google.com's
-      # "Read timed out", bats-lang/quire#258). The newest set saved is
-      # restored; what the build resolves is still what package.json and
-      # the Gradle files say, and anything missing is downloaded
-      - name: Restore the downloads of earlier builds
+      # "Read timed out", bats-lang/quire#258). One set per month and per
+      # project (its package.json, the Gradle file and the build script
+      # pwa writes), restored only under that exact key and saved only
+      # when it was not there: no set is grown from another, so each holds
+      # what one build downloaded, and a new month starts afresh (GitHub
+      # drops a set unused for 7 days). What the build resolves is still
+      # what package.json and the Gradle files say; anything missing is
+      # downloaded
+      - name: Name the downloads
+        id: downloads
+        env:
+          PROJECT: app/${{ inputs.project-dir }}
+        run: |
+          SET=$(cat "$PROJECT/package.json" "$PROJECT/android-release.gradle" "$PROJECT/build-android.sh" | sha256sum | cut -c1-32)
+          echo "key=android-downloads-${{ runner.os }}-$(date -u +%Y-%m)-$SET" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the downloads of an earlier build
+        id: restore-downloads
         uses: actions/cache/restore@v4
         with:
           path: |
             ~/.npm
             ~/.gradle/caches/modules-2
             ~/.gradle/wrapper/dists
-          key: android-downloads-${{ runner.os }}
-          restore-keys: android-downloads-${{ runner.os }}-
+          key: ${{ steps.downloads.outputs.key }}
 
       # Gradle prints a failed build's stack trace, for its cause
       # (bats-lang/quire#258). A dependency download that fails on the
@@ -199,17 +212,14 @@ jobs:
           echo "Version code: $ANDROID_VERSION_CODE"
           sh "app/${{ inputs.project-dir }}/build-android.sh" 2>&1 | tee "$RUNNER_TEMP/build-android.log"
 
-      # Saved under what the build resolved (npm's lock and the Gradle
-      # files Capacitor wrote), once per new set
-      - name: Name the downloads
-        id: downloads
-        env:
-          PROJECT: app/${{ inputs.project-dir }}
-        run: |
-          SET=$(cat "$PROJECT/package-lock.json" $(find "$PROJECT/android" -name '*.gradle' -not -path '*/build/*' | sort) "$PROJECT/android/gradle/wrapper/gradle-wrapper.properties" | sha256sum | cut -c1-32)
-          echo "key=android-downloads-${{ runner.os }}-$SET" >> "$GITHUB_OUTPUT"
+      # The Gradle daemon is stopped first, so that no file of the
+      # cache is still being written while it is saved
+      - name: Stop Gradle
+        if: steps.restore-downloads.outputs.cache-hit != 'true'
+        run: cd "app/${{ inputs.project-dir }}/android" && ./gradlew --stop
 
       - name: Keep the downloads
+        if: steps.restore-downloads.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -225,6 +235,8 @@ jobs:
         if: failure()
         run: |
           LOG="$RUNNER_TEMP/build-android.log"
+          # a step before the build failed: the build never ran
+          touch "$LOG"
           echo "== The failure's cause"
           sed -n '/^\* What went wrong:/,/^\* Try:/p' "$LOG"
           grep -E '^(Caused by: |npm (ERR|error)! )' "$LOG" | sort | uniq -c | sort -rn | head -40 || true
@@ -492,13 +504,15 @@ jobs:
             -stdouterr-file ${{ runner.temp }}/emulator.log
           pre-emulator-launch-script: touch "$RUNNER_TEMP/emulator.log"
           # A failed test prints, while the emulator still runs, what the
-          # app, Android and the screen were doing (smoke-evidence.sh)
+          # app, Android and the screen were doing (smoke-evidence.sh, for
+          # at most 10 minutes: an adb call that hangs does not hold the
+          # job to its 6-hour limit)
           script: >-
             if [ -n "$SMOKE_SHARE_FILE" ];
             then sh "app/${{ inputs.project-dir }}/smoke-test.sh" "$SMOKE_APK" "$SMOKE_TEXT" smoke "app/$SMOKE_SHARE_FILE" "$SMOKE_SHARE_TYPE" "$SMOKE_SHARE_TEXT";
             else sh "app/${{ inputs.project-dir }}/smoke-test.sh" "$SMOKE_APK" "$SMOKE_TEXT" smoke;
             fi
-            || { sh "$RUNNER_TEMP/smoke-evidence.sh" "app/${{ inputs.project-dir }}/capacitor.config.json"; exit 1; }
+            || { timeout 600 sh "$RUNNER_TEMP/smoke-evidence.sh" "app/${{ inputs.project-dir }}/capacitor.config.json"; exit 1; }
 
       # The emulator's own log: its graphics lines always (so a passing
       # run can be told from a failing one), all of it when the test failed
