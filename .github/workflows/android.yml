@@ -15,7 +15,8 @@
 #
 # With smoke-test-text set, a second job installs the APK on an Android
 # emulator (API 34, AOSP's image without Google Play services,
-# hardware-accelerated on the Linux runner), launches
+# hardware-accelerated on the Linux runner, a screen 320 dp wide at 3x),
+# launches
 # it and waits for that text, which should be one only the app's wasm
 # renders; it fails when the text never shows, the app crashes or the
 # page logs a console error, and uploads a screenshot, the UI dump and
@@ -43,6 +44,13 @@
 # it passes (a failed one keeps it for its day, so the test alone can be
 # re-run). So a branch shows that the signed release will build,
 # without publishing one.
+#
+# The build keeps its npm and Maven downloads between runs (the cache
+# android-downloads-*); a download it still needs and cannot get fails
+# the build, with npm's and Gradle's own defaults. A failed build
+# or smoke test prints why into the job log itself: Gradle's cause, or
+# the app's processes, threads, screen, page and logcat, and the
+# emulator's own log (bats-lang/quire#258).
 name: android
 
 on:
@@ -142,7 +150,46 @@ jobs:
             echo "No KEYSTORE_BASE64 secret: the build is unsigned"
           fi
 
+      # The npm packages and Maven artifacts the build downloads, kept
+      # between runs: a build that fetched all of them from the network
+      # each time failed whenever one fetch timed out (dl.google.com's
+      # "Read timed out", bats-lang/quire#258). One set per month and per
+      # project (its package.json, the Gradle file and the build script
+      # pwa writes), restored only under that exact key and saved only
+      # when it was not there: no set is grown from another, so each holds
+      # what one build downloaded, and a new month starts afresh (GitHub
+      # drops a set unused for 7 days). What the build resolves is still
+      # what package.json and the Gradle files say; anything missing is
+      # downloaded, and a download that fails fails the build
+      - name: Name the downloads
+        id: downloads
+        env:
+          PROJECT: app/${{ inputs.project-dir }}
+        run: |
+          SET=$(cat "$PROJECT/package.json" "$PROJECT/android-release.gradle" "$PROJECT/build-android.sh" | sha256sum | cut -c1-32)
+          echo "key=android-downloads-${{ runner.os }}-$(date -u +%Y-%m)-$SET" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the downloads of an earlier build
+        id: restore-downloads
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.npm
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: ${{ steps.downloads.outputs.key }}
+
+      # Gradle prints a failed build's stack trace, for its cause
+      # (bats-lang/quire#258)
+      - name: Configure Gradle
+        run: |
+          mkdir -p "$HOME/.gradle"
+          cat >> "$HOME/.gradle/gradle.properties" <<'PROPERTIES'
+          org.gradle.logging.stacktrace=all
+          PROPERTIES
+
       - name: Build release AAB and APK
+        shell: bash
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
@@ -152,7 +199,47 @@ jobs:
         run: |
           export ANDROID_VERSION_CODE=$((RUN_NUMBER + VERSION_CODE_OFFSET))
           echo "Version code: $ANDROID_VERSION_CODE"
-          sh "app/${{ inputs.project-dir }}/build-android.sh"
+          sh "app/${{ inputs.project-dir }}/build-android.sh" 2>&1 | tee "$RUNNER_TEMP/build-android.log"
+
+      # The Gradle daemon is stopped first, so that no file of the
+      # cache is still being written while it is saved
+      - name: Stop Gradle
+        if: steps.restore-downloads.outputs.cache-hit != 'true'
+        run: cd "app/${{ inputs.project-dir }}/android" && ./gradlew --stop
+
+      - name: Keep the downloads
+        if: steps.restore-downloads.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.npm
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: ${{ steps.downloads.outputs.key }}
+
+      # Why a build failed, in the job log itself (bats-lang/quire#258):
+      # Gradle's or npm's cause, the Gradle daemons' own logs, and the
+      # runner's memory and disk
+      - name: Say why the build failed
+        if: failure()
+        run: |
+          LOG="$RUNNER_TEMP/build-android.log"
+          # a step before the build failed: the build never ran
+          touch "$LOG"
+          echo "== The failure's cause"
+          sed -n '/^\* What went wrong:/,/^\* Try:/p' "$LOG"
+          grep -E '^(Caused by: |npm (ERR|error)! )' "$LOG" | sort | uniq -c | sort -rn | head -40 || true
+          while read -r line; do echo "::error::$line"; done <<CAUSES
+          $(sed -n '/^\* What went wrong:/,/^\* Try:/p' "$LOG" | grep -E '^ *> ' | head -8)
+          CAUSES
+          echo "== The Gradle daemons' logs (last 60 lines each)"
+          for f in "$HOME"/.gradle/daemon/*/daemon-*.out.log; do
+            [ -f "$f" ] || continue
+            echo "-- $f"; tail -60 "$f"
+          done
+          echo "== Memory and disk"
+          free -m; df -h / "$HOME"
+          sudo dmesg | grep -iE 'out of memory|killed process' | tail -20 || true
 
       - name: Remove decoded keystore
         if: always()
@@ -251,7 +338,134 @@ jobs:
           path: /usr/local/lib/android/sdk/system-images/android-34/default/x86_64
           key: system-image-android-34-default-x86_64
 
+      # What a failed smoke test prints into the job log while the
+      # emulator still runs (bats-lang/quire#258): the app's processes and
+      # threads, dumpsys activity, window and gfxinfo for the app, the
+      # screen as text (uiautomator), and the logcat: the app's tail,
+      # every process's warnings and errors, and the graphics stack's
+      - name: Write what a failed smoke test prints
+        run: |
+          cat > "$RUNNER_TEMP/smoke-evidence.sh" <<'EVIDENCE'
+          #!/bin/sh
+          # usage: smoke-evidence.sh <capacitor.config.json>
+          APP_ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["appId"])' "$1")
+          section() { echo; echo "======== $1"; }
+          section "Processes (the app, its WebView, graphics)"
+          adb shell ps -A -o PID,PPID,S,WCHAN,TIME,RSS,NAME | grep -iE "PID|$APP_ID|webview|sandboxed|surfaceflinger|composer|allocator" || true
+          PID=$(adb shell pidof "$APP_ID" | tr -d '\r')
+          echo "The app's pid: ${PID:-none}"
+          section "dumpsys activity (the app's activities and process)"
+          adb shell dumpsys activity -p "$APP_ID" activities | head -120
+          adb shell dumpsys activity -p "$APP_ID" processes | head -80
+          section "dumpsys window (focus)"
+          adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp|mFocusedWindow|mDisplayFrozen|mScreenOn|mAwake' | head -20
+          section "dumpsys gfxinfo (the app's frames)"
+          adb shell dumpsys gfxinfo "$APP_ID" | head -70
+          section "The screen (uiautomator dump): each node's text and description"
+          if adb shell uiautomator dump /sdcard/evidence.xml >/dev/null 2>&1; then
+            adb shell cat /sdcard/evidence.xml > "$RUNNER_TEMP/evidence.xml"
+            python3 - "$RUNNER_TEMP/evidence.xml" <<'NODES'
+          import sys, xml.etree.ElementTree as E
+          for n in E.parse(sys.argv[1]).iter('node'):
+              t, d = n.get('text', ''), n.get('content-desc', '')
+              print(n.get('class', '').split('.')[-1], n.get('bounds', ''), repr(t) if t else '', ('desc=' + repr(d)) if d else '')
+          NODES
+          else
+            echo "uiautomator could not dump the screen"
+          fi
+          if [ -n "$PID" ]; then
+            section "The app's threads: main (the first), RenderThread and the WebView's (debuggerd -b)"
+            adb root >/dev/null 2>&1; adb wait-for-device
+            for p in $PID $(adb shell pidof com.android.webview:sandboxed_process0 2>/dev/null | tr -d '\r'); do
+              adb shell debuggerd -b "$p" 2>/dev/null | awk '
+                /^"/ { keep = (++threads == 1 || $0 ~ /"(main|RenderThread|hwuiTask[0-9]*|CrRendererMain|CrGpuMain|Chrome_InProcGpu|VizCompositorTh|Compositor|GLThread)/); n = 0 }
+                /^(----- pid|Cmd line)/ { print }
+                keep && n < 18 { print; n++ }'
+            done
+            section "logcat: the app (last 300 lines)"
+            adb logcat -d --pid="$PID" | tail -300
+          fi
+          section "The page, through the WebView's DevTools (on a debuggable image, every app's)"
+          SOCKET=$(adb shell cat /proc/net/unix | grep -o "webview_devtools_remote_${PID:-none}" | head -1)
+          if [ -n "$SOCKET" ] && adb forward tcp:9222 "localabstract:$SOCKET" >/dev/null; then
+            timeout 60 python3 "$RUNNER_TEMP/page-state.py" 9222 || echo "DevTools did not answer"
+            adb forward --remove tcp:9222
+          else
+            echo "No DevTools socket for the app"
+          fi
+          section "Graphics properties"
+          adb shell getprop | grep -iE 'gles|opengl|vulkan|gfx|hwui|renderer|egl' || true
+          section "logcat: every process's warnings and errors (last 150 lines)"
+          adb logcat -d '*:W' | tail -150
+          section "logcat: the graphics stack (last 120 lines)"
+          adb logcat -d | grep -iE 'OpenGLRenderer|EGL|gralloc|goldfish|gfxstream|vulkan|SurfaceFlinger|HWComposer|chromium.*(gpu|GPU|viz|compositor)' | tail -120
+          EVIDENCE
+          cat > "$RUNNER_TEMP/page-state.py" <<'PAGE'
+          # usage: page-state.py <port>: through the WebView's DevTools (forwarded
+          # to localhost:<port>), what each page's document holds and whether it
+          # still gets animation frames
+          import base64, json, os, socket, struct, sys, urllib.request
+          port = int(sys.argv[1])
+          direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          pages = json.load(direct.open(f"http://127.0.0.1:{port}/json", timeout=10))
+          EXPRESSION = """(async () => {
+            const frame = new Promise(r => requestAnimationFrame(() => r('yes')));
+            const late = new Promise(r => setTimeout(() => r('no, none in 3 s'), 3000));
+            return JSON.stringify({
+              url: location.href, readyState: document.readyState,
+              visibility: document.visibilityState, focus: document.hasFocus(),
+              elements: document.getElementsByTagName('*').length,
+              text: (document.body ? document.body.innerText : '').slice(0, 600),
+              animationFrame: await Promise.race([frame, late]),
+            });
+          })()"""
+          def frame(sock, text):
+              data = text.encode()
+              head = bytes([0x81])
+              n = len(data)
+              head += bytes([0x80 | n]) if n < 126 else bytes([0x80 | 126]) + struct.pack('>H', n) if n < 65536 else bytes([0x80 | 127]) + struct.pack('>Q', n)
+              mask = os.urandom(4)
+              sock.sendall(head + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+          def read_exact(sock, n):
+              b = b''
+              while len(b) < n:
+                  c = sock.recv(n - len(b))
+                  if not c: raise EOFError
+                  b += c
+              return b
+          def receive(sock):
+              b0, b1 = read_exact(sock, 2)
+              n = b1 & 0x7f
+              if n == 126: n = struct.unpack('>H', read_exact(sock, 2))[0]
+              elif n == 127: n = struct.unpack('>Q', read_exact(sock, 8))[0]
+              return read_exact(sock, n).decode(errors='replace')
+          for page in pages:
+              print(f"page: {page.get('type')} {page.get('url')} attached={page.get('attached')}")
+              ws = page.get('webSocketDebuggerUrl')
+              if not ws: continue
+              path = ws.split(str(port), 1)[1]
+              sock = socket.create_connection(('127.0.0.1', port), timeout=15)
+              key = base64.b64encode(os.urandom(16)).decode()
+              sock.sendall((f"GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\n"
+                            f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
+              reply = b''
+              while b'\r\n\r\n' not in reply: reply += sock.recv(1)
+              frame(sock, json.dumps({"id": 1, "method": "Runtime.evaluate",
+                                      "params": {"expression": EXPRESSION, "awaitPromise": True, "returnByValue": True}}))
+              try:
+                  while True:
+                      m = json.loads(receive(sock))
+                      if m.get('id') == 1:
+                          r = m.get('result', {}).get('result', {})
+                          print(r.get('value', m))
+                          break
+              except (socket.timeout, EOFError) as e:
+                  print(f"the page did not answer: {e!r}")
+              sock.close()
+          PAGE
+
       - name: Run the app on an emulator
+        id: emulator
         uses: reactivecircus/android-emulator-runner@v2
         env:
           SMOKE_TEXT: ${{ inputs.smoke-test-text }}
@@ -271,11 +485,56 @@ jobs:
           # services
           target: default
           disable-animations: true
+          # The screen: 320 dp wide, the narrowest width WCAG's Reflow
+          # asks for (bats-lang/quire#265 was found at it), at a phone's
+          # density of today: 960x1920 pixels at 480 dpi (3x), not the
+          # AVD's default 320x640 at 160 dpi, whose screenshots are
+          # blurred. The action has no input for the screen (`profile`
+          # names only a hardware profile, and none is 320 dp at 3x), so
+          # -skin sets the size and the AVD's config.ini, written after
+          # the action makes it, the density
+          # The action's own options, but the emulator's output goes to a
+          # file, which is printed after the test (bats-lang/quire#258)
+          # (the file is made first: the emulator does not create it)
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+            -skin 960x1920
+            -stdouterr-file ${{ runner.temp }}/emulator.log
+          pre-emulator-launch-script: |
+            touch "$RUNNER_TEMP/emulator.log"
+            config="${ANDROID_AVD_HOME:-$HOME/.android/avd}/test.avd/config.ini" && sed -i '/^hw\.lcd\.\(width\|height\|density\)=/d' "$config" && printf 'hw.lcd.width=960\nhw.lcd.height=1920\nhw.lcd.density=480\n' >> "$config" && grep -E '^(hw\.lcd|skin)\.' "$config"
+          # The screen is checked first, and named in a notice: a screen
+          # other than 960x1920 at 480 dpi fails the job. A failed test
+          # prints, while the emulator still runs, what the
+          # app, Android and the screen were doing (smoke-evidence.sh, for
+          # at most 10 minutes: an adb call that hangs does not hold the
+          # job to its 6-hour limit)
           script: >-
+            screen="$(adb shell wm size | tr -d '\r' | tr '\n' ' ')$(adb shell wm density | tr -d '\r' | tr '\n' ' ')";
+            case "$screen" in *"Physical size: 960x1920"*"Physical density: 480"*) echo "::notice::The emulator's screen: $screen";;
+            *) echo "::error::The emulator's screen is not 960x1920 at 480 dpi: $screen"; exit 1;; esac;
             if [ -n "$SMOKE_SHARE_FILE" ];
             then sh "app/${{ inputs.project-dir }}/smoke-test.sh" "$SMOKE_APK" "$SMOKE_TEXT" smoke "app/$SMOKE_SHARE_FILE" "$SMOKE_SHARE_TYPE" "$SMOKE_SHARE_TEXT";
             else sh "app/${{ inputs.project-dir }}/smoke-test.sh" "$SMOKE_APK" "$SMOKE_TEXT" smoke;
             fi
+            || { timeout 600 sh "$RUNNER_TEMP/smoke-evidence.sh" "app/${{ inputs.project-dir }}/capacitor.config.json"; exit 1; }
+
+      # The emulator's own log: its graphics lines always (so a passing
+      # run can be told from a failing one), all of it when the test failed
+      - name: The emulator's log
+        if: always()
+        env:
+          OUTCOME: ${{ steps.emulator.outcome }}
+        run: |
+          LOG="$RUNNER_TEMP/emulator.log"
+          [ -f "$LOG" ] || { echo "No emulator log"; exit 0; }
+          echo "== Graphics lines of the emulator's log"
+          grep -nE 'ColorBuffer|GPU|gpu|[Gg]fxstream|[Vv]ulkan|GLES|EGL|OpenGL|SwiftShader|[Rr]ender' "$LOG" | tail -150 || true
+          echo "ColorBuffer errors: $(grep -c 'ColorBuffer' "$LOG" || true)"
+          if [ "$OUTCOME" != success ]; then
+            echo "== The emulator's log (last 400 lines)"
+            tail -400 "$LOG"
+          fi
 
       - name: Upload screenshot, UI dump and logcat
         if: always()
