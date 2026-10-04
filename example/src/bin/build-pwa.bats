@@ -11,7 +11,6 @@ implement main0 () = let
     assets, 0, 1, "text/plain", ".txt")
   val () = $A.free<byte>(assets)
   (* The Capacitor project around it: dist/android/build-android.sh
-     builds the Android app, which is also opened at example:// addresses
-     (as an OAuth sign-in comes back) *)
-  val () = $P.create_android_linked("Example App", "dev.bats.example", "../pwa", "dist/android", "text/plain", "example")
+     builds the Android app *)
+  val () = $P.create_android("Example App", "dev.bats.example", "../pwa", "dist/android", "text/plain")
 in end

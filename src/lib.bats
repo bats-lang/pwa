@@ -90,11 +90,6 @@
 #pub fn build_intent_filters {nm:nat | nm < 256}{n:nat | n + 1500 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 1500] $B.builder(m), mime: string nm): void
 
-(* The intent filter that opens the app at addresses of scheme (VIEW,
-   BROWSABLE, so a browser may open it), for create_android_linked *)
-#pub fn build_scheme_intent_filter {ns:nat | ns < 64}{n:nat | n + 400 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 400] $B.builder(m), scheme: string ns): void
-
 (* ============================================================
    High-level API -- write complete PWA/APK to a directory
    ============================================================ *)
@@ -147,16 +142,6 @@
    reads the keystore and its passwords when the build runs. *)
 #pub fn create_android {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nd:nat | nd < 256}{nm:nat | nm < 256}
   (app_name: string na, app_id: string ni, web_dir: string nw, project_dir: string nd, mime: string nm): void
-
-(* As create_android, for an app also opened at addresses of its own
-   scheme (scheme://...), as an OAuth sign-in in the system browser comes
-   back to it (RFC 8252's private-use URI scheme): MainActivity is given
-   build_scheme_intent_filter's filter too, and such an address reaches
-   the page through bridge's listen_app_link (Capacitor's App plugin), not
-   as a file. A scheme that is not one (a lowercase letter, then
-   lowercase letters, digits, "+", "-" or ".") gets no filter. *)
-#pub fn create_android_linked {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nd:nat | nd < 256}{nm:nat | nm < 256}{ns:nat | ns < 64}
-  (app_name: string na, app_id: string ni, web_dir: string nw, project_dir: string nd, mime: string nm, scheme: string ns): void
 
 (* ============================================================
    Internal: paths and files
@@ -672,37 +657,6 @@ implement build_intent_filters (b, mime) = let
   val () = $B.bput(b, "            </intent-filter>\n")
 in end
 
-(* Whether c is a URI scheme's character after its first (RFC 3986: a
-   lowercase letter, a digit, "+", "-" or "."); first: its first, a
-   lowercase letter *)
-fn _scheme_char (c: char, first: bool): bool =
-  if c >= 'a' && c <= 'z' then true
-  else if first then false
-  else if c >= '0' && c <= '9' then true
-  else c = '+' || c = '-' || c = '.'
-
-fun _scheme_from {ns:nat}{i:nat | i <= ns} .<ns - i>. (scheme: string ns, n: int ns, i: int i): bool =
-  if i >= n then true
-  else if ~_scheme_char(string_get_at(scheme, i), i = 0) then false
-  else _scheme_from(scheme, n, i + 1)
-
-(* Whether scheme is a URI scheme *)
-fn _is_scheme {ns:nat} (scheme: string ns): bool = let
-  val n = g1u2i(string1_length(scheme))
-in if n <= 0 then false else _scheme_from(scheme, n, 0) end
-
-implement build_scheme_intent_filter (b, scheme) =
-  if ~_is_scheme(scheme) then ()
-  else let
-    val () = $B.bput(b, "            <intent-filter>\n")
-    val () = $B.bput(b, "                <action android:name=\"android.intent.action.VIEW\" />\n")
-    val () = $B.bput(b, "                <category android:name=\"android.intent.category.DEFAULT\" />\n")
-    val () = $B.bput(b, "                <category android:name=\"android.intent.category.BROWSABLE\" />\n")
-    val () = $B.bput(b, "                <data android:scheme=\"")
-    val () = $B.bput(b, scheme)
-    val () = $B.bput(b, "\" />\n")
-  in $B.bput(b, "            </intent-filter>\n") end
-
 implement build_smoke_test_script (b, app_id) = let
   val () = $B.bput(b, "#!/bin/sh\n")
   val () = $B.bput(b, "# usage: smoke-test.sh <apk> <text> <out-dir> [<file> <type> <text>]\n")
@@ -942,9 +896,7 @@ implement create_pwa_opening (app_name, app_id, wasm_path, wasm_name, out_dir, a
   val () = _copy_assets(assets, 0, asset_len, out_dir)
 in end
 
-(* The Android project but its intent filters *)
-fn _android_project {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nd:nat | nd < 256}
-  (app_name: string na, app_id: string ni, web_dir: string nw, project_dir: string nd): void = let
+implement create_android (app_name, app_id, web_dir, project_dir, mime) = let
   val () = _mkdir(project_dir)
   var cap_b = $B.create()
   val () = build_capacitor_config(cap_b, app_name, app_id, web_dir)
@@ -958,6 +910,9 @@ fn _android_project {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nd
   var ma_b = $B.create()
   val () = build_main_activity(ma_b, app_id)
   val () = _write_to(project_dir, "MainActivity.java", ma_b)
+  var if_b = $B.create()
+  val () = build_intent_filters(if_b, mime)
+  val () = _write_to(project_dir, "intent-filters.xml", if_b)
   (* the backup rules the manifest names: bridge's, since bridge keeps
      the files they name (its backup_file) *)
   var full_backup_b = $B.create()
@@ -972,16 +927,3 @@ fn _android_project {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nd
   var st_b = $B.create()
   val () = build_smoke_test_script(st_b, app_id)
 in _write_mode(project_dir, "smoke-test.sh", st_b, 493) end
-
-implement create_android (app_name, app_id, web_dir, project_dir, mime) = let
-  val () = _android_project(app_name, app_id, web_dir, project_dir)
-  var if_b = $B.create()
-  val () = build_intent_filters(if_b, mime)
-in _write_to(project_dir, "intent-filters.xml", if_b) end
-
-implement create_android_linked (app_name, app_id, web_dir, project_dir, mime, scheme) = let
-  val () = _android_project(app_name, app_id, web_dir, project_dir)
-  var if_b = $B.create()
-  val () = build_intent_filters(if_b, mime)
-  val () = build_scheme_intent_filter(if_b, scheme)
-in _write_to(project_dir, "intent-filters.xml", if_b) end
