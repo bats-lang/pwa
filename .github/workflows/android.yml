@@ -104,6 +104,11 @@ on:
 jobs:
   build-android:
     runs-on: ubuntu-latest
+    # THROWAWAY (quire#258): repeated builds
+    strategy:
+      fail-fast: false
+      matrix:
+        round: [1, 2, 3]
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -235,7 +240,7 @@ jobs:
       # Not published: the smoke test's copy of the APK, which it deletes
       # once it passes
       - name: Hand the APK to the smoke test
-        if: ${{ !inputs.publish && inputs.smoke-test-text != '' }}
+        if: ${{ !inputs.publish && inputs.smoke-test-text != '' && matrix.round == 1 }}
         uses: actions/upload-artifact@v4
         with:
           name: smoke-apk
@@ -244,8 +249,13 @@ jobs:
 
   smoke-test:
     needs: build-android
-    if: inputs.smoke-test-text != ''
+    if: always() && inputs.smoke-test-text != ''
     runs-on: ubuntu-latest
+    # THROWAWAY (quire#258): repeated smoke tests of one APK
+    strategy:
+      fail-fast: false
+      matrix:
+        round: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -389,7 +399,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-smoke-test
+          name: android-smoke-test-${{ matrix.round }}
           path: |
             smoke/screenshot.png
             smoke/ui.xml
@@ -399,7 +409,7 @@ jobs:
       # Only once the test passed: a failed test keeps the APK (for a
       # day), so a re-run of this job alone can install it again
       - name: Delete the smoke test's copy of the APK
-        if: ${{ success() && !inputs.publish }}
+        if: ${{ false }}
         uses: geekyeggo/delete-artifact@v5
         with:
           name: smoke-apk
