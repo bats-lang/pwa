@@ -43,6 +43,13 @@
 # it passes (a failed one keeps it for its day, so the test alone can be
 # re-run). So a branch shows that the signed release will build,
 # without publishing one.
+#
+# The build keeps its npm and Maven downloads between runs (the cache
+# android-downloads-*), and Gradle tries a download that failed on the
+# network again, with backoff; nothing else is retried. A failed build
+# or smoke test prints why into the job log itself: Gradle's cause, or
+# the app's processes, threads, screen, page and logcat, and the
+# emulator's own log (bats-lang/quire#258).
 name: android
 
 on:
