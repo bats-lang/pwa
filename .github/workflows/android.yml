@@ -142,7 +142,14 @@ jobs:
             echo "No KEYSTORE_BASE64 secret: the build is unsigned"
           fi
 
+      # A failed build's stack trace, for its cause (bats-lang/quire#258)
+      - name: Gradle prints the stack trace of a failure
+        run: |
+          mkdir -p "$HOME/.gradle"
+          echo "org.gradle.logging.stacktrace=all" >> "$HOME/.gradle/gradle.properties"
+
       - name: Build release AAB and APK
+        shell: bash
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
@@ -152,7 +159,29 @@ jobs:
         run: |
           export ANDROID_VERSION_CODE=$((RUN_NUMBER + VERSION_CODE_OFFSET))
           echo "Version code: $ANDROID_VERSION_CODE"
-          sh "app/${{ inputs.project-dir }}/build-android.sh"
+          sh "app/${{ inputs.project-dir }}/build-android.sh" 2>&1 | tee "$RUNNER_TEMP/build-android.log"
+
+      # Why a build failed, in the job log itself (bats-lang/quire#258):
+      # Gradle's or npm's cause, the Gradle daemons' own logs, and the
+      # runner's memory and disk
+      - name: Say why the build failed
+        if: failure()
+        run: |
+          LOG="$RUNNER_TEMP/build-android.log"
+          echo "== The failure's cause"
+          sed -n '/^\* What went wrong:/,/^\* Try:/p' "$LOG"
+          grep -E '^(Caused by: |npm (ERR|error)! )' "$LOG" | sort | uniq -c | sort -rn | head -40 || true
+          while read -r line; do echo "::error::$line"; done <<CAUSES
+          $(sed -n '/^\* What went wrong:/,/^\* Try:/p' "$LOG" | grep -E '^ *> ' | head -8)
+          CAUSES
+          echo "== The Gradle daemons' logs (last 60 lines each)"
+          for f in "$HOME"/.gradle/daemon/*/daemon-*.out.log; do
+            [ -f "$f" ] || continue
+            echo "-- $f"; tail -60 "$f"
+          done
+          echo "== Memory and disk"
+          free -m; df -h / "$HOME"
+          sudo dmesg | grep -iE 'out of memory|killed process' | tail -20 || true
 
       - name: Remove decoded keystore
         if: always()
@@ -251,7 +280,61 @@ jobs:
           path: /usr/local/lib/android/sdk/system-images/android-34/default/x86_64
           key: system-image-android-34-default-x86_64
 
+      # What a failed smoke test prints into the job log while the
+      # emulator still runs (bats-lang/quire#258): the app's processes and
+      # threads, dumpsys activity, window and gfxinfo for the app, the
+      # screen as text (uiautomator), and the logcat: the app's tail,
+      # every process's warnings and errors, and the graphics stack's
+      - name: Write what a failed smoke test prints
+        run: |
+          cat > "$RUNNER_TEMP/smoke-evidence.sh" <<'EVIDENCE'
+          #!/bin/sh
+          # usage: smoke-evidence.sh <capacitor.config.json>
+          APP_ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["appId"])' "$1")
+          section() { echo; echo "======== $1"; }
+          section "Processes (the app, its WebView, graphics)"
+          adb shell ps -A -o PID,PPID,S,WCHAN,TIME,RSS,NAME | grep -iE "PID|$APP_ID|webview|sandboxed|surfaceflinger|composer|allocator" || true
+          PID=$(adb shell pidof "$APP_ID" | tr -d '\r')
+          echo "The app's pid: ${PID:-none}"
+          section "dumpsys activity (the app's activities and process)"
+          adb shell dumpsys activity -p "$APP_ID" activities | head -120
+          adb shell dumpsys activity -p "$APP_ID" processes | head -80
+          section "dumpsys window (focus)"
+          adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp|mFocusedWindow|mDisplayFrozen|mScreenOn|mAwake' | head -20
+          section "dumpsys gfxinfo (the app's frames)"
+          adb shell dumpsys gfxinfo "$APP_ID" | head -70
+          section "The screen (uiautomator dump): each node's text and description"
+          if adb shell uiautomator dump /sdcard/evidence.xml >/dev/null 2>&1; then
+            adb shell cat /sdcard/evidence.xml > "$RUNNER_TEMP/evidence.xml"
+            python3 - "$RUNNER_TEMP/evidence.xml" <<'NODES'
+          import sys, xml.etree.ElementTree as E
+          for n in E.parse(sys.argv[1]).iter('node'):
+              t, d = n.get('text', ''), n.get('content-desc', '')
+              print(n.get('class', '').split('.')[-1], n.get('bounds', ''), repr(t) if t else '', ('desc=' + repr(d)) if d else '')
+          NODES
+          else
+            echo "uiautomator could not dump the screen"
+          fi
+          if [ -n "$PID" ]; then
+            section "The app's threads: main, RenderThread and the WebView's (debuggerd -b)"
+            adb root >/dev/null 2>&1; adb wait-for-device
+            for p in $PID $(adb shell pidof com.android.webview:sandboxed_process0 2>/dev/null | tr -d '\r'); do
+              adb shell debuggerd -b "$p" 2>/dev/null | awk '
+                /^"/ { keep = ($0 ~ /"(main|RenderThread|hwuiTask[0-9]*|CrRendererMain|CrGpuMain|Chrome_InProcGpu|VizCompositorTh|Compositor|GLThread)/); n = 0 }
+                /^(----- pid|Cmd line)/ { print }
+                keep && n < 18 { print; n++ }'
+            done
+            section "logcat: the app (last 300 lines)"
+            adb logcat -d --pid="$PID" | tail -300
+          fi
+          section "logcat: every process's warnings and errors (last 150 lines)"
+          adb logcat -d '*:W' | tail -150
+          section "logcat: the graphics stack (last 120 lines)"
+          adb logcat -d | grep -iE 'OpenGLRenderer|EGL|gralloc|goldfish|gfxstream|vulkan|SurfaceFlinger|HWComposer|chromium.*(gpu|GPU|viz|compositor)' | tail -120
+          EVIDENCE
+
       - name: Run the app on an emulator
+        id: emulator
         uses: reactivecircus/android-emulator-runner@v2
         env:
           SMOKE_TEXT: ${{ inputs.smoke-test-text }}
@@ -271,11 +354,36 @@ jobs:
           # services
           target: default
           disable-animations: true
+          # The action's own options, but the emulator's output goes to a
+          # file, which is printed after the test (bats-lang/quire#258)
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+            -stdouterr-file ${{ runner.temp }}/emulator.log
+          # A failed test prints, while the emulator still runs, what the
+          # app, Android and the screen were doing (smoke-evidence.sh)
           script: >-
             if [ -n "$SMOKE_SHARE_FILE" ];
             then sh "app/${{ inputs.project-dir }}/smoke-test.sh" "$SMOKE_APK" "$SMOKE_TEXT" smoke "app/$SMOKE_SHARE_FILE" "$SMOKE_SHARE_TYPE" "$SMOKE_SHARE_TEXT";
             else sh "app/${{ inputs.project-dir }}/smoke-test.sh" "$SMOKE_APK" "$SMOKE_TEXT" smoke;
             fi
+            || { sh "$RUNNER_TEMP/smoke-evidence.sh" "app/${{ inputs.project-dir }}/capacitor.config.json"; exit 1; }
+
+      # The emulator's own log: its graphics lines always (so a passing
+      # run can be told from a failing one), all of it when the test failed
+      - name: The emulator's log
+        if: always()
+        env:
+          OUTCOME: ${{ steps.emulator.outcome }}
+        run: |
+          LOG="$RUNNER_TEMP/emulator.log"
+          [ -f "$LOG" ] || { echo "No emulator log"; exit 0; }
+          echo "== Graphics lines of the emulator's log"
+          grep -nE 'ColorBuffer|GPU|gpu|[Gg]fxstream|[Vv]ulkan|GLES|EGL|OpenGL|SwiftShader|[Rr]ender' "$LOG" | tail -150 || true
+          echo "ColorBuffer errors: $(grep -c 'ColorBuffer' "$LOG" || true)"
+          if [ "$OUTCOME" != success ]; then
+            echo "== The emulator's log (last 400 lines)"
+            tail -400 "$LOG"
+          fi
 
       - name: Upload screenshot, UI dump and logcat
         if: always()
