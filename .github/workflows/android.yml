@@ -515,12 +515,16 @@ jobs:
           pre-emulator-launch-script: |
             touch "$RUNNER_TEMP/emulator.log"
             config="${ANDROID_AVD_HOME:-$HOME/.android/avd}/test.avd/config.ini" && sed -i '/^hw\.lcd\.\(width\|height\|density\)=/d' "$config" && printf 'hw.lcd.width=960\nhw.lcd.height=1920\nhw.lcd.density=480\n' >> "$config" && grep -E '^(hw\.lcd|skin)\.' "$config"
-          # A failed test prints, while the emulator still runs, what the
+          # The screen is checked first, and named in a notice: a screen
+          # other than 960x1920 at 480 dpi fails the job. A failed test
+          # prints, while the emulator still runs, what the
           # app, Android and the screen were doing (smoke-evidence.sh, for
           # at most 10 minutes: an adb call that hangs does not hold the
           # job to its 6-hour limit)
           script: >-
-            adb shell wm size; adb shell wm density;
+            screen="$(adb shell wm size | tr -d '\r' | tr '\n' ' ')$(adb shell wm density | tr -d '\r' | tr '\n' ' ')";
+            case "$screen" in *"Physical size: 960x1920"*"Physical density: 480"*) echo "::notice::The emulator's screen: $screen";;
+            *) echo "::error::The emulator's screen is not 960x1920 at 480 dpi: $screen"; exit 1;; esac;
             if [ -n "$SMOKE_SHARE_FILE" ];
             then sh "app/${{ inputs.project-dir }}/smoke-test.sh" "$SMOKE_APK" "$SMOKE_TEXT" smoke "app/$SMOKE_SHARE_FILE" "$SMOKE_SHARE_TYPE" "$SMOKE_SHARE_TEXT";
             else sh "app/${{ inputs.project-dir }}/smoke-test.sh" "$SMOKE_APK" "$SMOKE_TEXT" smoke;
