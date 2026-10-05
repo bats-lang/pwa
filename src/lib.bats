@@ -81,11 +81,13 @@
    or started again from the recent apps) is not handed over again
    (bats-lang/quire#247), to the page or to Capacitor's plugins: an
    address the app was opened at (the App plugin's appUrlOpen) reaches
-   the page once too. At each window insets dispatch, whether the status
-   bar and the navigation bar are shown (WindowInsetsCompat.isVisible of
-   each) goes to bridge's batsNative.systemBars, the latest once the page
-   has it; the web view takes the insets as it would without the
-   listener (bats-lang/quire#314). *)
+   the page once too. At each window insets dispatch to the web view,
+   whether the status bar and the navigation bar are shown (the window's
+   own insets, ViewCompat.getRootWindowInsets, isVisible of each: from
+   API 30 Android's visibility; below it androidx's reading of the
+   window's insets) goes to bridge's batsNative.systemBars, the latest
+   once the page has it; the web view takes the insets as it would
+   without the listener (bats-lang/quire#314). *)
 #pub fn build_main_activity {ni:nat | ni < 256}{n:nat | n + 11500 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 11500] $B.builder(m), app_id: string ni): void
 
@@ -526,15 +528,18 @@ implement build_main_activity (b, app_id) = let
   val () = $B.bput(b, "        Log.i(TAG, savedInstanceState == null ? \"created\" : \"recreated\");\n")
   val () = $B.bput(b, "        super.onCreate(savedInstanceState);\n")
   val () = $B.bput(b, "        launchHandedOver = false;\n")
-  val () = $B.bput(b, "        // Each window insets dispatch's isVisible of the status bar and of\n")
-  val () = $B.bput(b, "        // the navigation bar, handed to the page (bridge's\n")
-  val () = $B.bput(b, "        // batsNative.systemBars); the web view then takes the insets as it\n")
-  val () = $B.bput(b, "        // does with no listener (its own onApplyWindowInsets)\n")
+  val () = $B.bput(b, "        // At each window insets dispatch, the window's own insets' isVisible\n")
+  val () = $B.bput(b, "        // of the status bar and of the navigation bar (not the insets the\n")
+  val () = $B.bput(b, "        // web view is given, which Capacitor's SystemBars rewrites, and from\n")
+  val () = $B.bput(b, "        // which androidx reads visibility below API 30), handed to the page\n")
+  val () = $B.bput(b, "        // (bridge's batsNative.systemBars); the web view then takes the\n")
+  val () = $B.bput(b, "        // insets as it does with no listener (its own onApplyWindowInsets)\n")
   val () = $B.bput(b, "        if (bridge != null && bridge.getWebView() != null)\n")
   val () = $B.bput(b, "            ViewCompat.setOnApplyWindowInsetsListener(bridge.getWebView(), (view, insets) -> {\n")
-  val () = $B.bput(b, "                reportBars(\"(globalThis.batsNative && globalThis.batsNative.systemBars ? globalThis.batsNative.systemBars(\"\n")
-  val () = $B.bput(b, "                    + insets.isVisible(WindowInsetsCompat.Type.statusBars()) + \",\"\n")
-  val () = $B.bput(b, "                    + insets.isVisible(WindowInsetsCompat.Type.navigationBars()) + \") : false)\");\n")
+  val () = $B.bput(b, "                WindowInsetsCompat window = ViewCompat.getRootWindowInsets(view);\n")
+  val () = $B.bput(b, "                if (window != null) reportBars(\"(globalThis.batsNative && globalThis.batsNative.systemBars ? globalThis.batsNative.systemBars(\"\n")
+  val () = $B.bput(b, "                    + window.isVisible(WindowInsetsCompat.Type.statusBars()) + \",\"\n")
+  val () = $B.bput(b, "                    + window.isVisible(WindowInsetsCompat.Type.navigationBars()) + \") : false)\");\n")
   val () = $B.bput(b, "                return ViewCompat.onApplyWindowInsets(view, insets);\n")
   val () = $B.bput(b, "            });\n")
   val () = $B.bput(b, "    }\n")

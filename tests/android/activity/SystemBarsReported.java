@@ -6,7 +6,9 @@ import androidx.core.view.WindowInsetsCompat;
 import java.util.List;
 
 // The activity hands the page whether each system bar is shown, at each
-// window insets dispatch (bats-lang/quire#314): to bridge's
+// window insets dispatch (bats-lang/quire#314), as the window's own
+// insets have them (not the insets the web view is given, which
+// Capacitor's SystemBars rewrites, below API 30 to none): to bridge's
 // batsNative.systemBars, the latest once the page has it, and the web
 // view still takes the insets itself. Run by tests/android/activity.sh
 // on the MainActivity.java pwa writes, against Capacitor's
@@ -24,6 +26,12 @@ public class SystemBarsReported {
             + status + "," + navigation + ") : false)";
     }
 
+    // A dispatch: the window's own insets, and those the web view is
+    // given, rewritten to none above it as Capacitor's SystemBars does
+    static void dispatch(WebView view, boolean status, boolean navigation) {
+        view.dispatchApplyWindowInsets(new WindowInsetsCompat(status, navigation), new WindowInsetsCompat(false, false));
+    }
+
     static String last(List<String> scripts) {
         return scripts.isEmpty() ? "" : scripts.get(scripts.size() - 1);
     }
@@ -34,18 +42,18 @@ public class SystemBarsReported {
         activity.onCreate(null);
         WebView view = activity.getBridge().getWebView();
 
-        view.dispatchApplyWindowInsets(new WindowInsetsCompat(true, true));
-        expect(last(view.scripts).equals(report(true, true)), "both bars shown: the page is told so: " + last(view.scripts));
+        dispatch(view, true, true);
+        expect(last(view.scripts).equals(report(true, true)), "both bars shown in the window: the page is told so, whatever the web view is given: " + last(view.scripts));
         expect(view.insetsTaken == 1, "and the web view takes the insets itself");
 
-        view.dispatchApplyWindowInsets(new WindowInsetsCompat(false, false));
+        dispatch(view, false, false);
         expect(last(view.scripts).equals(report(false, false)), "both hidden: the page is told so");
 
         // the system shows the bars again (a swipe from the edge)
-        view.dispatchApplyWindowInsets(new WindowInsetsCompat(true, true));
+        dispatch(view, true, true);
         expect(last(view.scripts).equals(report(true, true)), "shown by the system: the page is told so");
 
-        view.dispatchApplyWindowInsets(new WindowInsetsCompat(true, false));
+        dispatch(view, true, false);
         expect(last(view.scripts).equals(report(true, false)), "the status bar alone: the page is told so");
         expect(view.insetsTaken == 4, "and the web view took each dispatch's insets");
 
@@ -53,10 +61,10 @@ public class SystemBarsReported {
         // is taken, and the latest is the one handed
         view.answer = "null";
         int before = view.scripts.size();
-        view.dispatchApplyWindowInsets(new WindowInsetsCompat(false, true));
+        dispatch(view, false, true);
         expect(view.scripts.size() - before > 1, "a page without the bridge is handed the report again");
         view.answer = "true";
-        view.dispatchApplyWindowInsets(new WindowInsetsCompat(false, false));
+        dispatch(view, false, false);
         expect(last(view.scripts).equals(report(false, false)), "and once it has it, the next report is taken");
 
         System.exit(failures == 0 ? 0 : 1);

@@ -8,6 +8,10 @@ public class ViewCompat {
         view.insetsListener = listener;
     }
 
+    public static WindowInsetsCompat getRootWindowInsets(View view) {
+        return view.rootInsets;
+    }
+
     public static WindowInsetsCompat onApplyWindowInsets(View view, WindowInsetsCompat insets) {
         return view.onApplyWindowInsets(insets);
     }
