@@ -61,7 +61,7 @@
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 2000] $B.builder(m)): void
 
 (* build-android.sh: builds the Capacitor project it sits in into a
-   release AAB and APK (npm install, cap add android, the app's own
+   release AAB and APK (pnpm install, cap add android, the app's own
    MainActivity, its intent filters and launcher icon, the Gradle above,
    cap sync, gradlew bundleRelease assembleRelease); signed when
    ANDROID_KEYSTORE names a keystore file. The launcher icon is the
@@ -426,8 +426,9 @@ in end
 implement build_android_script (b, web_dir) = let
   val () = $B.bput(b, "#!/bin/sh\n")
   val () = $B.bput(b, "# Builds this Capacitor project into a release AAB and APK, in\n")
-  val () = $B.bput(b, "# android/app/build/outputs/{bundle,apk}/release/. Needs Node, a JDK\n")
-  val () = $B.bput(b, "# (21) and the Android SDK (ANDROID_HOME).\n")
+  val () = $B.bput(b, "# android/app/build/outputs/{bundle,apk}/release/. Needs Node with\n")
+  val () = $B.bput(b, "# corepack (22 or 24; Node 25 ships none), a JDK (21) and the Android\n")
+  val () = $B.bput(b, "# SDK (ANDROID_HOME).\n")
   val () = $B.bput(b, "#\n")
   val () = $B.bput(b, "# Signed when ANDROID_KEYSTORE names a keystore file, with\n")
   val () = $B.bput(b, "# ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD;\n")
@@ -436,8 +437,16 @@ implement build_android_script (b, web_dir) = let
   val () = $B.bput(b, "set -eu\n")
   val () = $B.bput(b, "cd \"$(dirname \"$0\")\"\n")
   val () = $B.bput(b, "rm -rf android\n")
-  val () = $B.bput(b, "npm install\n")
-  val () = $B.bput(b, "npx cap add android\n")
+  val () = $B.bput(b, "# pnpm, at one version, through the corepack Node ships (quire#321: it\n")
+  val () = $B.bput(b, "# installs a package from a subfolder of a git repository, which npm\n")
+  val () = $B.bput(b, "# cannot); node_modules flat, where Capacitor's Gradle files look for\n")
+  val () = $B.bput(b, "# the plugins (pnpm reads nodeLinker from pnpm-workspace.yaml, not\n")
+  val () = $B.bput(b, "# from .npmrc)\n")
+  val () = $B.bput(b, "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0\n")
+  val () = $B.bput(b, "pnpm=\"corepack pnpm@12.9.1\"\n")
+  val () = $B.bput(b, "printf 'nodeLinker: hoisted\\n' > pnpm-workspace.yaml\n")
+  val () = $B.bput(b, "$pnpm install\n")
+  val () = $B.bput(b, "$pnpm exec cap add android\n")
   val () = $B.bput(b, "if [ -n \"${ANDROID_KEYSTORE:-}\" ]; then\n")
   val () = $B.bput(b, "  cp \"$ANDROID_KEYSTORE\" android/app/release.jks\n")
   val () = $B.bput(b, "fi\n")
@@ -467,7 +476,7 @@ implement build_android_script (b, web_dir) = let
   val () = $B.bput(b, "  rm -rf android/app/src/main/res/mipmap-anydpi-v26\n")
   val () = $B.bput(b, "fi\n")
   val () = $B.bput(b, "cat android-release.gradle >> android/app/build.gradle\n")
-  val () = $B.bput(b, "npx cap sync android\n")
+  val () = $B.bput(b, "$pnpm exec cap sync android\n")
   val () = $B.bput(b, "cd android\n")
   val () = $B.bput(b, "./gradlew bundleRelease assembleRelease\n")
 in end
