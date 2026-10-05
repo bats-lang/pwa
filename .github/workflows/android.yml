@@ -99,6 +99,11 @@ on:
         required: false
         type: boolean
         default: true
+      poc-plugin:
+        description: "Proof of concept (quire#321): a pnpm source for @bats-lang/capacitor-hello to add to the app; empty for none"
+        required: false
+        type: string
+        default: ''
     secrets:
       KEYSTORE_BASE64:
         required: false
@@ -161,6 +166,17 @@ jobs:
       # drops a set unused for 7 days). What the build resolves is still
       # what package.json and the Gradle files say; anything missing is
       # downloaded, and a download that fails fails the build
+      # Proof of concept (quire#321): the hello plugin, from a subfolder
+      # of bats-lang/capacitor-plugins, added to the generated package.json
+      - name: "POC: add the hello plugin"
+        if: inputs.poc-plugin != ''
+        env:
+          PROJECT: app/${{ inputs.project-dir }}
+          SOURCE: ${{ inputs.poc-plugin }}
+        run: |
+          node -e 'const fs = require("fs"); const f = process.argv[1]; const p = JSON.parse(fs.readFileSync(f)); p.dependencies["@bats-lang/capacitor-hello"] = process.argv[2]; fs.writeFileSync(f, JSON.stringify(p, null, 2) + "\n")' "$PROJECT/package.json" "$SOURCE"
+          cat "$PROJECT/package.json"
+
       - name: Name the downloads
         id: downloads
         env:
@@ -256,6 +272,45 @@ jobs:
           echo "APK: $APK ($(stat -c%s "$APK") bytes)"
           echo "AAB=$AAB" >> "$GITHUB_ENV"
           echo "APK=$APK" >> "$GITHUB_ENV"
+
+      # Proof of concept (quire#321): the APK's plugins against those of
+      # main's APK (pwa's check run 37317327532, at 9f7dae8), plus hello
+      # when it was added, and hello's class in the dex
+      - name: "POC: main's APK"
+        uses: actions/download-artifact@v4
+        with:
+          name: release-apk
+          path: main-apk
+          run-id: 37317327532
+          github-token: ${{ github.token }}
+
+      - name: "POC: compare the plugins with main's"
+        env:
+          POC_PLUGIN: ${{ inputs.poc-plugin }}
+        run: |
+          MAIN_APK=$(find main-apk -name '*.apk' | head -1)
+          unzip -p "$MAIN_APK" assets/capacitor.plugins.json > "$RUNNER_TEMP/main-plugins.json"
+          unzip -p "$APK" assets/capacitor.plugins.json > "$RUNNER_TEMP/plugins.json"
+          cat "$RUNNER_TEMP/plugins.json"
+          python3 - "$RUNNER_TEMP/main-plugins.json" "$RUNNER_TEMP/plugins.json" <<'COMPARE'
+          import json, os, sys
+          main = [(p["pkg"], p["classpath"]) for p in json.load(open(sys.argv[1]))]
+          this = [(p["pkg"], p["classpath"]) for p in json.load(open(sys.argv[2]))]
+          expected = list(main)
+          if os.environ["POC_PLUGIN"]:
+              expected.append(("@bats-lang/capacitor-hello", "io.github.batslang.hello.HelloPlugin"))
+          print("::notice::main's APK plugins: " + json.dumps(main))
+          print("::notice::this APK's plugins: " + json.dumps(this))
+          if sorted(this) != sorted(expected):
+              print("::error::the APK's plugins are not main's" + (" plus hello" if os.environ["POC_PLUGIN"] else ""))
+              sys.exit(1)
+          print("::notice::the APK's plugins are main's" + (" plus hello" if os.environ["POC_PLUGIN"] else ""))
+          COMPARE
+          if [ -n "$POC_PLUGIN" ]; then
+            n=$(unzip -p "$APK" 'classes*.dex' | grep -c -a 'Lio/github/batslang/hello/HelloPlugin;' || true)
+            [ "$n" -gt 0 ] || { echo "::error::HelloPlugin is not in the APK's dex"; exit 1; }
+            echo "::notice::HelloPlugin is in the APK's dex (Lio/github/batslang/hello/HelloPlugin;)"
+          fi
 
       - name: Verify the signatures
         if: env.SIGNING_SHA256 != ''
@@ -464,10 +519,79 @@ jobs:
               sock.close()
           PAGE
 
+      # Proof of concept (quire#321): Capacitor.Plugins.Hello.echo({value:'x'})
+      # in the app's page, through the WebView's DevTools socket
+      - name: "POC: write the hello call"
+        if: inputs.poc-plugin != ''
+        run: |
+          cat > "$RUNNER_TEMP/hello-echo.sh" <<'HELLO'
+          #!/bin/sh
+          # usage: hello-echo.sh <capacitor.config.json>
+          APP_ID=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["appId"])' "$1")
+          PID=$(adb shell pidof "$APP_ID" | tr -d '\r')
+          if [ -z "$PID" ]; then
+            adb shell monkey -p "$APP_ID" -c android.intent.category.LAUNCHER 1 >/dev/null
+            sleep 10
+            PID=$(adb shell pidof "$APP_ID" | tr -d '\r')
+          fi
+          SOCKET=$(adb shell cat /proc/net/unix | grep -o "webview_devtools_remote_${PID:-none}" | head -1)
+          [ -n "$SOCKET" ] || { echo "::error::No DevTools socket for the app (pid ${PID:-none})"; exit 1; }
+          adb forward tcp:9223 "localabstract:$SOCKET" >/dev/null
+          timeout 60 python3 "$RUNNER_TEMP/hello-echo.py" 9223
+          status=$?
+          adb forward --remove tcp:9223
+          exit $status
+          HELLO
+          cat > "$RUNNER_TEMP/hello-echo.py" <<'PAGE'
+          import base64, json, os, socket, struct, sys, urllib.request
+          port = int(sys.argv[1])
+          direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          pages = [p for p in json.load(direct.open(f"http://127.0.0.1:{port}/json", timeout=10)) if p.get("type") == "page"]
+          EXPRESSION = "Capacitor.Plugins.Hello.echo({ value: 'x' }).then(r => JSON.stringify(r), e => 'rejected: ' + e)"
+          def send(sock, text):
+              data = text.encode()
+              n = len(data)
+              head = bytes([0x81]) + (bytes([0x80 | n]) if n < 126 else bytes([0x80 | 126]) + struct.pack('>H', n))
+              mask = os.urandom(4)
+              sock.sendall(head + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+          def read_exact(sock, n):
+              b = b''
+              while len(b) < n:
+                  c = sock.recv(n - len(b))
+                  if not c: raise EOFError
+                  b += c
+              return b
+          def receive(sock):
+              b0, b1 = read_exact(sock, 2)
+              n = b1 & 0x7f
+              if n == 126: n = struct.unpack('>H', read_exact(sock, 2))[0]
+              elif n == 127: n = struct.unpack('>Q', read_exact(sock, 8))[0]
+              return read_exact(sock, n).decode(errors='replace')
+          if not pages:
+              print("::error::No page in the app's WebView"); sys.exit(1)
+          page = pages[0]
+          path = page['webSocketDebuggerUrl'].split(str(port), 1)[1]
+          sock = socket.create_connection(('127.0.0.1', port), timeout=15)
+          key = base64.b64encode(os.urandom(16)).decode()
+          sock.sendall((f"GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\n"
+                        f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
+          reply = b''
+          while b'\r\n\r\n' not in reply: reply += sock.recv(1)
+          send(sock, json.dumps({"id": 1, "method": "Runtime.evaluate",
+                                 "params": {"expression": EXPRESSION, "awaitPromise": True, "returnByValue": True}}))
+          while True:
+              m = json.loads(receive(sock))
+              if m.get('id') == 1: break
+          value = m.get('result', {}).get('result', {}).get('value')
+          print(f"::notice::{page.get('url')}: Capacitor.Plugins.Hello.echo({{value:'x'}}) gave {value}")
+          sys.exit(0 if value is not None and json.loads(value) == {"value": "x"} else 1)
+          PAGE
+
       - name: Run the app on an emulator
         id: emulator
         uses: reactivecircus/android-emulator-runner@v2
         env:
+          POC_PLUGIN: ${{ inputs.poc-plugin }}
           SMOKE_TEXT: ${{ inputs.smoke-test-text }}
           SMOKE_SHARE_FILE: ${{ inputs.smoke-share-file }}
           SMOKE_SHARE_TYPE: ${{ inputs.smoke-share-type }}
@@ -517,7 +641,8 @@ jobs:
             then sh "app/${{ inputs.project-dir }}/smoke-test.sh" "$SMOKE_APK" "$SMOKE_TEXT" smoke "app/$SMOKE_SHARE_FILE" "$SMOKE_SHARE_TYPE" "$SMOKE_SHARE_TEXT";
             else sh "app/${{ inputs.project-dir }}/smoke-test.sh" "$SMOKE_APK" "$SMOKE_TEXT" smoke;
             fi
-            || { timeout 600 sh "$RUNNER_TEMP/smoke-evidence.sh" "app/${{ inputs.project-dir }}/capacitor.config.json"; exit 1; }
+            || { timeout 600 sh "$RUNNER_TEMP/smoke-evidence.sh" "app/${{ inputs.project-dir }}/capacitor.config.json"; exit 1; };
+            if [ -n "$POC_PLUGIN" ]; then sh "$RUNNER_TEMP/hello-echo.sh" "app/${{ inputs.project-dir }}/capacitor.config.json" || exit 1; fi
 
       # The emulator's own log: its graphics lines always (so a passing
       # run can be told from a failing one), all of it when the test failed

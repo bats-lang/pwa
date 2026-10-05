@@ -8,6 +8,12 @@ on:
   # The daily relock dispatches it on its relock/<date> branch: a pull
   # request opened with GITHUB_TOKEN starts no workflow by itself
   workflow_dispatch:
+    inputs:
+      poc-plugin:
+        description: "Proof of concept (quire#321): a pnpm source for @bats-lang/capacitor-hello to add to the app; empty for none"
+        required: false
+        type: string
+        default: ''
 
 jobs:
   check:
@@ -172,6 +178,10 @@ jobs:
   android:
     needs: check
     uses: ./.github/workflows/android.yml
+    # Proof of concept (quire#321): actions read, for main's APK
+    permissions:
+      actions: read
+      contents: read
     with:
       artifact: example-android
       project-dir: android
@@ -182,3 +192,4 @@ jobs:
       smoke-share-file: android/smoke-share.txt
       smoke-share-type: text/plain
       smoke-share-text: BATS PWA
+      poc-plugin: ${{ inputs.poc-plugin || '' }}
