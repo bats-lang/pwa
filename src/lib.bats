@@ -81,9 +81,15 @@
    or started again from the recent apps) is not handed over again
    (bats-lang/quire#247), to the page or to Capacitor's plugins: an
    address the app was opened at (the App plugin's appUrlOpen) reaches
-   the page once too. *)
-#pub fn build_main_activity {ni:nat | ni < 256}{n:nat | n + 9000 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 9000] $B.builder(m), app_id: string ni): void
+   the page once too. At each window insets dispatch to the web view,
+   whether the status bar and the navigation bar are shown (the window's
+   own insets, ViewCompat.getRootWindowInsets, isVisible of each: from
+   API 30 Android's visibility; below it androidx's reading of the
+   window's insets) goes to bridge's batsNative.systemBars, the latest
+   once the page has it; the web view takes the insets as it would
+   without the listener (bats-lang/quire#314). *)
+#pub fn build_main_activity {ni:nat | ni < 256}{n:nat | n + 11500 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 11500] $B.builder(m), app_id: string ni): void
 
 (* The intent filters build-android.sh adds to MainActivity: it opens
    (VIEW) and is shared (SEND, SEND_MULTIPLE) files of type mime *)
@@ -481,6 +487,8 @@ implement build_main_activity (b, app_id) = let
   val () = $B.bput(b, "import android.provider.OpenableColumns;\n")
   val () = $B.bput(b, "import android.util.Log;\n")
   val () = $B.bput(b, "import android.view.KeyEvent;\n")
+  val () = $B.bput(b, "import androidx.core.view.ViewCompat;\n")
+  val () = $B.bput(b, "import androidx.core.view.WindowInsetsCompat;\n")
   val () = $B.bput(b, "import com.getcapacitor.BridgeActivity;\n")
   val () = $B.bput(b, "import java.io.File;\n")
   val () = $B.bput(b, "import java.io.FileOutputStream;\n")
@@ -494,6 +502,8 @@ implement build_main_activity (b, app_id) = let
   val () = $B.bput(b, "// copied to the cache, and the page fetches it from its local URL.\n")
   val () = $B.bput(b, "// The volume keys, which a WebView never gives the page, are offered\n")
   val () = $B.bput(b, "// to it as a browser's keydown; one the page takes is the page's.\n")
+  val () = $B.bput(b, "// Whether each system bar is shown is handed to the page at each window\n")
+  val () = $B.bput(b, "// insets dispatch, which a WebView never tells the page either.\n")
   val () = $B.bput(b, "public class MainActivity extends BridgeActivity {\n")
   val () = $B.bput(b, "    private static final String TAG = \"BatsFiles\";\n")
   val () = $B.bput(b, "    private final Handler handler = new Handler(Looper.getMainLooper());\n")
@@ -518,6 +528,20 @@ implement build_main_activity (b, app_id) = let
   val () = $B.bput(b, "        Log.i(TAG, savedInstanceState == null ? \"created\" : \"recreated\");\n")
   val () = $B.bput(b, "        super.onCreate(savedInstanceState);\n")
   val () = $B.bput(b, "        launchHandedOver = false;\n")
+  val () = $B.bput(b, "        // At each window insets dispatch, the window's own insets' isVisible\n")
+  val () = $B.bput(b, "        // of the status bar and of the navigation bar (not the insets the\n")
+  val () = $B.bput(b, "        // web view is given, which Capacitor's SystemBars rewrites, and from\n")
+  val () = $B.bput(b, "        // which androidx reads visibility below API 30), handed to the page\n")
+  val () = $B.bput(b, "        // (bridge's batsNative.systemBars); the web view then takes the\n")
+  val () = $B.bput(b, "        // insets as it does with no listener (its own onApplyWindowInsets)\n")
+  val () = $B.bput(b, "        if (bridge != null && bridge.getWebView() != null)\n")
+  val () = $B.bput(b, "            ViewCompat.setOnApplyWindowInsetsListener(bridge.getWebView(), (view, insets) -> {\n")
+  val () = $B.bput(b, "                WindowInsetsCompat window = ViewCompat.getRootWindowInsets(view);\n")
+  val () = $B.bput(b, "                if (window != null) reportBars(\"(globalThis.batsNative && globalThis.batsNative.systemBars ? globalThis.batsNative.systemBars(\"\n")
+  val () = $B.bput(b, "                    + window.isVisible(WindowInsetsCompat.Type.statusBars()) + \",\"\n")
+  val () = $B.bput(b, "                    + window.isVisible(WindowInsetsCompat.Type.navigationBars()) + \") : false)\");\n")
+  val () = $B.bput(b, "                return ViewCompat.onApplyWindowInsets(view, insets);\n")
+  val () = $B.bput(b, "            });\n")
   val () = $B.bput(b, "    }\n")
   val () = $B.bput(b, "\n")
   val () = $B.bput(b, "    @Override\n")
@@ -619,6 +643,29 @@ implement build_main_activity (b, app_id) = let
   val () = $B.bput(b, "                Log.w(TAG, \"cannot read \" + uri, e);\n")
   val () = $B.bput(b, "            }\n")
   val () = $B.bput(b, "        }).start();\n")
+  val () = $B.bput(b, "    }\n")
+  val () = $B.bput(b, "\n")
+  val () = $B.bput(b, "    // The latest report of the system bars the page has not taken yet\n")
+  val () = $B.bput(b, "    private String barsReport;\n")
+  val () = $B.bput(b, "\n")
+  val () = $B.bput(b, "    private void reportBars(String js) {\n")
+  val () = $B.bput(b, "        boolean idle = barsReport == null;\n")
+  val () = $B.bput(b, "        barsReport = js;\n")
+  val () = $B.bput(b, "        if (idle) handBars(240);\n")
+  val () = $B.bput(b, "    }\n")
+  val () = $B.bput(b, "\n")
+  val () = $B.bput(b, "    // Hands the latest report to the page once it has the bridge (every\n")
+  val () = $B.bput(b, "    // quarter second, for a minute at most); one made meanwhile goes next\n")
+  val () = $B.bput(b, "    private void handBars(final int tries) {\n")
+  val () = $B.bput(b, "        final String js = barsReport;\n")
+  val () = $B.bput(b, "        if (js == null || bridge == null || bridge.getWebView() == null) return;\n")
+  val () = $B.bput(b, "        bridge.getWebView().evaluateJavascript(js, r -> {\n")
+  val () = $B.bput(b, "            if (\"true\".equals(r)) {\n")
+  val () = $B.bput(b, "                if (js.equals(barsReport)) barsReport = null;\n")
+  val () = $B.bput(b, "                else handBars(tries);\n")
+  val () = $B.bput(b, "            } else if (tries > 0) handler.postDelayed(() -> handBars(tries - 1), 250);\n")
+  val () = $B.bput(b, "            else barsReport = null;\n")
+  val () = $B.bput(b, "        });\n")
   val () = $B.bput(b, "    }\n")
   val () = $B.bput(b, "\n")
   val () = $B.bput(b, "    // Runs js once the page has the bridge (every quarter second, for a\n")

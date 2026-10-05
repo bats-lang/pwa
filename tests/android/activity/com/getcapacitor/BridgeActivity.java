@@ -11,6 +11,10 @@ import android.os.Bundle;
 public class BridgeActivity extends Activity {
     protected Bridge bridge;
 
+    public Bridge getBridge() {
+        return this.bridge;
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
