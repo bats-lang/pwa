@@ -45,9 +45,9 @@
 # re-run). So a branch shows that the signed release will build,
 # without publishing one.
 #
-# The build keeps its npm and Maven downloads between runs (the cache
+# The build keeps its pnpm and Maven downloads between runs (the cache
 # android-downloads-*); a download it still needs and cannot get fails
-# the build, with npm's and Gradle's own defaults. A failed build
+# the build, with pnpm's and Gradle's own defaults. A failed build
 # or smoke test prints why into the job log itself: Gradle's cause, or
 # the app's processes, threads, screen, page and logcat, and the
 # emulator's own log (bats-lang/quire#258).
@@ -150,7 +150,7 @@ jobs:
             echo "No KEYSTORE_BASE64 secret: the build is unsigned"
           fi
 
-      # The npm packages and Maven artifacts the build downloads, kept
+      # The pnpm packages and Maven artifacts the build downloads, kept
       # between runs: a build that fetched all of them from the network
       # each time failed whenever one fetch timed out (dl.google.com's
       # "Read timed out", bats-lang/quire#258). One set per month and per
@@ -174,7 +174,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: |
-            ~/.npm
+            ~/.cache/node/corepack
+            ~/.local/share/pnpm/store
             ~/.gradle/caches/modules-2
             ~/.gradle/wrapper/dists
           key: ${{ steps.downloads.outputs.key }}
@@ -212,13 +213,14 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: |
-            ~/.npm
+            ~/.cache/node/corepack
+            ~/.local/share/pnpm/store
             ~/.gradle/caches/modules-2
             ~/.gradle/wrapper/dists
           key: ${{ steps.downloads.outputs.key }}
 
       # Why a build failed, in the job log itself (bats-lang/quire#258):
-      # Gradle's or npm's cause, the Gradle daemons' own logs, and the
+      # Gradle's or pnpm's cause, the Gradle daemons' own logs, and the
       # runner's memory and disk
       - name: Say why the build failed
         if: failure()
@@ -228,7 +230,7 @@ jobs:
           touch "$LOG"
           echo "== The failure's cause"
           sed -n '/^\* What went wrong:/,/^\* Try:/p' "$LOG"
-          grep -E '^(Caused by: |npm (ERR|error)! )' "$LOG" | sort | uniq -c | sort -rn | head -40 || true
+          grep -E '^(Caused by: | *ERR_PNPM_)' "$LOG" | sort | uniq -c | sort -rn | head -40 || true
           while read -r line; do echo "::error::$line"; done <<CAUSES
           $(sed -n '/^\* What went wrong:/,/^\* Try:/p' "$LOG" | grep -E '^ *> ' | head -8)
           CAUSES
@@ -256,6 +258,42 @@ jobs:
           echo "APK: $APK ($(stat -c%s "$APK") bytes)"
           echo "AAB=$AAB" >> "$GITHUB_ENV"
           echo "APK=$APK" >> "$GITHUB_ENV"
+
+      # The APK registers exactly the plugins the project installs (its
+      # package.json, which pwa writes from bridge's table), and holds
+      # each one's class: a plugin that pnpm put where Capacitor does not
+      # look would otherwise be left out without an error (quire#321)
+      - name: Verify the APK's plugins
+        env:
+          PROJECT: app/${{ inputs.project-dir }}
+        run: |
+          unzip -p "$APK" assets/capacitor.plugins.json > "$RUNNER_TEMP/plugins.json"
+          unzip -p "$APK" 'classes*.dex' > "$RUNNER_TEMP/classes.dex"
+          python3 - "$PROJECT/package.json" "$RUNNER_TEMP/plugins.json" "$RUNNER_TEMP/classes.dex" <<'PLUGINS'
+          import json, sys
+          package_json, plugins_json, dex = sys.argv[1:4]
+          installed = set(json.load(open(package_json))["dependencies"]) - {"@capacitor/core", "@capacitor/android"}
+          plugins = json.load(open(plugins_json))
+          registered = [p["pkg"] for p in plugins]
+          print("The APK's plugins: " + ", ".join("%s (%s)" % (p["pkg"], p["classpath"]) for p in plugins))
+          failed = False
+          if len(registered) != len(set(registered)) or set(registered) != installed:
+              failed = True
+              for name in sorted(installed - set(registered)):
+                  print("::error::%s is installed but not in the APK's capacitor.plugins.json" % name)
+              for name in sorted(set(registered) - installed):
+                  print("::error::%s is in the APK's capacitor.plugins.json but not installed" % name)
+              if len(registered) != len(set(registered)):
+                  print("::error::the APK's capacitor.plugins.json names a plugin twice")
+          classes = open(dex, "rb").read()
+          for p in plugins:
+              if ("L" + p["classpath"].replace(".", "/") + ";").encode() not in classes:
+                  failed = True
+                  print("::error::%s's class %s is not in the APK's dex" % (p["pkg"], p["classpath"]))
+          if failed:
+              sys.exit(1)
+          print("The APK registers the %d plugins the project installs, each with its class" % len(installed))
+          PLUGINS
 
       - name: Verify the signatures
         if: env.SIGNING_SHA256 != ''

@@ -31,9 +31,16 @@ val () = $P.build_manifest(mf, "My App")
 [Capacitor](https://capacitorjs.com) project in `project_dir` around the
 PWA in `web_dir` (relative to `project_dir`, e.g. `"../pwa"`):
 `capacitor.config.json`, `package.json`, `android-release.gradle` and
-`build-android.sh`. With Node, a JDK 21 and the Android SDK
-(`ANDROID_HOME`), `sh <project_dir>/build-android.sh` builds a release
-AAB and APK into `<project_dir>/android/app/build/outputs/`.
+`build-android.sh`. With Node (22 or 24, which ship corepack), a JDK 21
+and the Android SDK (`ANDROID_HOME`), `sh <project_dir>/build-android.sh`
+builds a release AAB and APK into `<project_dir>/android/app/build/outputs/`.
+It installs the packages with pnpm, at the one version it names, through
+corepack (pnpm installs a plugin from a subfolder of a git repository,
+which npm cannot: bats-lang/quire#321), with `node_modules` flat
+(`nodeLinker: hoisted` in the `pnpm-workspace.yaml` it writes), where
+Capacitor's Gradle files look for the plugins. CI checks that the APK
+registers exactly the plugins `package.json` installs, each with its
+class in the APK.
 
 The activity (`MainActivity.java`) hands the page the files the app is
 opened with or shared (VIEW, SEND), each intent's once: Capacitor's
