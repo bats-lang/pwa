@@ -15,6 +15,8 @@
 #use str as S
 #use wasm.bats-packages.dev/bridge as BR
 
+staload TR = "./test_run.sats"
+
 (* ============================================================
    Builder-based API (generate file contents into builders)
    ============================================================ *)
@@ -983,3 +985,31 @@ implement create_android (app_name, app_id, web_dir, project_dir, mime) = let
   var st_b = $B.create()
   val () = build_smoke_test_script(st_b, app_id)
 in _write_mode(project_dir, "smoke-test.sh", st_b, 493) end
+
+(* ============================================================
+   gen-pwa test (bats-lang/pwa#82)
+   ============================================================ *)
+
+(* Whether the program's first argument is "test": an app's generator
+   (quire's gen-pwa, the example's build-pwa) then runs its tests instead
+   of generating:
+
+     implement main0 () =
+       if $P.test_wanted () then
+         (let val s = $P.test_run () in if s <> 0 then exit_void (s) else () end)
+       else ...
+
+   Tooling for the app's tests: nothing of it is part of what pwa
+   generates or of what the app runs. *)
+#pub fn test_wanted (): bool
+
+(* gen-pwa test [--timings <dir>] [-- <playwright args>]: runs the
+   project's Playwright suite against dist/pwa, which it serves at a port
+   it chooses (PWA_TEST_BASE_URL), one run at a time on the machine
+   (PWA_TEST_SLOTS, PWA_TEST_LOCK_DIR), the tests tagged @serial alone
+   on one worker first; 0 when every run passed (src/test_run.bats) *)
+#pub fn test_run (): int
+
+implement test_wanted () = $TR.gen_test_wanted ()
+
+implement test_run () = $TR.gen_test_run ()
