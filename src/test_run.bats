@@ -18,7 +18,7 @@
       on those workers; a --grep or --workers of the caller's makes it
       one run, as given.
    5. Each Playwright run is started by a keeper (node -e: Bats has no
-      sockets) that serves dist/pwa on 127.0.0.1 at a port the kernel
+      sockets; the browser check in 2 reads browsers.json with node too) that serves dist/pwa on 127.0.0.1 at a port the kernel
       picks, hands Playwright PWA_TEST_BASE_URL, and stops Playwright's
       process group, and itself with its server, when its stdin (a pipe
       from this process) closes: when gen-pwa ends, however it ends.
@@ -282,13 +282,15 @@ in if set then _bput(out, "") else _bput(out, "/.cache/pwa-test") end
 datavtype slot =
   | SlotHeld of $F.fd
   | NoLockDir        (* the lock's directory cannot be made *)
+  | NoLockFile       (* a slot's file cannot be opened *)
   | LockUnsupported  (* its file system has no locks *)
 
 (* What trying slot i without waiting found *)
 datavtype try_found =
   | Taken of $F.fd
   | Busy
-  | Unlockable
+  | Unopenable   (* the slot's file cannot be opened *)
+  | Unlockable   (* it opens, but cannot be locked *)
 
 fn _slot_open (i: int): $R.result($F.fd, $F.io_error) = let
   var p : $B.builder_v = $B.create()
@@ -306,7 +308,7 @@ in r end
 
 fn _slot_try (i: int, wait: $F.lock_wait): try_found =
   case+ _slot_open(i) of
-  | ~$R.err(_) => Unlockable()
+  | ~$R.err(_) => Unopenable()
   | ~$R.ok(fd) =>
     (case+ $F.fd_lock(fd, $F.LockExclusive(), wait) of
     | ~$R.ok(_) => Taken(fd)
@@ -321,9 +323,12 @@ fun _slot_free {i,n:nat} .<max(n - i, 0)>. (i: int i, n: int n): try_found =
   else (case+ _slot_try(i, $F.LockFailsAtOnce()) of
     | ~Taken(fd) => Taken(fd)
     | ~Busy() => _slot_free(i + 1, n)
+    | ~Unopenable() => Unopenable()
     | ~Unlockable() => Unlockable())
 
-(* Takes a slot: the first free one, else, said, slot 0 once it is free *)
+(* Takes a slot: the first free one, else, said, slot 0 once it is free
+   (with more than one slot, a run that waits waits for slot 0, though
+   another may be freed first) *)
 fn _lock (): slot = let
   var d : $B.builder_v = $B.create()
   val () = _lock_dir(d)
@@ -336,6 +341,7 @@ in
   else if n < 1 then NoLockDir()
   else (case+ _slot_free(0, n) of
     | ~Taken(fd) => SlotHeld(fd)
+    | ~Unopenable() => NoLockFile()
     | ~Unlockable() => LockUnsupported()
     | ~Busy() => let
         var m : $B.builder_v = $B.create()
@@ -347,6 +353,7 @@ in
         case+ _slot_try(0, $F.LockWaits()) of
         | ~Taken(fd) => SlotHeld(fd)
         | ~Busy() => LockUnsupported()
+        | ~Unopenable() => NoLockFile()
         | ~Unlockable() => LockUnsupported()
       end)
 end
@@ -355,6 +362,7 @@ fn _unlock (s: slot): void =
   case+ s of
   | ~SlotHeld(fd) => $R.discard<int><$F.io_error>($F.file_close(fd))
   | ~NoLockDir() => ()
+  | ~NoLockFile() => ()
   | ~LockUnsupported() => ()
 
 (* ============================================================
@@ -453,9 +461,11 @@ datatype run_end =
    kernel picks, runs argv[2] with the rest in its own process group with
    PWA_TEST_BASE_URL and PWA_TEST_PORT, and exits with its status; when
    its stdin closes (gen-pwa ended) or it is signalled, it stops that
-   group and exits 143. 70: it could not serve; 71: argv[2] could not be
-   started. *)
-#define KEEPER "const http=require('http'),fs=require('fs'),path=require('path'),{spawn}=require('child_process');const [root,cmd,...args]=process.argv.slice(1);const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.webmanifest':'application/manifest+json','.wasm':'application/wasm','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif','.webp':'image/webp','.svg':'image/svg+xml','.ico':'image/x-icon','.woff2':'font/woff2','.woff':'font/woff','.ttf':'font/ttf','.txt':'text/plain; charset=utf-8','.xml':'application/xml','.epub':'application/epub+zip','.map':'application/json'};const base=path.resolve(root);const server=http.createServer((q,r)=>{let p;try{p=decodeURIComponent(new URL(q.url,'http://h').pathname)}catch(e){r.writeHead(400);r.end();return}let f=path.join(base,p);if(f!==base&&!f.startsWith(base+path.sep)){r.writeHead(403);r.end();return}fs.stat(f,(e,s)=>{if(!e&&s.isDirectory())f=path.join(f,'index.html');fs.readFile(f,(e2,d)=>{if(e2){r.writeHead(404,{'content-type':'text/plain; charset=utf-8'});r.end('not found');return}r.writeHead(200,{'content-type':types[path.extname(f).toLowerCase()]||'application/octet-stream','cache-control':'no-store'});r.end(q.method==='HEAD'?undefined:d)})})});let child=null,stopping=false;const stop=()=>{if(stopping)return;stopping=true;if(!child)process.exit(143);try{process.kill(-child.pid,'SIGTERM')}catch(e){}setTimeout(()=>{try{process.kill(-child.pid,'SIGKILL')}catch(e){}process.exit(143)},5000).unref()};for(const s of ['SIGINT','SIGTERM','SIGHUP'])process.on(s,stop);process.stdin.on('end',stop);process.stdin.on('error',stop);process.stdin.resume();server.on('error',e=>{console.error('gen-pwa test: cannot serve '+root+': '+e.message);process.exit(70)});fs.stat(path.join(base,'index.html'),e=>{if(e){console.error('gen-pwa test: '+root+'/index.html not found: build the app first');process.exit(70)}server.listen(0,'127.0.0.1',()=>{const port=server.address().port;child=spawn(cmd,args,{stdio:['ignore','inherit','inherit'],detached:true,env:{...process.env,PWA_TEST_BASE_URL:'http://127.0.0.1:'+port,PWA_TEST_PORT:String(port)}});child.on('error',e=>{console.error('gen-pwa test: cannot run '+cmd+': '+e.message);process.exit(71)});child.on('exit',(code)=>{try{process.kill(-child.pid,'SIGKILL')}catch(e){}process.exit(stopping?143:(code===null?1:code))})})})"
+   group and exits 143. 70: it could not serve (an exception in the
+   server stops the run the same way); 71: argv[2] could not be
+   started. A path with a NUL is refused (400) before the file system
+   sees it. *)
+#define KEEPER "const http=require('http'),fs=require('fs'),path=require('path'),{spawn}=require('child_process');const [root,cmd,...args]=process.argv.slice(1);const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.webmanifest':'application/manifest+json','.wasm':'application/wasm','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif','.webp':'image/webp','.svg':'image/svg+xml','.ico':'image/x-icon','.woff2':'font/woff2','.woff':'font/woff','.ttf':'font/ttf','.txt':'text/plain; charset=utf-8','.xml':'application/xml','.epub':'application/epub+zip','.map':'application/json'};const base=path.resolve(root);let child=null,stopping=false,code=143;const server=http.createServer((q,r)=>{try{let p;try{p=decodeURIComponent(new URL(q.url,'http://h').pathname)}catch(e){r.writeHead(400);r.end();return}if(p.includes('\\0')){r.writeHead(400);r.end();return}let f=path.join(base,p);if(f!==base&&!f.startsWith(base+path.sep)){r.writeHead(403);r.end();return}fs.stat(f,(e,s)=>{if(!e&&s.isDirectory())f=path.join(f,'index.html');fs.readFile(f,(e2,d)=>{if(e2){r.writeHead(404,{'content-type':'text/plain; charset=utf-8'});r.end('not found');return}r.writeHead(200,{'content-type':types[path.extname(f).toLowerCase()]||'application/octet-stream','cache-control':'no-store'});r.end(q.method==='HEAD'?undefined:d)})})}catch(e){try{r.writeHead(500);r.end()}catch(e2){}}});const stop=()=>{if(stopping)return;stopping=true;if(!child)process.exit(code);try{process.kill(-child.pid,'SIGTERM')}catch(e){}setTimeout(()=>{try{process.kill(-child.pid,'SIGKILL')}catch(e){}process.exit(code)},5000).unref()};process.on('uncaughtException',e=>{console.error('gen-pwa test: the server failed: '+e.message);code=70;stop()});for(const s of ['SIGINT','SIGTERM','SIGHUP'])process.on(s,stop);process.stdin.on('end',stop);process.stdin.on('error',stop);process.stdin.resume();server.on('error',e=>{console.error('gen-pwa test: cannot serve '+root+': '+e.message);process.exit(70)});fs.stat(path.join(base,'index.html'),e=>{if(e){console.error('gen-pwa test: '+root+'/index.html not found: build the app first');process.exit(70)}server.listen(0,'127.0.0.1',()=>{const port=server.address().port;child=spawn(cmd,args,{stdio:['ignore','inherit','inherit'],detached:true,env:{...process.env,PWA_TEST_BASE_URL:'http://127.0.0.1:'+port,PWA_TEST_PORT:String(port)}});child.on('error',e=>{console.error('gen-pwa test: cannot run '+cmd+': '+e.message);process.exit(71)});child.on('exit',(status)=>{try{process.kill(-child.pid,'SIGKILL')}catch(e){}process.exit(stopping?code:(status===null?1:status))})})})"
 
 fn _end_of (status: int): run_end =
   if status = 0 then RunPassed()
@@ -538,6 +548,27 @@ fn _workers_arg (n: int): $P.arg_entry = let
   val () = _put_nat(w, n)
 in _arg(w) end
 
+(* PLAYWRIGHT_JSON_OUTPUT_NAME=<timings>/<run>.json when --timings was
+   given, else nothing: a run without it leaves the caller's own
+   variable, and its own reporters, as they are. timings consumed. *)
+fn _json_entries (timed: bool, kind: run_kind, timings: $B.builder_v): $L.listv($P.arg_entry) =
+  if ~timed then let
+    val () = $B.builder_free(timings)
+  in $L.list_vt_nil() end
+  else let
+    var jn : $B.builder_v = $B.create()
+    val () = _bput(jn, "PLAYWRIGHT_JSON_OUTPUT_NAME=")
+    val @(ta, tk) = $B.to_arr(timings)
+    val @(fz_t, bv_t) = $A.freeze<byte>(ta)
+    val () = _put_range(bv_t, 0, tk, 524288, jn)
+    val () = $A.drop<byte>(fz_t, bv_t)
+    val () = $A.free<byte>($A.thaw<byte>(fz_t))
+    val () = (case+ kind of
+      | SerialRun() => _bput(jn, "/serial.json")
+      | ParallelRun() => _bput(jn, "/parallel.json")
+      | AsGiven() => _bput(jn, "/run.json"))
+  in $L.list_vt_cons(_arg(jn), $L.list_vt_nil()) end
+
 (* Runs the keeper for one run of Playwright: its end *)
 fn _run (kind: run_kind, workers: int): run_end = let
   val buf = $A.alloc<byte>(4096)
@@ -567,18 +598,7 @@ fn _run (kind: run_kind, workers: int): run_end = let
   var bp : $B.builder_v = $B.create()
   val () = _bput(bp, "PLAYWRIGHT_BROWSERS_PATH=")
   val () = _browsers_dir(bp)
-  var jn : $B.builder_v = $B.create()
-  val () = _bput(jn, "PLAYWRIGHT_JSON_OUTPUT_NAME=")
-  val @(ta, tk) = $B.to_arr(timings)
-  val @(fz_t, bv_t) = $A.freeze<byte>(ta)
-  val () = _put_range(bv_t, 0, tk, 524288, jn)
-  val () = $A.drop<byte>(fz_t, bv_t)
-  val () = $A.free<byte>($A.thaw<byte>(fz_t))
-  val () = (case+ kind of
-    | SerialRun() => _bput(jn, "/serial.json")
-    | ParallelRun() => _bput(jn, "/parallel.json")
-    | AsGiven() => _bput(jn, "/run.json"))
-  val env = $L.list_vt_cons(_arg(bp), $L.list_vt_cons(_arg(jn), $L.list_vt_nil()))
+  val env = $L.list_vt_cons(_arg(bp), _json_entries(timed, kind, timings))
   val x = _program("node")
   val @(fz_x, bv_x) = $A.freeze<byte>(x)
   val status = (case+ $P.spawn_inherit_env_with(bv_x, _rev(acc, $L.list_vt_nil()), env,
@@ -671,11 +691,46 @@ fn _user_chooses (): bool = let
   val () = $A.free<byte>($A.thaw<byte>(fz_b))
 in chooses end
 
-implement gen_test_run () = let
+(* Where gen-pwa's own options (argv[2] on, before "--") hold one that
+   is not --timings <dir>: its start, or ~1 when they are all known *)
+fun _unknown_option {l:agz}{i:nat} .<max(4096 - i, 0)>.
+  (b: !$A.borrow(byte, l, 4096), i: int i, k: int): int =
+  if i >= k then ~1
+  else if i >= 4096 then ~1
+  else let
+    val e = _arg_end(b, i, k)
+    val next = _nat(e + 1)
+  in
+    if _is(b, i, e, "--", true) then ~1
+    else if _is(b, i, e, "--timings", true) then let
+        val after = _nat(_arg_end(b, next, k) + 1)
+      in if after <= i then ~1 else _unknown_option(b, after, k) end
+    else i
+  end
+
+(* Says an option gen-pwa test does not know: whether there was one *)
+fn _options_refused (): bool = let
+  val buf = $A.alloc<byte>(4096)
+  val k = _args(buf)
+  val @(fz_b, bv_b) = $A.freeze<byte>(buf)
+  val bad = _unknown_option(bv_b, _nat(_options_start(bv_b, k)), k)
+  val () = (if bad >= 0 then let
+      var m : $B.builder_v = $B.create()
+      val () = _bput(m, "gen-pwa test: unknown option '")
+      val () = _put_range(bv_b, _nat(bad), _arg_end(bv_b, _nat(bad), k), 4096, m)
+      val () = _bput(m, "': gen-pwa test [--timings <dir>] [-- <playwright args>]\n")
+    in _say(m) end else ())
+  val () = $A.drop<byte>(fz_b, bv_b)
+  val () = $A.free<byte>($A.thaw<byte>(fz_b))
+in bad >= 0 end
+
+implement gen_test_run () =
+  if _options_refused () then 2 else let
   val held = _lock()
   val () = (case+ held of
     | SlotHeld(_) => ()
     | NoLockDir() => _say_s("gen-pwa test: the lock's directory (PWA_TEST_LOCK_DIR) could not be made: running without the machine's lock\n")
+    | NoLockFile() => _say_s("gen-pwa test: a lock file in PWA_TEST_LOCK_DIR could not be opened: running without the machine's lock\n")
     | LockUnsupported() => _say_s("gen-pwa test: the lock's file system has no locks: running without the machine's lock\n"))
   val @(found, said) = _browsers()
   val ready = (case+ found of

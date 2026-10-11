@@ -40,8 +40,9 @@ takes a slot of the machine's lock (flock, file's `fd_lock`, on one of
 location holds the headless Chromium the project's Playwright expects
 (never downloading), runs the tests tagged `@serial` alone on one worker
 and then the others (on half the cores divided by the slots), each
-through a keeper (`node -e`, the one piece of JavaScript: Bats has no
-sockets) that serves `dist/pwa` at a port the kernel picks
+through a keeper (`node -e`: Bats has no sockets; the browser check
+reads Playwright's `browsers.json` with `node -e` too, and these two are
+its only JavaScript) that serves `dist/pwa` at a port the kernel picks
 (`PWA_TEST_BASE_URL`) and stops Playwright's process group when gen-pwa
 ends, however it ends. `tests/test-command/check.sh` checks it with a
 stand-in Playwright (`PWA_TEST_PLAYWRIGHT`). The design and what was

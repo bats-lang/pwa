@@ -53,7 +53,9 @@ implement main0 () =
   alone on one worker, then the others on half the cores divided by the
   slots; a `--grep` or `--workers` of yours makes it one run, as given;
 - with `--timings <dir>`, writes Playwright's JSON report of each run to
-  `<dir>/serial.json` and `<dir>/parallel.json`.
+  `<dir>/serial.json` and `<dir>/parallel.json` (`<dir>/run.json` for a
+  run as given); without it, your own reporters and
+  `PLAYWRIGHT_JSON_OUTPUT_NAME` are left alone.
 
 `PWA_TEST_PLAYWRIGHT` names the Playwright to run (default
 `node_modules/.bin/playwright`).

@@ -7,7 +7,9 @@
 # failing run, nothing serves and no stand-in is left; the @serial run
 # has one worker; --timings names the JSON files; a caller's --workers
 # makes one run; a browser older than Playwright expects, or none, is
-# said, with both revisions.
+# said, with both revisions; a path with a NUL does not stop the server;
+# without --timings the caller's own JSON report is left alone; an
+# unknown option is said.
 # usage: tests/test-command/check.sh <gen-pwa binary> <built dist/pwa>
 set -eu
 GEN=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
@@ -26,6 +28,8 @@ cat > "$TMP/fake-pw" <<'FAKE'
 log=$FAKE_PW_LOG
 { echo "start $$ $*"; echo "url $PWA_TEST_BASE_URL"; echo "browsers $PLAYWRIGHT_BROWSERS_PATH"; echo "json ${PLAYWRIGHT_JSON_OUTPUT_NAME:-}"; } >> "$log"
 node -e "fetch(process.env.PWA_TEST_BASE_URL + '/app.wasm').then(r => console.log('fetched', r.status, r.headers.get('content-type')))" >> "$log" 2>&1
+# a path with a NUL is refused, and the server goes on serving
+node -e "fetch(process.env.PWA_TEST_BASE_URL + '/%00').then(r => console.log('nul', r.status)).then(() => fetch(process.env.PWA_TEST_BASE_URL + '/')).then(r => console.log('after nul', r.status))" >> "$log" 2>&1
 sleep "${FAKE_PW_SLEEP:-0}"
 echo "end $$" >> "$log"
 exit "${FAKE_PW_EXIT:-0}"
@@ -50,6 +54,17 @@ grep -q '^start [0-9]* test --grep @serial --workers=1 --pass-with-no-tests --re
 grep -q '^start [0-9]* test --grep-invert @serial --workers=[0-9]* --pass-with-no-tests --reporter=list,json --project x$' "$TMP/a.log" || { echo "FAIL: the parallel run"; cat "$TMP/a.log"; exit 1; }
 grep -q "^json $TMP/times/serial.json$" "$TMP/a.log" && grep -q "^json $TMP/times/parallel.json$" "$TMP/a.log" || { echo "FAIL: --timings"; cat "$TMP/a.log"; exit 1; }
 grep -q "^browsers $TMP/browsers$" "$TMP/a.log" || { echo "FAIL: the browsers' location"; exit 1; }
+[ "$(grep -c '^nul 400$' "$TMP/a.log")" = 2 ] && [ "$(grep -c '^after nul 200$' "$TMP/a.log")" = 2 ] || { echo "FAIL: a path with a NUL"; cat "$TMP/a.log"; exit 1; }
+
+# without --timings, the caller's own JSON report stays where it named it
+PLAYWRIGHT_JSON_OUTPUT_NAME="$TMP/own.json" run "$TMP/j.log" > "$TMP/j.out" 2>&1 || { echo "FAIL: a run without --timings"; cat "$TMP/j.out"; exit 1; }
+[ "$(grep -c "^json $TMP/own.json$" "$TMP/j.log")" = 2 ] || { echo "FAIL: PLAYWRIGHT_JSON_OUTPUT_NAME replaced without --timings"; cat "$TMP/j.log"; exit 1; }
+if grep -q -- '--reporter' "$TMP/j.log"; then echo "FAIL: a reporter added without --timings"; exit 1; fi
+
+# an option gen-pwa test does not know: said, nothing run
+if run "$TMP/u.log" --timing x > "$TMP/u.out" 2>&1; then echo "FAIL: an unknown option ran"; exit 1; fi
+grep -q "unknown option '--timing'" "$TMP/u.out" || { echo "FAIL: an unknown option not said"; cat "$TMP/u.out"; exit 1; }
+[ ! -e "$TMP/u.log" ] || { echo "FAIL: Playwright ran with an unknown option"; exit 1; }
 for p in $(ports "$TMP/a.log"); do closed "$p" || { echo "FAIL: port $p still served after the run"; exit 1; }; done
 
 # a caller's --workers: one run, as given
