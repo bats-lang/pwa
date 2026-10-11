@@ -27,6 +27,26 @@ app, in Bats, on those atoms (bats-lang/pwa#49).
   their providers, as Android System WebView does to their FontsProvider
   (quire#220). The system image is cached between runs.
 
+## gen-pwa test (pwa#82)
+
+`test_wanted` and `test_run` (`src/test_run.bats`) are the app
+generator's `test` subcommand: an app's gen-pwa calls them when its
+first argument is `test`, as the example's `build-pwa` does. They run the
+app's Playwright suite against its built `dist/pwa`; they are tooling
+for the app's tests, not part of anything pwa generates or the app runs,
+so a change to them is a process change (see the review below). A run
+takes a slot of the machine's lock (flock, file's `fd_lock`, on one of
+`PWA_TEST_SLOTS` files in `PWA_TEST_LOCK_DIR`), checks that the browsers'
+location holds the headless Chromium the project's Playwright expects
+(never downloading), runs the tests tagged `@serial` alone on one worker
+and then the others (on half the cores divided by the slots), each
+through a keeper (`node -e`, the one piece of JavaScript: Bats has no
+sockets) that serves `dist/pwa` at a port the kernel picks
+(`PWA_TEST_BASE_URL`) and stops Playwright's process group when gen-pwa
+ends, however it ends. `tests/test-command/check.sh` checks it with a
+stand-in Playwright (`PWA_TEST_PLAYWRIGHT`). The design and what was
+searched are on bats-lang/pwa#82.
+
 ## Changes to pwa
 
 Further changes to pwa are disallowed: the only modifications allowed
@@ -100,7 +120,9 @@ documentation or CI, which changes nothing pwa does:
   feature the app needs from the platform is a bridge atom and the
   app's own code, never pwa's.
 * **Process, documentation or CI** changes: the review confirms they add
-  no capability.
+  no capability. Test tooling (gen-pwa test, which runs an app's suite)
+  is process: the review confirms it changes nothing pwa generates and
+  nothing the app runs.
 
 A DOM write is never pwa's: it is an opcode of bridge's diff stream,
 issued by the app. App policy (which attributes, roles, defaults, when)

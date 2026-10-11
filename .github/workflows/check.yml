@@ -162,10 +162,18 @@ jobs:
           npm install
           npx playwright install chromium
 
+      # gen-pwa test (bats-lang/pwa#82) with a stand-in Playwright: the
+      # port handed over and freed, two runs taking turns, nothing left
+      # after a kill or a failure, the serial run on one worker
+      - name: gen-pwa test
+        run: tests/test-command/check.sh example/dist/debug/build-pwa example/dist/pwa
+
+      # the example's suite, run as an app runs it: build-pwa test serves
+      # dist/pwa itself and checks the browsers Playwright expects
       - name: Run e2e tests
         run: |
           cd example
-          npx playwright test
+          ./dist/debug/build-pwa test --timings ../e2e-timings
 
   # The example's Android app, built by the reusable workflow; unsigned,
   # since this repository has no keystore
