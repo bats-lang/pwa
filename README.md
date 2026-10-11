@@ -25,6 +25,39 @@ val mf = $B.create()
 val () = $P.build_manifest(mf, "My App")
 ```
 
+## gen-pwa test
+
+An app's generator runs its Playwright suite against the built PWA when
+its first argument is `test` (bats-lang/pwa#82):
+
+```bats
+implement main0 () =
+  if $P.test_wanted () then
+    (let val s = $P.test_run () in if s <> 0 then exit_void (s) else () end)
+  else generate ()
+```
+
+`gen-pwa test [--timings <dir>] [-- <playwright args>]`:
+
+- serves `dist/pwa` on 127.0.0.1 at a port it chooses and gives
+  Playwright its address in `PWA_TEST_BASE_URL` (a config reads its
+  `baseURL` from it, and leaves out `webServer` when it is set); the
+  server goes when the run ends, however it ends;
+- takes the machine's lock: `PWA_TEST_SLOTS` runs at once (default 1),
+  lock files in `PWA_TEST_LOCK_DIR` (default `~/.cache/pwa-test`), and
+  says when it waits;
+- checks that `PLAYWRIGHT_BROWSERS_PATH` (else Playwright's default)
+  holds the headless Chromium the project's Playwright expects, and says
+  which revisions it has when not; it never downloads;
+- runs the tests tagged `@serial` (`test('...', { tag: '@serial' }, ...)`)
+  alone on one worker, then the others on half the cores divided by the
+  slots; a `--grep` or `--workers` of yours makes it one run, as given;
+- with `--timings <dir>`, writes Playwright's JSON report of each run to
+  `<dir>/serial.json` and `<dir>/parallel.json`.
+
+`PWA_TEST_PLAYWRIGHT` names the Playwright to run (default
+`node_modules/.bin/playwright`).
+
 ## Android app
 
 `create_android(app_name, app_id, web_dir, project_dir)` writes a
