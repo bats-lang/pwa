@@ -1,0 +1,75 @@
+name: e2e setup
+description: >-
+  Node's packages and Playwright's browsers for a job that runs an app's
+  suite with `gen-pwa test` (bats-lang/quire#637): exactly package-lock.json
+  (npm ci), retried when the connection to the registry drops, the
+  Playwright version checked against a minimum, and one browsers
+  directory kept between runs under one key. Call it by commit, as
+  android.yml is called:
+  `uses: bats-lang/pwa/.github/actions/e2e-setup@<sha>`, after the checkout.
+inputs:
+  node-version:
+    description: Node.js version for actions/setup-node
+    default: "22"
+  working-directory:
+    description: The directory of package.json and package-lock.json
+    default: "."
+  playwright-minimum:
+    description: >-
+      The least Playwright version the suite may run on (major.minor, e.g.
+      1.58); the job fails, saying why, when the lock installs an older one.
+      Empty: no minimum
+    default: ""
+  cache-browsers:
+    description: >-
+      Keep the browsers directory between runs, keyed on the Playwright
+      version ("true" or "false")
+    default: "true"
+outputs:
+  playwright-version:
+    description: The installed Playwright version
+    value: ${{ steps.version.outputs.version }}
+  browsers-path:
+    description: >-
+      The browsers directory, also exported as PLAYWRIGHT_BROWSERS_PATH
+      to the job's later steps (what gen-pwa test checks)
+    value: ${{ steps.version.outputs.browsers }}
+runs:
+  using: composite
+  steps:
+    # The downloads of npm's cache, keyed by setup-node on the lock's hash
+    - name: Set up Node.js
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: npm
+        cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+
+    - name: Install the locked packages
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: ${{ github.action_path }}/npm-ci.sh
+
+    - name: Check the Playwright version
+      id: version
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: ${{ github.action_path }}/playwright-version.sh
+      env:
+        PLAYWRIGHT_MINIMUM: ${{ inputs.playwright-minimum }}
+        BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
+        KEY_PREFIX: playwright-browsers-${{ runner.os }}-${{ runner.arch }}-
+
+    - name: Restore the browsers
+      if: inputs.cache-browsers == 'true'
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ${{ steps.version.outputs.browsers }}
+        key: ${{ steps.version.outputs.browsers-key }}
+
+    - name: Install the browsers
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: ${{ github.action_path }}/browsers.sh
+      env:
+        PLAYWRIGHT_BROWSERS_PATH: ${{ steps.version.outputs.browsers }}
