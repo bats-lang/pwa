@@ -136,6 +136,94 @@ it fails unless each intent's file is handed to the page once. The
 project's `smoke-test.sh` does the work and runs against any device
 `adb` sees.
 
+## Releasing to Google Play
+
+`android.yml` builds, signs and checks the AAB and uploads it as
+`release-aab`. `.github/workflows/play-release.yml` releases that
+artifact to a track of Google Play, the internal testing track unless
+told otherwise, through the Play Developer API's edits
+(`scripts/play-release.sh`: insert an edit, upload the bundle, set the
+track to a completed release of the bundle's version code with the
+notes, commit with `ERROR_IF_IN_REVIEW`; an edit that does not commit is
+deleted, so none is left half made). It signs in by Workload Identity
+Federation, so no key is stored anywhere: GitHub's OIDC token is
+exchanged for a token of a service account.
+
+```yaml
+  play-internal:
+    needs: android
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: bats-lang/pwa/.github/workflows/play-release.yml@<sha>
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      pwa-ref: <sha>                  # the same commit: the script is taken from it
+      package: dev.example.app
+      workload-identity-provider: projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
+      service-account: <name>@<project>.iam.gserviceaccount.com
+```
+
+Inputs: `artifact` (default `release-aab`), `track` (`internal`, `alpha`,
+`beta` or a custom closed track's name; `production` is refused),
+`notes` (at most 500 characters; by default the first line of the
+pushed commit's message, cut to 500 at a whole character) and `dry-run`
+(validate the edit and delete it). The release is named by Play from the
+bundle's `versionName`; its version code must be higher than every
+earlier upload's (`android.yml`'s run number plus `version-code-offset`).
+Releases of one package and track take turns. The provider and the
+service account are public names, not credentials. `scripts/play-release.sh`
+can be run by hand with `PLAY_ACCESS_TOKEN`, `PLAY_PACKAGE` and
+`PLAY_TRACK`; `tests/play-release/run.sh` checks it against a stub of
+Play.
+
+### What the app's owner sets up
+
+1. **Play Console.** The app exists, with its first release uploaded by
+   hand (the API cannot create an app), and Play App Signing is on.
+2. **A Google Cloud project** with the *Google Play Android Developer
+   API* enabled, a service account in it (no Cloud IAM role is needed),
+   and a Workload Identity pool with a GitHub OIDC provider
+   (issuer `https://token.actions.githubusercontent.com`). Map
+   `attribute.repository = assertion.repository`, and give the provider
+   an attribute condition that admits only the runs that may release,
+   for example
+   `assertion.repository == 'OWNER/REPO' && assertion.ref == 'refs/heads/main' && assertion.event_name == 'push'`.
+   Let the pool's identities of that repository impersonate the service
+   account (`roles/iam.workloadIdentityUser` on the account for
+   `principalSet://iam.googleapis.com/projects/<number>/locations/global/workloadIdentityPools/<pool>/attribute.repository/OWNER/REPO`).
+   The `repository`, `ref` and `event_name` claims are the *calling*
+   workflow's, even though the job runs in this reusable workflow
+   (`job_workflow_ref` is the one that names this file), so a condition
+   on the calling repository works, and it is where "main only" is
+   enforced: the caller's `if` is only a convenience. Without a
+   condition, any workflow of any repository that knows the provider's
+   name could ask for the account's token.
+3. **Play's user management** (Users and permissions, then Invite new
+   users): the service account's address, with the permission *Release
+   apps to testing tracks* for this app and nothing else. Production
+   releases stay a person's step.
+4. The caller grants `id-token: write` to the job (a called workflow
+   cannot widen its caller's permissions).
+
+### Internal testing first, then production
+
+Every release goes through the internal testing track before
+production. Then:
+
+1. Install the release from Play on a test device, as a tester, not by
+   sideloading. A device with the production app installed needs no
+   uninstall: Play updates it in place.
+2. Check what the release changed on that device. Play signs the
+   release with the *app signing key*, as production is, so anything
+   tied to the signing certificate (Google sign-in, an OAuth client
+   registered with a SHA-1) behaves as it will in production. The
+   `release-apk` artifact is signed with the *upload key* instead, and
+   Google refuses such a sign-in (`DEVELOPER_ERROR`) when the client is
+   registered with Play's app signing SHA-1; keep it for quick checks
+   that involve nothing tied to the key.
+3. Promote that same release to production in the Play Console.
+
 ## Example
 
 See `example/` for a complete project that builds a PWA:

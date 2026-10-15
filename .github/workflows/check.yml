@@ -165,6 +165,12 @@ jobs:
       - name: e2e-setup action
         run: tests/e2e-setup/check.sh
 
+      # scripts/play-release.sh (bats-lang/pwa#90) against a stub of Play's
+      # edits API, and the pins of play-release.yml's actions; the workflow
+      # itself needs Google and runs in an app's release job
+      - name: Play release script
+        run: tests/play-release/run.sh
+
       # gen-pwa test (bats-lang/pwa#82) with a stand-in Playwright: the
       # port handed over and freed, two runs taking turns, nothing left
       # after a kill or a failure, the serial run on one worker
