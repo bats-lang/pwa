@@ -1,0 +1,146 @@
+# Releases the release AAB that android.yml uploads (the artifact
+# release-aab) to a track of Google Play, internal testing unless told
+# otherwise (bats-lang/pwa#90, from quire#308). It signs in to Google by
+# Workload Identity Federation, so no key is stored anywhere, and runs
+# scripts/play-release.sh (the Play Developer API's edits: insert, upload
+# the bundle, set the track to a completed release with the notes, commit
+# with ERROR_IF_IN_REVIEW; an edit that does not commit is deleted).
+#
+# Call it after the job that uploads the AAB, by commit, passing the same
+# commit as pwa-ref (this workflow runs in the caller's job, and a
+# reusable workflow cannot read the commit it was called at, so it takes
+# the script from the commit it is told):
+#
+#   play-internal:
+#     needs: android
+#     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+#     uses: bats-lang/pwa/.github/workflows/play-release.yml@<sha>
+#     permissions:
+#       contents: read
+#       id-token: write
+#     with:
+#       pwa-ref: <sha>
+#       package: dev.example.app
+#       workload-identity-provider: projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
+#       service-account: <name>@<project>.iam.gserviceaccount.com
+#
+# The caller grants id-token: write itself (a called workflow cannot
+# widen its caller's permissions). When a release should happen (main
+# only, say) is the caller's `if`; who may release is Google's: the
+# provider's attribute condition decides which workflow runs are given the
+# service account's token, and the README says what to set. The workflow
+# holds no secret; the provider and the service account are public names.
+#
+# Notes default to the first line of the pushed commit's message, cut to
+# Play's 500 characters at a whole character. One release at a time for a
+# package and track: two edits committed together would conflict.
+name: play-release
+
+on:
+  workflow_call:
+    inputs:
+      pwa-ref:
+        description: The commit of bats-lang/pwa this workflow was called at (its script is taken from it)
+        required: true
+        type: string
+      package:
+        description: The application id on Google Play
+        required: true
+        type: string
+      workload-identity-provider:
+        description: The Workload Identity provider, projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
+        required: true
+        type: string
+      service-account:
+        description: The service account the provider gives a token of; it needs Play's "Release apps to testing tracks" for the app
+        required: true
+        type: string
+      artifact:
+        description: The artifact holding the one AAB (android.yml uploads release-aab)
+        required: false
+        type: string
+        default: release-aab
+      track:
+        description: The track, internal, alpha, beta or a custom closed track's name; production is refused
+        required: false
+        type: string
+        default: internal
+      notes:
+        description: The release notes (at most 500 characters); empty for the first line of the pushed commit's message
+        required: false
+        type: string
+        default: ''
+      dry-run:
+        description: Validate the edit and delete it, releasing nothing
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  play-release:
+    runs-on: ubuntu-latest
+    # One release at a time: two edits committed together would conflict
+    concurrency:
+      group: play-release-${{ inputs.package }}-${{ inputs.track }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # Only the script, from the commit the caller names; the caller's
+      # own repository is not checked out
+      - name: Get the release script
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: bats-lang/pwa
+          ref: ${{ inputs.pwa-ref }}
+          path: pwa
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      - name: Download the AAB
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ inputs.artifact }}
+          path: aab
+
+      - name: Sign in to Google Play
+        id: google
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ inputs.workload-identity-provider }}
+          service_account: ${{ inputs.service-account }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+          create_credentials_file: false
+
+      # Inputs reach the shell through the environment, never spliced
+      # into the script
+      - name: Release
+        env:
+          PLAY_ACCESS_TOKEN: ${{ steps.google.outputs.access_token }}
+          PLAY_PACKAGE: ${{ inputs.package }}
+          PLAY_TRACK: ${{ inputs.track }}
+          NOTES: ${{ inputs.notes }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          set -- aab/*.aab
+          [ $# -eq 1 ] && [ -f "$1" ] || { echo "::error::the artifact holds no single AAB: $*"; exit 1; }
+          aab=$1
+          # given notes are taken whole; else the commit's first line; either
+          # way cut to Play's 500 characters at a whole character
+          if [ -n "$NOTES" ]; then FIRST_LINE_ONLY=; else NOTES=$COMMIT_MESSAGE; FIRST_LINE_ONLY=1; fi
+          export FIRST_LINE_ONLY
+          printf '%s' "$NOTES" | python3 -c '
+          import os, sys
+          text = sys.stdin.read().strip()
+          if os.environ.get("FIRST_LINE_ONLY"):
+              text = text.split("\n")[0].strip()
+          sys.stdout.write(text[:500])
+          ' > "$RUNNER_TEMP/notes"
+          if [ "$DRY_RUN" = true ]; then
+            pwa/scripts/play-release.sh "$aab" "$RUNNER_TEMP/notes" --dry-run
+          else
+            pwa/scripts/play-release.sh "$aab" "$RUNNER_TEMP/notes"
+          fi
