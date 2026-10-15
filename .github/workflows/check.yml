@@ -151,16 +151,19 @@ jobs:
             example/dist/pwa
           retention-days: 1
 
-      - name: Install Node.js
-        uses: actions/setup-node@v4
+      # Node's packages (exactly example/package-lock.json, retried on a
+      # dropped connection) and Chromium, by the action apps call by commit
+      # (bats-lang/quire#637); the example is its first user
+      - name: Set up the e2e tests
+        uses: ./.github/actions/e2e-setup
         with:
           node-version: 20
+          working-directory: example
 
-      - name: Install Playwright
-        run: |
-          cd example
-          npm install
-          npx playwright install chromium
+      # the action's scripts, against a fake npm and a registry that resets
+      # connections (the action's YAML runs in the step above)
+      - name: e2e-setup action
+        run: tests/e2e-setup/check.sh
 
       # gen-pwa test (bats-lang/pwa#82) with a stand-in Playwright: the
       # port handed over and freed, two runs taking turns, nothing left
