@@ -432,6 +432,152 @@ fn _playwright (out: !$B.builder_v >> $B.builder_v): bool = let
 in named end
 
 (* ============================================================
+   2a. The Playwright version (bats-lang/pwa#92)
+   ============================================================ *)
+
+(* The least Playwright gen-pwa test runs. Before it, the fake clock
+   (page.clock) can set the time back: its real-time sync starts a
+   _runTo(now) that yields to the event loop, page.clock.fastForward
+   jumps meanwhile, and the older _runTo then calls _advanceNow with its
+   old target, undoing the jump (a test that counts minutes lost one in
+   about five runs on 1.56.1, none in 40 on 1.58.2: quire#352, quire#366).
+   From 1.57.0 on _advanceNow starts with
+   `if (this._now.ticks > to) return`, a target in the past is ignored
+   (read from playwright-core/lib/generated/clockSource.js of 1.56.1,
+   1.57.0 and 1.58.0); the release notes of 1.57 and 1.58 do not mention
+   it. 1.58 is the floor because it is the oldest the suites using
+   gen-pwa test are run on. A constant, not a setting of the app: an app
+   that needs a newer Playwright says so in its package.json, which npm
+   enforces when it installs (and e2e-setup's playwright-minimum checks
+   in CI), and a setting that could only raise this floor would be a path
+   to prove for no gain. *)
+#define PLAYWRIGHT_MIN_MAJOR 1
+#define PLAYWRIGHT_MIN_MINOR 58
+#define PLAYWRIGHT_MIN_PATCH 0
+
+(* A Playwright version as its package.json writes it: major.minor.patch
+   and, optionally, a pre-release or build suffix (- or +, then
+   letters, digits, dots, hyphens and plus signs). Each number has 1 to 6
+   digits. The bool is whether it is a release: no suffix, or only build
+   metadata (+), which semver does not order by; a - suffix is a pre-release. *)
+datavtype version_read =
+  | VersionRead of (int, int, int, bool)
+  | VersionUnreadable
+
+datatype support =
+  | PlaywrightSupported
+  | PlaywrightTooOld
+  | PlaywrightUnreadable
+
+(* b[i], or ~1 outside b[0, k) *)
+fn _at {l:agz}{n:pos} (b: !$A.borrow(byte, l, n), n: int n, k: int, i: int): int = let
+  val j = g1ofg0(i)
+in
+  if j < 0 then ~1
+  else if j >= n then ~1
+  else if j >= k then ~1
+  else byte2int0($A.read<byte>(b, j))
+end
+
+(* The decimal digits of b[i, k) from i: their value, where they end, and
+   how many (7 when there are more than 6: the number is refused) *)
+fun _digits {l:agz}{n:pos}{i:nat} .<max(n - i, 0)>.
+  (b: !$A.borrow(byte, l, n), n: int n, k: int, i: int i, acc: int, count: int): @(int, int, int) =
+  if i >= k then @(acc, i, count)
+  else if i >= n then @(acc, i, count)
+  else let
+    val c = byte2int0($A.read<byte>(b, i))
+  in
+    if c >= 48 && c <= 57 then
+      (if count >= 6 then @(acc, i, 7)
+       else _digits(b, n, k, i + 1, acc * 10 + (c - 48), count + 1))
+    else @(acc, i, count)
+  end
+
+fn _digits_from {l:agz}{n:pos} (b: !$A.borrow(byte, l, n), n: int n, k: int, i: int): @(int, int, int) = let
+  val j = g1ofg0(i)
+in if j < 0 then @(0, i, 0) else _digits(b, n, k, j, 0, 0) end
+
+(* Whether b[i, k) is one or more letters, digits, dots, hyphens and
+   plus signs, and nothing else *)
+fun _suffix_ok {l:agz}{n:pos}{i:nat} .<max(n - i, 0)>.
+  (b: !$A.borrow(byte, l, n), n: int n, k: int, i: int i, seen: bool): bool =
+  if i >= k then seen
+  else if i >= n then seen
+  else let
+    val c = byte2int0($A.read<byte>(b, i))
+    val word = ((c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122)
+      || c = 46 || c = 45 || c = 43): bool
+  in if word then _suffix_ok(b, n, k, i + 1, true) else false end
+
+fn _suffix_from {l:agz}{n:pos} (b: !$A.borrow(byte, l, n), n: int n, k: int, i: int): bool = let
+  val j = g1ofg0(i)
+in if j < 0 then false else _suffix_ok(b, n, k, j, false) end
+
+(* b[0, k) as a version; total: every text is one or the other *)
+fn version_read_of {l:agz}{n:pos} (b: !$A.borrow(byte, l, n), n: int n, k: int): version_read = let
+  val @(major, e1, c1) = _digits_from(b, n, k, 0)
+  val dot1 = (c1 >= 1 && c1 <= 6 && _at(b, n, k, e1) = 46): bool
+  val @(minor, e2, c2) = _digits_from(b, n, k, e1 + 1)
+  val dot2 = (dot1 && c2 >= 1 && c2 <= 6 && _at(b, n, k, e2) = 46): bool
+  val @(patch, e3, c3) = _digits_from(b, n, k, e2 + 1)
+  val numbers = (dot2 && c3 >= 1 && c3 <= 6): bool
+  val after = _at(b, n, k, e3)
+  val tail = (if after = ~1 then true
+    else if after = 45 || after = 43 then _suffix_from(b, n, k, e3 + 1)
+    else false): bool
+in
+  if numbers && tail then VersionRead(major, minor, patch, after <> 45)
+  else VersionUnreadable()
+end
+
+(* Whether a version is at least the floor; a pre-release of the floor
+   itself is below it, as semver orders it *)
+fn _at_least (major: int, minor: int, patch: int, release: bool): bool =
+  if major <> PLAYWRIGHT_MIN_MAJOR then major > PLAYWRIGHT_MIN_MAJOR
+  else if minor <> PLAYWRIGHT_MIN_MINOR then minor > PLAYWRIGHT_MIN_MINOR
+  else if patch <> PLAYWRIGHT_MIN_PATCH then patch > PLAYWRIGHT_MIN_PATCH
+  else release
+
+fn version_support (v: version_read): support =
+  case+ v of
+  | ~VersionUnreadable() => PlaywrightUnreadable()
+  | ~VersionRead(major, minor, patch, release) =>
+    if _at_least(major, minor, patch, release) then PlaywrightSupported()
+    else PlaywrightTooOld()
+
+(* The project's Playwright's version (playwright-core's package.json,
+   found as the browsers check finds it): its text, status 5 when there is
+   none. Nothing of Playwright's is run. *)
+#define VERSION_CHECK "node -e 'const p=require(\"path\");try{console.log(require(p.join(p.dirname(require.resolve(\"playwright-core/package.json\",{paths:[process.cwd()]})),\"package.json\")).version)}catch(e){process.exit(5)}'"
+
+(* What the version check found: the version supported, too old or not
+   a version, or no answer (no playwright-core, no node: the browsers
+   check says so) *)
+datatype version_gate =
+  | GateOpen
+  | GateTooOld
+  | GateUnreadable
+  | GateNoAnswer
+
+(* The gate, and the version's text (to say it) *)
+fn _version_gate (): @(version_gate, $B.builder_v) = let
+  var said : $B.builder_v = $B.create()
+  val rc = _sh(VERSION_CHECK, $L.list_vt_nil(), said)
+  val @(a, k) = $B.to_arr(said)
+  val @(fz, bv) = $A.freeze<byte>(a)
+  var text : $B.builder_v = $B.create()
+  val () = _put_range(bv, 0, k, 524288, text)
+  val found = (if rc <> 0 then GateNoAnswer()
+    else (case+ version_support(version_read_of(bv, 524288, k)) of
+      | PlaywrightSupported() => GateOpen()
+      | PlaywrightTooOld() => GateTooOld()
+      | PlaywrightUnreadable() => GateUnreadable())): version_gate
+  val () = $A.drop<byte>(fz, bv)
+  val () = $A.free<byte>($A.thaw<byte>(fz))
+in @(found, text) end
+
+(* ============================================================
    3. The workers
    ============================================================ *)
 
@@ -732,9 +878,22 @@ implement gen_test_run () =
     | NoLockDir() => _say_s("gen-pwa test: the lock's directory (PWA_TEST_LOCK_DIR) could not be made: running without the machine's lock\n")
     | NoLockFile() => _say_s("gen-pwa test: a lock file in PWA_TEST_LOCK_DIR could not be opened: running without the machine's lock\n")
     | LockUnsupported() => _say_s("gen-pwa test: the lock's file system has no locks: running without the machine's lock\n"))
+  val @(gate, version_text) = _version_gate()
+  val gated = (case+ gate of
+    | GateOpen() => true
+    | GateNoAnswer() => true
+    | GateTooOld() => false
+    | GateUnreadable() => false): bool
+  val () = (case+ gate of
+    | GateOpen() => $B.builder_free(version_text)
+    | GateNoAnswer() => $B.builder_free(version_text)
+    | GateTooOld() => _say_line("gen-pwa test: this project's Playwright is ", version_text,
+        ", older than 1.58, whose fake clock ignores a target in the past; before it page.clock.fastForward can set the time back and a test that counts time fails now and then (bats-lang/pwa#92). Install 1.58 or later: npm install --save-dev @playwright/test@^1.58, then npx playwright install chromium\n")
+    | GateUnreadable() => _say_line("gen-pwa test: cannot tell the version of this project's Playwright (node_modules/playwright-core/package.json says '", version_text,
+        "'), so it cannot be checked against the 1.58 the fake clock needs (bats-lang/pwa#92): npm install, and use a released @playwright/test\n"))
   val @(found, said) = _browsers()
   val ready = (case+ found of
-    | BrowsersReady() => true
+    | BrowsersReady() => gated
     | BrowsersOlder() => false
     | BrowsersMissing() => false
     | NoPlaywrightCore() => false
@@ -763,3 +922,69 @@ implement gen_test_run () =
     end): int
   val () = _unlock(held)
 in status end
+
+(* ============================================================
+   Tests (bats test): the Playwright version check, bats-lang/pwa#92
+   ============================================================ *)
+
+$UNITTEST.run begin
+fun _load {sn:nat}{l:agz}{i:nat | i <= sn} .<sn - i>.
+  (a: !$A.arr(byte, l, 4096), s: string sn, n: int sn, i: int i): void =
+  if i >= n then ()
+  else if i >= 4096 then ()
+  else let
+    val () = $A.set<byte>(a, i, int2byte0(char2int0(string_get_at(s, i))))
+  in _load(a, s, n, i + 1) end
+
+(* The support the check gives the text s *)
+fn _support_of {sn:nat} (s: string sn): support = let
+  val a = $A.alloc<byte>(4096)
+  val n = g1u2i(string1_length(s))
+  val () = _load(a, s, n, 0)
+  val @(fz, bv) = $A.freeze<byte>(a)
+  val k = (if n > 4096 then 4096 else n): int
+  val r = version_support(version_read_of(bv, 4096, k))
+  val () = $A.drop<byte>(fz, bv)
+  val () = $A.free<byte>($A.thaw<byte>(fz))
+in r end
+
+fn _accepted {sn:nat} (s: string sn): bool =
+  (case+ _support_of(s) of
+   | PlaywrightSupported() => true
+   | PlaywrightTooOld() => false
+   | PlaywrightUnreadable() => false)
+
+fn _too_old {sn:nat} (s: string sn): bool =
+  (case+ _support_of(s) of
+   | PlaywrightSupported() => false
+   | PlaywrightTooOld() => true
+   | PlaywrightUnreadable() => false)
+
+fn _refused_unreadable {sn:nat} (s: string sn): bool =
+  (case+ _support_of(s) of
+   | PlaywrightSupported() => false
+   | PlaywrightTooOld() => false
+   | PlaywrightUnreadable() => true)
+
+fn test_just_below_the_floor (): bool = _too_old("1.57.9")
+fn test_the_floor (): bool = _accepted("1.58.0")
+fn test_the_locked_version (): bool = _accepted("1.58.2")
+(* 100 is more than 58, though "1.100.0" sorts before "1.58.0" as text *)
+fn test_numbers_not_text (): bool = _accepted("1.100.0") && _too_old("1.9.0")
+fn test_next_major (): bool = _accepted("2.0.0") && _accepted("10.0.0")
+fn test_older_majors (): bool = _too_old("0.99.99") && _too_old("1.0.0") && _too_old("1.56.1")
+(* semver: a pre-release of the floor is before it; of anything later, not *)
+fn test_pre_release (): bool =
+  _too_old("1.58.0-alpha-1") && _too_old("1.57.0-beta.1") && _accepted("1.59.0-alpha-1756")
+  && _accepted("1.58.1-rc.1") && _accepted("1.58.0+build.5")
+fn test_garbage (): bool =
+  _refused_unreadable("") && _refused_unreadable("garbage") && _refused_unreadable("undefined")
+  && _refused_unreadable("1") && _refused_unreadable("1.58") && _refused_unreadable("1.58.")
+  && _refused_unreadable("1..0") && _refused_unreadable(".58.0") && _refused_unreadable("1.58.x")
+  && _refused_unreadable("1.58.0.1") && _refused_unreadable("v1.58.0")
+  && _refused_unreadable(" 1.58.0") && _refused_unreadable("1.58.0 ") && _refused_unreadable("-1.58.0")
+  && _refused_unreadable("1.58.0-") && _refused_unreadable("1.58.0-a b") && _refused_unreadable("1.58.0x")
+fn test_numbers_too_long (): bool =
+  _refused_unreadable("1.1000000.0") && _refused_unreadable("99999999999999.0.0")
+  && _accepted("1.999999.0")
+end

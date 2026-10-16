@@ -9,7 +9,8 @@
 # makes one run; a browser older than Playwright expects, or none, is
 # said, with both revisions; a path with a NUL does not stop the server;
 # without --timings the caller's own JSON report is left alone; an
-# unknown option is said.
+# unknown option is said; a Playwright older than 1.58, and one whose
+# version cannot be read, is refused and said (bats-lang/pwa#92).
 # usage: tests/test-command/check.sh <gen-pwa binary> <built dist/pwa>
 set -eu
 GEN=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
@@ -20,7 +21,7 @@ trap cleanup EXIT
 P=$TMP/proj
 mkdir -p "$P/dist" "$P/node_modules/playwright-core" "$TMP/browsers/chromium_headless_shell-1194"
 cp -R "$PWA" "$P/dist/pwa"
-printf '{"name":"playwright-core","version":"1.56.1"}\n' > "$P/node_modules/playwright-core/package.json"
+printf '{"name":"playwright-core","version":"1.58.2"}\n' > "$P/node_modules/playwright-core/package.json"
 browsers_json() { printf '{"browsers":[{"name":"chromium-headless-shell","revision":"%s"}]}\n' "$1" > "$P/node_modules/playwright-core/browsers.json"; }
 browsers_json 1194
 cat > "$TMP/fake-pw" <<'FAKE'
@@ -96,6 +97,31 @@ if pgrep -f "gen-pwa test: cannot serve" > /dev/null || pgrep -f "http.createSer
 if FAKE_PW_EXIT=1 run "$TMP/f.log" > "$TMP/f.out" 2>&1; then echo "FAIL: a failing run passed"; exit 1; fi
 grep -q "tests failed" "$TMP/f.out" || { echo "FAIL: a failing run not said"; cat "$TMP/f.out"; exit 1; }
 for p in $(ports "$TMP/f.log"); do closed "$p" || { echo "FAIL: port $p still served after a failing run"; exit 1; }; done
+
+# a Playwright older than 1.58 (the fake clock can set the time back), the
+# floor itself, a later one with three digits (not string order), and a
+# version that is none: only the first and the last are refused
+version() { printf '{"name":"playwright-core","version":"%s"}\n' "$1" > "$P/node_modules/playwright-core/package.json"; }
+for old in 1.57.9 1.9.0 1.58.0-alpha-1; do
+  version "$old"
+  rm -f "$TMP/v.log"
+  if run "$TMP/v.log" > "$TMP/v.out" 2>&1; then echo "FAIL: ran with Playwright $old"; exit 1; fi
+  grep -q "this project's Playwright is $old, older than 1.58" "$TMP/v.out" && grep -q "npm install --save-dev @playwright/test@^1.58" "$TMP/v.out" || { echo "FAIL: Playwright $old not said"; cat "$TMP/v.out"; exit 1; }
+  [ ! -e "$TMP/v.log" ] || { echo "FAIL: Playwright ran with $old"; exit 1; }
+done
+for ok in 1.58.0 1.100.0 2.0.0; do
+  version "$ok"
+  run "$TMP/v-$ok.log" > "$TMP/v.out" 2>&1 || { echo "FAIL: refused Playwright $ok"; cat "$TMP/v.out"; exit 1; }
+  if grep -q "older than 1.58" "$TMP/v.out"; then echo "FAIL: Playwright $ok said too old"; exit 1; fi
+done
+for bad in garbage 1.58 v1.58.0 ""; do
+  version "$bad"
+  rm -f "$TMP/v.log"
+  if run "$TMP/v.log" > "$TMP/v.out" 2>&1; then echo "FAIL: ran with a version '$bad'"; exit 1; fi
+  grep -q "cannot tell the version of this project's Playwright" "$TMP/v.out" || { echo "FAIL: version '$bad' not said"; cat "$TMP/v.out"; exit 1; }
+  [ ! -e "$TMP/v.log" ] || { echo "FAIL: Playwright ran with a version '$bad'"; exit 1; }
+done
+version 1.58.2
 
 # browsers older than Playwright expects, then none: said, nothing run
 browsers_json 1300

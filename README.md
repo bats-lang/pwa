@@ -49,6 +49,12 @@ implement main0 () =
 - checks that `PLAYWRIGHT_BROWSERS_PATH` (else Playwright's default)
   holds the headless Chromium the project's Playwright expects, and says
   which revisions it has when not; it never downloads;
+- refuses a Playwright older than 1.58 (bats-lang/pwa#92), saying what to
+  install: before it the fake clock (`page.clock`) could set the time
+  back after `fastForward`, so a test that counts time failed now and
+  then. The floor is the same for every app; an app that needs a newer
+  Playwright says so in its `package.json`, as npm enforces it. A
+  version it cannot read is refused too;
 - runs the tests tagged `@serial` (`test('...', { tag: '@serial' }, ...)`)
   alone on one worker, then the others on half the cores divided by the
   slots; a `--grep` or `--workers` of yours makes it one run, as given;
