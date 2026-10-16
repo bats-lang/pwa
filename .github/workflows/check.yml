@@ -65,6 +65,10 @@ jobs:
           test -f bats.lock || { echo "::error::bats.lock is missing: run 'bats lock --repository <dir>' and commit it"; exit 1; }
           bats check --repository $HOME/repository
 
+      # The unit tests of src/ (the Playwright version check, bats-lang/pwa#92)
+      - name: Unit tests
+        run: bats test --repository $HOME/repository
+
       - name: Dynamic tests
         run: tests/dynamic/run.sh $HOME/repository
 
@@ -151,16 +155,30 @@ jobs:
             example/dist/pwa
           retention-days: 1
 
-      - name: Install Node.js
-        uses: actions/setup-node@v4
+      # Node's packages (exactly example/package-lock.json, retried on a
+      # dropped connection) and Chromium, by the action apps call by commit
+      # (bats-lang/quire#637); the example is its first user
+      - name: Set up the e2e tests
+        uses: ./.github/actions/e2e-setup
         with:
           node-version: 20
+          working-directory: example
 
-      - name: Install Playwright
-        run: |
-          cd example
-          npm install
-          npx playwright install chromium
+      # the action's scripts, against a fake npm and a registry that resets
+      # connections (the action's YAML runs in the step above)
+      - name: e2e-setup action
+        run: tests/e2e-setup/check.sh
+
+      # scripts/play-release.sh (bats-lang/pwa#90) against a stub of Play's
+      # edits API, and the pins of play-release.yml's actions; the workflow
+      # itself needs Google and runs in an app's release job
+      - name: Play release script
+        run: tests/play-release/run.sh
+
+      # scripts/key-fingerprints.sh (bats-lang/pwa#96) on keystores made
+      # with keytool; android.yml's steps that call it run in an app's job
+      - name: Key fingerprints script
+        run: tests/key-fingerprints/run.sh
 
       # gen-pwa test (bats-lang/pwa#82) with a stand-in Playwright: the
       # port handed over and freed, two runs taking turns, nothing left

@@ -44,9 +44,126 @@ through a keeper (`node -e`: Bats has no sockets; the browser check
 reads Playwright's `browsers.json` with `node -e` too, and these two are
 its only JavaScript) that serves `dist/pwa` at a port the kernel picks
 (`PWA_TEST_BASE_URL`) and stops Playwright's process group when gen-pwa
-ends, however it ends. `tests/test-command/check.sh` checks it with a
-stand-in Playwright (`PWA_TEST_PLAYWRIGHT`). The design and what was
+ends, however it ends. It also refuses a Playwright older than 1.58 (pwa#92: `version_read_of`,
+`version_support`, a total read of the version into a `version_read` and a
+`support`, not a comparison of strings; the floor is a constant, the app
+raises it by its own `package.json`, and e2e-setup's `playwright-minimum`
+is the same check in CI). `bats test` tests the read
+(`$UNITTEST` block of `src/test_run.bats`); `tests/test-command/check.sh`
+checks the command with a stand-in Playwright (`PWA_TEST_PLAYWRIGHT`) and
+stand-in versions. The design and what was
 searched are on bats-lang/pwa#82.
+
+## The e2e setup action (quire#637)
+
+An app's e2e job installs Node's packages and Playwright's browsers
+before `gen-pwa test`, and a dropped connection to the registry there
+(quire#635: `ECONNRESET`, 16 minutes in, a merge queue entry lost) ran no
+test. `.github/actions/e2e-setup` is a composite action, called by commit
+as `android.yml` is (`uses: bats-lang/pwa/.github/actions/e2e-setup@<sha>`,
+after the checkout), that does it once for every app:
+
+* `actions/setup-node` with `cache: npm` (the downloads, keyed on the
+  lock's hash; `cache-dependency-path` follows `working-directory`);
+* `npm ci` (exactly `package-lock.json`: it fails on a lock that does not
+  match `package.json` and never rewrites it) with `--fetch-retries=5`
+  (npm's default is 2) and npm's default 10 s to 60 s backoff, and the
+  whole install again, up to 3 tries with a doubling pause, when it fails
+  with a connection's error (`retry.sh`); any other failure ends at once;
+* the installed Playwright version read from `playwright-core` and
+  refused below `playwright-minimum` (pwa#92's reason: quire's fake clock
+  needs 1.58), with the message saying why;
+* one browsers directory, `$RUNNER_TEMP/ms-playwright`, exported as
+  `PLAYWRIGHT_BROWSERS_PATH` (what `gen-pwa test` checks), restored and
+  saved by `actions/cache` under the key `playwright-browsers-<os>-<arch>-<Playwright
+  version>`, so the key moves when the lock moves Playwright and never
+  with the app, and then `playwright install chromium`, retried the same
+  way (a hit finds the directory complete and downloads nothing).
+
+It is CI and process, not a change to `gen-pwa test`: that command is
+documented to check the browsers and never download them (pwa#82), and
+"Changes to pwa" allows only bug fixes and new platforms, so a test
+runner that installs packages over the network would be a new feature of
+pwa. Playwright's CI documentation says caching the browsers "is not
+recommended, since the amount of time it takes to restore the cache is
+comparable" and, if done, to key it on the Playwright version; the cache
+is here for the registry-free, CDN-free path, not for speed, and
+`cache-browsers: false` turns it off. `tests/e2e-setup/check.sh` runs the
+scripts against a fake npm and against the real npm and a registry stub
+that resets the first N connections (inside npm's retries, past them, for
+ever), a lock out of sync, a missing lock, the minimum and the key; the
+`check` job runs it, and the example is the action's first user (its
+`package-lock.json` is committed for that).
+
+## The Play release workflow (pwa#90, quire#623)
+
+`android.yml` ends at the artifact `release-aab`; what came after was
+copied by every app (quire's `play-internal` job). `.github/workflows/play-release.yml`
+is a reusable workflow, called by commit as `android.yml` is, that
+downloads that artifact, signs in to Google by Workload Identity
+Federation (`google-github-actions/auth`; no key is stored) and runs
+`scripts/play-release.sh`, which releases the AAB to a Play testing track
+(internal by default, `production` refused) through the Developer API's
+edits: insert, upload the bundle, set the track to a completed release
+with the notes (500 characters), commit with `ERROR_IF_IN_REVIEW`, and
+delete an edit that does not commit. `tests/play-release/run.sh` (a step
+of the `check` job) checks it against a stub of Play, and that every
+action the workflow uses is pinned by a commit with its version.
+
+* **Process, not a capability.** Nothing pwa generates changes, and
+  nothing the app runs: it is a release step of an app's CI, as
+  `android.yml` and the e2e-setup action are, and it holds no secret.
+* **The script is taken from the commit the caller names (`pwa-ref`).** A
+  reusable workflow cannot read the commit it was called at (`github.sha`
+  and `github.workflow_sha` are the caller's), so it checks out
+  `bats-lang/pwa` at the `pwa-ref` input, only `scripts/`. A composite action
+  would know its own files (`github.action_path`, as e2e-setup does) but
+  could not take the `id-token` permission or the job's `concurrency`; the
+  caller passes its pin twice instead.
+* **Who may release is Google's side, not this workflow's.** The provider's
+  attribute condition (the calling repository, the ref, the event) admits
+  the runs that get the service account's token; the workflow checks
+  nothing of the kind, and the README says what the app's owner sets up.
+  The token's `repository` claim is the caller's in a reusable workflow
+  (`job_workflow_ref` names this file), so a condition on the calling
+  repository holds.
+* **Inputs reach the shell as environment variables**, never spliced into a
+  script, so a commit message cannot inject into the step.
+* Pins (by commit, verified with `git ls-remote` on the tag):
+  `actions/checkout` v4, `actions/download-artifact` v4,
+  `google-github-actions/auth` v3.0.0.
+* The first run is an app's: the workflow needs Google, so only an app's
+  push to main exercises it end to end (its `dry-run` input validates the edit
+  and releases nothing).
+
+## The signing key's fingerprints (pwa#96, quire#623)
+
+`android.yml` printed nothing of the key it signs with, and an app's own
+workflow (quire's `sync-identity.yml`) decoded the keystore again to print
+the upload key's SHA-1 and SHA-256 and to refuse a registered Play app
+signing SHA-1 that is the upload key's (quire#200: the Android OAuth
+client was registered with the upload key's certificate, which an app
+installed from Play, signed by Play's own key, does not carry).
+`scripts/key-fingerprints.sh` does both for every app; android.yml's steps
+call it when `pwa-ref` is given (the script is taken from that commit, as
+play-release.yml's is) and `play-signing-sha1` adds the refusal.
+
+* **Process, not a capability.** It reads the keystore android.yml already
+  decodes and signs with; nothing pwa generates changes. Without the new
+  inputs the workflow does what it did.
+* **No secret in output.** The password reaches keytool as
+  `-storepass:env` (on no command line; the decode step's own keytool call
+  uses it too); keytool's listing is never
+  printed, only the two fingerprints, which every signed APK carries.
+* **`pwa-ref` is optional so existing callers are unchanged.** Taking the
+  script from the default branch instead would be an unpinned input.
+  `pwa-ref` must be 40 lower case hex digits (checked before the checkout).
+  A `play-signing-sha1` with no `pwa-ref` or no signing key fails rather
+  than skip a check that was asked for.
+* `tests/key-fingerprints/run.sh` (a step of `check`) makes keystores with
+  keytool, compares the printed digests with openssl's of the exported
+  certificate, and checks the refusals and acceptances. The workflow's
+  steps need an app's secrets and run in an app's job.
 
 ## Changes to pwa
 
