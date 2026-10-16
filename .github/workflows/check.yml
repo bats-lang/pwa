@@ -171,6 +171,11 @@ jobs:
       - name: Play release script
         run: tests/play-release/run.sh
 
+      # scripts/key-fingerprints.sh (bats-lang/pwa#96) on keystores made
+      # with keytool; android.yml's steps that call it run in an app's job
+      - name: Key fingerprints script
+        run: tests/key-fingerprints/run.sh
+
       # gen-pwa test (bats-lang/pwa#82) with a stand-in Playwright: the
       # port handed over and freed, two runs taking turns, nothing left
       # after a kill or a failure, the serial run on one worker

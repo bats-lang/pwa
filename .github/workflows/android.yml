@@ -38,6 +38,16 @@
 # is the caller's run number plus version-code-offset: each upload to
 # Google Play needs a higher one.
 #
+# With pwa-ref set (the commit this workflow was called at: a reusable
+# workflow cannot read it, so the caller says it, as for play-release.yml)
+# and a signing key, the key's SHA-1 and SHA-256 fingerprints are printed
+# in the job log and summary (scripts/key-fingerprints.sh; keytool, no
+# password or key material). With play-signing-sha1 too (Play Console,
+# Protected with Play, Play app signing certificate) the job fails when
+# that is the upload key's SHA-1 or not a SHA-1 fingerprint: Play re-signs
+# with its own key, so an Android OAuth client registered with the upload
+# key's SHA-1 fails only on the app installed from Play (bats-lang/pwa#96).
+#
 # With publish false (a branch or pull request, say) the AAB and APK are
 # built, signed and checked the same way, but not uploaded as artifacts:
 # the smoke test gets the APK through an artifact that it deletes once
@@ -86,6 +96,16 @@ on:
         default: ''
       smoke-share-text:
         description: Text the app shows once it has taken the file
+        required: false
+        type: string
+        default: ''
+      pwa-ref:
+        description: The commit of bats-lang/pwa this workflow was called at; with it, the signing key's fingerprints are printed (its script is taken from it)
+        required: false
+        type: string
+        default: ''
+      play-signing-sha1:
+        description: Play's app signing certificate SHA-1 (AA:BB:..., 20 bytes); the job fails when it is the signing key's own SHA-1. Needs pwa-ref
         required: false
         type: string
         default: ''
@@ -149,6 +169,39 @@ jobs:
           else
             echo "No KEYSTORE_BASE64 secret: the build is unsigned"
           fi
+
+      # The fingerprints of the signing key, from the script of the commit
+      # the caller names (the caller's own repository is not checked out
+      # here), and Play's app signing SHA-1 refused when it is the key's
+      - name: Get the fingerprint script
+        if: env.ANDROID_KEYSTORE != '' && inputs.pwa-ref != ''
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: bats-lang/pwa
+          ref: ${{ inputs.pwa-ref }}
+          path: pwa
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      - name: Signing key fingerprints
+        if: env.ANDROID_KEYSTORE != '' && inputs.pwa-ref != ''
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          PLAY_SIGNING_SHA1: ${{ inputs.play-signing-sha1 }}
+        run: sh pwa/scripts/key-fingerprints.sh "$ANDROID_KEYSTORE"
+
+      - name: A Play signing SHA-1 needs pwa-ref
+        if: inputs.play-signing-sha1 != '' && inputs.pwa-ref == ''
+        run: |
+          echo "::error::play-signing-sha1 is checked by a script taken from pwa-ref, which is not set"
+          exit 1
+
+      - name: A Play signing SHA-1 needs a signing key
+        if: inputs.play-signing-sha1 != '' && env.ANDROID_KEYSTORE == ''
+        run: |
+          echo "::error::play-signing-sha1 is given but the build has no signing key (no KEYSTORE_BASE64 secret) to compare it with"
+          exit 1
 
       # The pnpm packages and Maven artifacts the build downloads, kept
       # between runs: a build that fetched all of them from the network
