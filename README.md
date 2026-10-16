@@ -142,6 +142,35 @@ it fails unless each intent's file is handed to the page once. The
 project's `smoke-test.sh` does the work and runs against any device
 `adb` sees.
 
+### The signing key's fingerprints, and Play's
+
+With a signing key, `android.yml` can print the key's SHA-1 and SHA-256
+fingerprints in the job log and summary (`scripts/key-fingerprints.sh`,
+by `keytool`; the password is handed to it by environment variable, and
+no password or key material is printed). Pass `pwa-ref`, the commit you
+call the workflow at (a reusable workflow cannot read it, so the script is
+taken from the commit you name, as for `play-release.yml`):
+
+```yaml
+    with:
+      pwa-ref: <sha>                 # prints the upload key's fingerprints
+      play-signing-sha1: 5A:48:...   # optional: Play's app signing SHA-1
+```
+
+Play re-signs what you upload with its own app signing key, so an app
+installed from Play carries Play's certificate, not the upload key's. An
+Android OAuth client (Google sign-in, Drive) is matched by package and
+SHA-1: register the upload key's SHA-1 for a sideloaded build and Play's
+for the installed one. The mistake of registering the upload key's SHA-1
+where Play's belongs signs in on the APK and fails only on the Play
+install (bats-lang/quire#200). With `play-signing-sha1` (Play Console,
+Protected with Play, Play app signing, App signing key certificate) the
+job fails when it is the upload key's SHA-1, is not a SHA-1 fingerprint
+(`AA:BB:...`, 20 bytes; either case), or is given without `pwa-ref` or a
+signing key. Without the input nothing is checked and nothing changes;
+without `pwa-ref` the fingerprints are not printed.
+`tests/key-fingerprints/run.sh` checks the script on keystores it makes.
+
 ## Releasing to Google Play
 
 `android.yml` builds, signs and checks the AAB and uploads it as
