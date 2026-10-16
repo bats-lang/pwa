@@ -44,8 +44,14 @@ through a keeper (`node -e`: Bats has no sockets; the browser check
 reads Playwright's `browsers.json` with `node -e` too, and these two are
 its only JavaScript) that serves `dist/pwa` at a port the kernel picks
 (`PWA_TEST_BASE_URL`) and stops Playwright's process group when gen-pwa
-ends, however it ends. `tests/test-command/check.sh` checks it with a
-stand-in Playwright (`PWA_TEST_PLAYWRIGHT`). The design and what was
+ends, however it ends. It also refuses a Playwright older than 1.58 (pwa#92: `version_read_of`,
+`version_support`, a total read of the version into a `version_read` and a
+`support`, not a comparison of strings; the floor is a constant, the app
+raises it by its own `package.json`, and e2e-setup's `playwright-minimum`
+is the same check in CI). `bats test` tests the read
+(`$UNITTEST` block of `src/test_run.bats`); `tests/test-command/check.sh`
+checks the command with a stand-in Playwright (`PWA_TEST_PLAYWRIGHT`) and
+stand-in versions. The design and what was
 searched are on bats-lang/pwa#82.
 
 ## The e2e setup action (quire#637)

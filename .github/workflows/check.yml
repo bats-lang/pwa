@@ -65,6 +65,10 @@ jobs:
           test -f bats.lock || { echo "::error::bats.lock is missing: run 'bats lock --repository <dir>' and commit it"; exit 1; }
           bats check --repository $HOME/repository
 
+      # The unit tests of src/ (the Playwright version check, bats-lang/pwa#92)
+      - name: Unit tests
+        run: bats test --repository $HOME/repository
+
       - name: Dynamic tests
         run: tests/dynamic/run.sh $HOME/repository
 
