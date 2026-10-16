@@ -57,18 +57,24 @@ PLAY_SIGNING_SHA1=$(printf '%s' "$other" | tr 'A-F' 'a-f') run "different, lower
 [ $status -eq 0 ] || fail "a different SHA-1 in lower case was refused: $(cat "$tmp/out")"
 
 # not a SHA-1 fingerprint: no colons, too short, the SHA-256, not hex
-for bad in "$(printf '%s' "$other" | tr -d ':')" "${other%:*}" "$sha256" "ZZ:${other#??:}"; do
+nl='
+'
+for bad in "$(printf '%s' "$other" | tr -d ':')" "${other%:*}" "$sha256" "ZZ:${other#??:}" \
+  "$sha1${nl}junk" "junk${nl}$sha1" "$other${nl}junk" "junk${nl}$other" "$sha1${nl}" "${nl}$sha1"; do
   PLAY_SIGNING_SHA1=$bad run "malformed" "$tmp/a.jks"
   [ $status -ne 0 ] || fail "malformed '$bad' was accepted"
   grep -q "not a SHA-1 fingerprint" "$tmp/out" || fail "malformed '$bad': wrong refusal: $(cat "$tmp/out")"
+  ! grep -q junk "$tmp/out" || fail "malformed: the value was printed"
 done
 
 # a wrong password or alias fails, and the password is not printed
 KEYSTORE_PASSWORD=wrong-password-x run "wrong password" "$tmp/a.jks"
 [ $status -ne 0 ] || fail "a wrong password was accepted"
+grep -qi "password was incorrect" "$tmp/out" || fail "wrong password: keytool's message is not shown: $(cat "$tmp/out")"
 grep -q "wrong-password-x" "$tmp/out" && fail "wrong password: printed"
 KEY_ALIAS=nothing run "wrong alias" "$tmp/a.jks"
 [ $status -ne 0 ] || fail "a wrong alias was accepted"
+grep -qi "does not exist" "$tmp/out" || fail "wrong alias: keytool's message is not shown: $(cat "$tmp/out")"
 
 # the job summary
 GITHUB_STEP_SUMMARY=$tmp/summary run "summary" "$tmp/a.jks"
@@ -77,6 +83,24 @@ grep -q "$KEYSTORE_PASSWORD" "$tmp/summary" && fail "the password is in the summ
 
 # the workflow runs it
 workflow=$here/../../.github/workflows/android.yml
-grep -q 'scripts/key-fingerprints.sh' "$workflow" || fail "android.yml does not run the script"
+python3 - "$workflow" <<'PY' || fail "android.yml's fingerprint steps are not wired as they should be"
+import sys, yaml
+steps = yaml.safe_load(open(sys.argv[1]))["jobs"]["build-android"]["steps"]
+by = {s.get("name"): s for s in steps}
+run = by["Signing key fingerprints"]
+assert "if" in run and "ANDROID_KEYSTORE" in run["if"] and "pwa-ref" in run["if"], run
+assert run["env"]["PLAY_SIGNING_SHA1"] == "${{ inputs.play-signing-sha1 }}", run
+assert run["env"]["KEYSTORE_PASSWORD"] == "${{ secrets.KEYSTORE_PASSWORD }}", run
+assert run["env"]["KEY_ALIAS"] == "${{ secrets.KEY_ALIAS }}", run
+assert "key-fingerprints.sh" in run["run"] and "inputs." not in run["run"], run
+get = by["Get the fingerprint script"]
+assert get["with"]["ref"] == "${{ inputs.pwa-ref }}" and "pwa-ref" in get["if"], get
+assert "${{" not in by["Check pwa-ref"]["run"], "pwa-ref is spliced into a script"
+assert by["Check pwa-ref"]["env"]["PWA_REF"] == "${{ inputs.pwa-ref }}"
+names = [s.get("name") for s in steps]
+assert names.index("Check pwa-ref") < names.index("Get the fingerprint script") < names.index("Signing key fingerprints")
+for n in ("A Play signing SHA-1 needs pwa-ref", "A Play signing SHA-1 needs a signing key"):
+    assert "inputs.play-signing-sha1 != ''" in by[n]["if"], n
+PY
 
 echo "key-fingerprints: ok"

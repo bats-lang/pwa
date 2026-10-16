@@ -146,10 +146,12 @@ play-release.yml's is) and `play-signing-sha1` adds the refusal.
   decodes and signs with; nothing pwa generates changes. Without the new
   inputs the workflow does what it did.
 * **No secret in output.** The password reaches keytool as
-  `-storepass:env` (on no command line); keytool's listing is never
+  `-storepass:env` (on no command line; the decode step's own keytool call
+  uses it too); keytool's listing is never
   printed, only the two fingerprints, which every signed APK carries.
 * **`pwa-ref` is optional so existing callers are unchanged.** Taking the
   script from the default branch instead would be an unpinned input.
+  `pwa-ref` must be 40 lower case hex digits (checked before the checkout).
   A `play-signing-sha1` with no `pwa-ref` or no signing key fails rather
   than skip a check that was asked for.
 * `tests/key-fingerprints/run.sh` (a step of `check`) makes keystores with

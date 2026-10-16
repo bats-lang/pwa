@@ -159,7 +159,7 @@ jobs:
             echo "ANDROID_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
             # The key's certificate fingerprint, which the AAB and APK must
             # be signed with (keytool fails here on a wrong password or alias)
-            FP=$(keytool -list -v -keystore "$RUNNER_TEMP/release.jks" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" \
+            FP=$(keytool -list -v -keystore "$RUNNER_TEMP/release.jks" -storepass:env KEYSTORE_PASSWORD -alias "$KEY_ALIAS" \
               | sed -n 's/^[[:space:]]*SHA256: *//p' | head -1 | tr -d ':' | tr 'A-F' 'a-f')
             test -n "$FP" || { echo "::error::No SHA-256 fingerprint for alias KEY_ALIAS in the keystore"; exit 1; }
             echo "SIGNING_SHA256=$FP" >> "$GITHUB_ENV"
@@ -173,6 +173,20 @@ jobs:
       # The fingerprints of the signing key, from the script of the commit
       # the caller names (the caller's own repository is not checked out
       # here), and Play's app signing SHA-1 refused when it is the key's
+      # a commit, not a branch or tag, and nothing else for the checkout
+      - name: Check pwa-ref
+        if: env.ANDROID_KEYSTORE != '' && inputs.pwa-ref != ''
+        env:
+          PWA_REF: ${{ inputs.pwa-ref }}
+        run: |
+          # (a case, not grep -x, which judges one line of a value at a time)
+          case $PWA_REF in
+            *[!0-9a-f]*) ;;
+            ????????????????????????????????????????) exit 0 ;;
+          esac
+          echo "::error::pwa-ref is not a 40-digit lower case commit"
+          exit 1
+
       - name: Get the fingerprint script
         if: env.ANDROID_KEYSTORE != '' && inputs.pwa-ref != ''
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

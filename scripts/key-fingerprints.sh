@@ -24,7 +24,12 @@ keystore=${1:?usage: key-fingerprints.sh <keystore>}
 export KEYSTORE_PASSWORD
 
 # keytool fails on a wrong password or alias, saying so
-listing=$(keytool -list -v -keystore "$keystore" -storepass:env KEYSTORE_PASSWORD -alias "$KEY_ALIAS")
+# (keytool says why on its standard output, and holds no password)
+listing=$(keytool -list -v -keystore "$keystore" -storepass:env KEYSTORE_PASSWORD -alias "$KEY_ALIAS" 2>&1) || {
+  printf '%s\n' "$listing" >&2
+  echo "error: keytool could not list the alias in the keystore" >&2
+  exit 1
+}
 field() { printf '%s\n' "$listing" | sed -n "s/^[[:space:]]*$1: *//p" | head -1; }
 sha1=$(field SHA1)
 sha256=$(field SHA256)
@@ -49,6 +54,11 @@ fi
 
 play=${PLAY_SIGNING_SHA1:-}
 if [ -n "$play" ]; then
+  # one line: grep -x judges a value line by line, so a second line would
+  # pass; nothing of an invalid value is printed
+  nl='
+'
+  case $play in *"$nl"*) echo "error: play-signing-sha1 is not a SHA-1 fingerprint (it has more than one line)" >&2; exit 1 ;; esac
   play=$(printf '%s' "$play" | tr 'a-f' 'A-F')
   hex "$play" 19 || { echo "error: play-signing-sha1 is not a SHA-1 fingerprint (AA:BB:... , 20 bytes)" >&2; exit 1; }
   if [ "$play" = "$sha1" ]; then
