@@ -131,4 +131,12 @@ grep -q "older than this Playwright expects" "$TMP/o.out" && grep -q "chromium_h
 rm -rf "$TMP/browsers/chromium_headless_shell-1194"
 if run "$TMP/m.log" > "$TMP/m.out" 2>&1; then echo "FAIL: ran with no browser"; exit 1; fi
 grep -q "is not installed" "$TMP/m.out" || { echo "FAIL: a missing browser not said"; cat "$TMP/m.out"; exit 1; }
+# the scope of the check is said where it refuses (bats-lang/pwa#84, bullet 4): the headless shell, and what it does not check
+grep -q "the headless Chromium this Playwright expects is not installed" "$TMP/m.out" && grep -q "covers the headless shell only" "$TMP/m.out" && grep -qF "a headed run's Chromium (chromium-<revision>)" "$TMP/m.out" || { echo "FAIL: the scope of the browser check not said"; cat "$TMP/m.out"; exit 1; }
+# a headed run's Chromium is not checked, so the headless shell alone passes: Playwright runs, nothing is refused
+browsers_json 1194
+mkdir -p "$TMP/browsers/chromium_headless_shell-1194"
+rm -f "$TMP/hd.log"
+run "$TMP/hd.log" > "$TMP/hd.out" 2>&1 || { echo "FAIL: the headless shell alone was refused"; cat "$TMP/hd.out"; exit 1; }
+[ -e "$TMP/hd.log" ] || { echo "FAIL: Playwright did not run with the headless shell alone"; exit 1; }
 echo "test-command: ok"
