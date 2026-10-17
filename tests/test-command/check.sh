@@ -10,7 +10,9 @@
 # said, with both revisions; a path with a NUL does not stop the server;
 # without --timings the caller's own JSON report is left alone; an
 # unknown option is said; a Playwright older than 1.58, and one whose
-# version cannot be read, is refused and said (bats-lang/pwa#92).
+# version cannot be read, is refused and said (bats-lang/pwa#92); a
+# Playwright that exits 70, 71 or 143 is a failed run, and a keeper killed
+# by a signal is said as killed (bats-lang/pwa#84).
 # usage: tests/test-command/check.sh <gen-pwa binary> <built dist/pwa>
 set -eu
 GEN=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
@@ -97,6 +99,25 @@ if pgrep -f "gen-pwa test: cannot serve" > /dev/null || pgrep -f "http.createSer
 if FAKE_PW_EXIT=1 run "$TMP/f.log" > "$TMP/f.out" 2>&1; then echo "FAIL: a failing run passed"; exit 1; fi
 grep -q "tests failed" "$TMP/f.out" || { echo "FAIL: a failing run not said"; cat "$TMP/f.out"; exit 1; }
 for p in $(ports "$TMP/f.log"); do closed "$p" || { echo "FAIL: port $p still served after a failing run"; exit 1; }; done
+
+# Playwright's own exit statuses 70, 71 and 143 are the keeper's statuses
+# for "could not serve", "could not start" and "stopped": they are a failed
+# run, said as one, and the keeper's outcome is not said for them
+for code in 70 71 143; do
+  if FAKE_PW_EXIT=$code run "$TMP/x$code.log" > "$TMP/x.out" 2>&1; then echo "FAIL: a run that exits $code passed"; exit 1; fi
+  grep -q "tests failed" "$TMP/x.out" && ! grep -q "could not be served\|could not be started\|stopped" "$TMP/x.out" || { echo "FAIL: Playwright's exit $code said as a keeper's outcome"; cat "$TMP/x.out"; exit 1; }
+  for p in $(ports "$TMP/x$code.log"); do closed "$p" || { echo "FAIL: port $p still served after exit $code"; exit 1; }; done
+done
+
+# a keeper killed by a signal (SIGKILL: it cannot say how its run ended) is
+# said as killed, not as a run that failed or as node that could not start
+( st=0; FAKE_PW_SLEEP=30 run "$TMP/s.log" > "$TMP/s.out" 2>&1 || st=$?; echo $st > "$TMP/s.st.part"; mv "$TMP/s.st.part" "$TMP/s.st" ) &
+i=0; while ! grep -q '^fetched' "$TMP/s.log" 2>/dev/null; do i=$((i + 1)); [ $i -lt 100 ] || { echo "FAIL: the signal run did not start"; exit 1; }; sleep 0.2; done
+i=0; while [ ! -e "$TMP/s.st" ]; do i=$((i + 1)); [ $i -lt 100 ] || { echo "FAIL: the signal run did not end"; exit 1; }; pkill -KILL -f "http.createServer" 2>/dev/null || true; sleep 0.2; done
+wait
+[ "$(cat "$TMP/s.st")" -ne 0 ] || { echo "FAIL: a run whose keeper was killed passed"; exit 1; }
+grep -q "killed by a signal" "$TMP/s.out" || { echo "FAIL: a killed keeper not said as killed"; cat "$TMP/s.out"; exit 1; }
+grep -q "could not be started\|tests failed" "$TMP/s.out" && { echo "FAIL: a killed keeper said as another outcome"; cat "$TMP/s.out"; exit 1; }
 
 # a Playwright older than 1.58 (the fake clock can set the time back), the
 # floor itself, a later one with three digits (not string order), and a
