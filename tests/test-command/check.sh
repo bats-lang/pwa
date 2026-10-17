@@ -10,7 +10,9 @@
 # said, with both revisions; a path with a NUL does not stop the server;
 # without --timings the caller's own JSON report is left alone; an
 # unknown option is said; a Playwright older than 1.58, and one whose
-# version cannot be read, is refused and said (bats-lang/pwa#92).
+# version cannot be read, is refused and said (bats-lang/pwa#92); a
+# Playwright that exits 70, 71 or 143 is a failed run, and a keeper killed
+# by a signal is said as one whose exit status could not be read (bats-lang/pwa#84).
 # usage: tests/test-command/check.sh <gen-pwa binary> <built dist/pwa>
 set -eu
 GEN=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
@@ -27,6 +29,7 @@ browsers_json 1194
 cat > "$TMP/fake-pw" <<'FAKE'
 #!/bin/sh
 log=$FAKE_PW_LOG
+echo "keeper $PPID" >> "$log"
 { echo "start $$ $*"; echo "url $PWA_TEST_BASE_URL"; echo "browsers $PLAYWRIGHT_BROWSERS_PATH"; echo "json ${PLAYWRIGHT_JSON_OUTPUT_NAME:-}"; } >> "$log"
 node -e "fetch(process.env.PWA_TEST_BASE_URL + '/app.wasm').then(r => console.log('fetched', r.status, r.headers.get('content-type')))" >> "$log" 2>&1
 # a path with a NUL is refused, and the server goes on serving
@@ -66,6 +69,17 @@ if grep -q -- '--reporter' "$TMP/j.log"; then echo "FAIL: a reporter added witho
 if run "$TMP/u.log" --timing x > "$TMP/u.out" 2>&1; then echo "FAIL: an unknown option ran"; exit 1; fi
 grep -q "unknown option '--timing'" "$TMP/u.out" || { echo "FAIL: an unknown option not said"; cat "$TMP/u.out"; exit 1; }
 [ ! -e "$TMP/u.log" ] || { echo "FAIL: Playwright ran with an unknown option"; exit 1; }
+
+# --timings with no directory (last, empty, or "--", which is the end of
+# gen-pwa's options): refused with the usage line, nothing run
+usage='gen-pwa test \[--timings <dir>\] \[-- <playwright args>\]'
+run "$TMP/t1.log" --timings > "$TMP/t1.out" 2>&1 && { echo "FAIL: --timings last ran"; cat "$TMP/t1.out"; exit 1; }
+grep -q "^gen-pwa test: --timings needs a directory: $usage\$" "$TMP/t1.out" || { echo "FAIL: --timings last not said"; cat "$TMP/t1.out"; exit 1; }
+run "$TMP/t2.log" --timings "" > "$TMP/t2.out" 2>&1 && { echo "FAIL: --timings \"\" ran"; cat "$TMP/t2.out"; exit 1; }
+grep -q "^gen-pwa test: --timings needs a directory: $usage\$" "$TMP/t2.out" || { echo "FAIL: --timings \"\" not said"; cat "$TMP/t2.out"; exit 1; }
+run "$TMP/t3.log" --timings -- > "$TMP/t3.out" 2>&1 && { echo "FAIL: --timings -- ran"; cat "$TMP/t3.out"; exit 1; }
+grep -q "^gen-pwa test: --timings needs a directory: $usage\$" "$TMP/t3.out" || { echo "FAIL: --timings -- not said"; cat "$TMP/t3.out"; exit 1; }
+[ ! -e "$TMP/t1.log" ] && [ ! -e "$TMP/t2.log" ] && [ ! -e "$TMP/t3.log" ] || { echo "FAIL: Playwright ran with --timings and no directory"; exit 1; }
 for p in $(ports "$TMP/a.log"); do closed "$p" || { echo "FAIL: port $p still served after the run"; exit 1; }; done
 
 # a caller's --workers: one run, as given
@@ -83,6 +97,28 @@ wait $second || { echo "FAIL: the second of two"; cat "$TMP/second.out"; exit 1;
 grep -q "waiting for another gen-pwa test" "$TMP/second.out" || { echo "FAIL: the second did not say it waited"; cat "$TMP/second.out"; exit 1; }
 awk '$1 == "start" { if (open != "") { print "overlap"; bad = 1 } open = $2 } $1 == "end" { open = "" } END { exit bad }' "$TMP/two.log" || { echo "FAIL: two runs at once"; cat "$TMP/two.log"; exit 1; }
 
+# with two slots, a run that waits takes the slot that frees first, not
+# slot 0 (bats-lang/pwa#84). Run A takes slot 0 and holds it for 60 s, run
+# B takes slot 1 and holds it 12 s; run C starts while both are busy, says
+# it waits, and must have finished (on slot 1, when B ends) while A still
+# holds slot 0. A run that blocks on slot 0 finishes only after A ends.
+slot_a= slot_b= slot_c=
+slot_wait_fail() { kill "$slot_a" "$slot_b" "$slot_c" 2>/dev/null || true; echo "FAIL: $1"; cat "$TMP"/slot-*.out 2>/dev/null; exit 1; }
+PWA_TEST_SLOTS=2 FAKE_PW_SLEEP=60 FAKE_PW_LOG="$TMP/slot-a.log" "$GEN" test > "$TMP/slot-a.out" 2>&1 &
+slot_a=$!
+i=0; while ! grep -q '^start' "$TMP/slot-a.log" 2>/dev/null; do i=$((i + 1)); [ $i -lt 100 ] || slot_wait_fail "slot run A did not start"; sleep 0.2; done
+PWA_TEST_SLOTS=2 FAKE_PW_SLEEP=12 FAKE_PW_LOG="$TMP/slot-b.log" "$GEN" test > "$TMP/slot-b.out" 2>&1 &
+slot_b=$!
+i=0; while ! grep -q '^start' "$TMP/slot-b.log" 2>/dev/null; do i=$((i + 1)); [ $i -lt 100 ] || slot_wait_fail "slot run B did not start"; sleep 0.2; done
+PWA_TEST_SLOTS=2 FAKE_PW_SLEEP=0 FAKE_PW_LOG="$TMP/slot-c.log" "$GEN" test > "$TMP/slot-c.out" 2>&1 &
+slot_c=$!
+i=0; while ! grep -q "waiting for another gen-pwa test" "$TMP/slot-c.out" 2>/dev/null; do i=$((i + 1)); [ $i -lt 100 ] || slot_wait_fail "slot run C did not wait"; sleep 0.2; done
+if ! wait $slot_c; then slot_wait_fail "the waiting run C failed"; fi
+grep -q '^end' "$TMP/slot-c.log" || slot_wait_fail "the waiting run C did not run"
+if grep -q '^end' "$TMP/slot-a.log"; then slot_wait_fail "run C waited for slot 0: it finished only after run A, which held slot 0 for 60 s, had ended"; fi
+wait $slot_a || slot_wait_fail "run A failed"
+wait $slot_b || slot_wait_fail "run B failed"
+
 # kill -TERM of gen-pwa mid-run: no server, no stand-in left
 (FAKE_PW_SLEEP=30 FAKE_PW_LOG="$TMP/k.log" exec "$GEN" test > "$TMP/k.out" 2>&1) &
 gen=$!
@@ -91,12 +127,45 @@ kill -TERM $gen
 wait $gen 2>/dev/null || true
 i=0; while pgrep -f "$TMP/fake-pw" > /dev/null; do i=$((i + 1)); [ $i -lt 50 ] || { echo "FAIL: the stand-in outlived gen-pwa"; pgrep -af "$TMP/fake-pw"; exit 1; }; sleep 0.2; done
 for p in $(ports "$TMP/k.log"); do closed "$p" || { echo "FAIL: port $p still served after kill -TERM"; exit 1; }; done
-if pgrep -f "gen-pwa test: cannot serve" > /dev/null || pgrep -f "http.createServer" > /dev/null; then echo "FAIL: a keeper is left"; exit 1; fi
+for k in $(sed -n 's/^keeper //p' "$TMP/k.log"); do
+  s=$(ps -o stat= -p "$k" 2>/dev/null) || true
+  case $s in ''|Z*) ;; *) echo "FAIL: keeper $k is left"; ps -o pid=,args= -p "$k"; exit 1 ;; esac
+done
 
 # a failing run: its status, and nothing left
 if FAKE_PW_EXIT=1 run "$TMP/f.log" > "$TMP/f.out" 2>&1; then echo "FAIL: a failing run passed"; exit 1; fi
 grep -q "tests failed" "$TMP/f.out" || { echo "FAIL: a failing run not said"; cat "$TMP/f.out"; exit 1; }
 for p in $(ports "$TMP/f.log"); do closed "$p" || { echo "FAIL: port $p still served after a failing run"; exit 1; }; done
+
+# Playwright's own exit statuses 70, 71 and 143 are the keeper's statuses
+# for "could not serve", "could not start" and "stopped": they are a failed
+# run, said as one, and the keeper's outcome is not said for them
+for code in 70 71 143; do
+  if FAKE_PW_EXIT=$code run "$TMP/x$code.log" > "$TMP/x.out" 2>&1; then echo "FAIL: a run that exits $code passed"; exit 1; fi
+  grep -q "tests failed" "$TMP/x.out" && ! grep -q "could not be served\|could not be started\|stopped" "$TMP/x.out" || { echo "FAIL: Playwright's exit $code said as a keeper's outcome"; cat "$TMP/x.out"; exit 1; }
+  for p in $(ports "$TMP/x$code.log"); do closed "$p" || { echo "FAIL: port $p still served after exit $code"; exit 1; }; done
+done
+
+# a keeper killed by a signal (SIGKILL: it cannot say how its run ended) is
+# said as one whose exit status could not be read, not as a run that failed
+# or as node that could not start
+( st=0; FAKE_PW_SLEEP=30 run "$TMP/s.log" > "$TMP/s.out" 2>&1 || st=$?; echo $st > "$TMP/s.st.part"; mv "$TMP/s.st.part" "$TMP/s.st" ) &
+i=0; while ! grep -q '^fetched' "$TMP/s.log" 2>/dev/null; do i=$((i + 1)); [ $i -lt 100 ] || { echo "FAIL: the signal run did not start"; exit 1; }; sleep 0.2; done
+# the keepers are the parents of this test's stand-ins (logged as "keeper <pid>"):
+# each is signalled once, when first logged; no other process is looked for
+killed=" "
+i=0; while [ ! -e "$TMP/s.st" ]; do
+  i=$((i + 1)); [ $i -lt 200 ] || { echo "FAIL: the signal run did not end"; exit 1; }
+  for k in $(sed -n 's/^keeper //p' "$TMP/s.log" 2>/dev/null); do
+    case $killed in *" $k "*) ;; *) killed="$killed$k "; kill -KILL "$k" 2>/dev/null || true ;; esac
+  done
+  sleep 0.2
+done
+[ "$killed" != " " ] || { echo "FAIL: no keeper of the signal run was found to kill"; cat "$TMP/s.out"; exit 1; }
+wait
+[ "$(cat "$TMP/s.st")" -ne 0 ] || { echo "FAIL: a run whose keeper was killed passed"; exit 1; }
+grep -q "its exit status could not be read (killed by a signal, or waitpid failed)" "$TMP/s.out" || { echo "FAIL: a killed keeper not said as unread"; cat "$TMP/s.out"; exit 1; }
+grep -q "could not be started\|tests failed" "$TMP/s.out" && { echo "FAIL: a killed keeper said as another outcome"; cat "$TMP/s.out"; exit 1; }
 
 # a Playwright older than 1.58 (the fake clock can set the time back), the
 # floor itself, a later one with three digits (not string order), and a
