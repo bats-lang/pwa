@@ -201,6 +201,12 @@ own. A pull request that needs newer packages runs `bats lock
 --repository <dir>` and commits `bats.lock` (and
 `.github/repository-version`) with the change.
 
+The runner label is pinned too: every `runs-on` is `ubuntu-24.04`, never
+`ubuntu-latest`, which moves when GitHub moves its default (bridge#154).
+It is moved by hand, in a pull request of its own, when GitHub announces
+the successor. quire's `android` job runs `android.yml` at the pwa commit
+quire pins, so it picks up a new label only after quire moves that pin.
+
 ## Adversarial review before merge
 
 No pull request merges before an adversarial review: a comment on the
