@@ -41,7 +41,7 @@ fake 2 "$ECONN" || fail "two dropped connections were not retried" "$TMP/out"
 [ "$(cat "$TMP/count")" = 3 ] || fail "npm ran $(cat "$TMP/count") times, not 3"
 grep -q '^args: ci --no-audit --no-fund --fetch-retries=5 --fetch-retry-mintimeout=50 --fetch-retry-maxtimeout=200$' "$TMP/count.args" || fail "npm's arguments" "$TMP/count.args"
 if fake 3 "$ECONN"; then fail "three dropped connections passed" "$TMP/out"; fi
-grep -q 'failed 3 times on the network' "$TMP/out" || fail "the message of exhausted tries" "$TMP/out"
+grep -q 'failed 3 times on a download' "$TMP/out" || fail "the message of exhausted tries" "$TMP/out"
 [ "$(cat "$TMP/count")" = 3 ] || fail "tries past 3"
 if fake 1 'npm error code EUSAGE
 npm error `npm ci` can only install packages when your package.json and package-lock.json are in sync'; then fail "a lock out of sync passed" "$TMP/out"; fi
@@ -80,10 +80,10 @@ LOCK
   # 8 resets: npm gives up after 6 requests, the second npm ci succeeds
   real 8 "$TMP/r2" || fail "8 resets (past npm's retries)" "$TMP/out"
   [ -f "$TMP/r2/node_modules/tiny/package.json" ] || fail "tiny not installed after 8 resets"
-  grep -q 'the connection dropped (try 1 of 3)' "$TMP/out" || fail "the warning of the whole install again" "$TMP/out"
+  grep -q 'the download failed (try 1 of 3)' "$TMP/out" || fail "the warning of the whole install again" "$TMP/out"
   # resets for ever: fails with the clear message
   real 1000 "$TMP/r3" && fail "endless resets passed" "$TMP/out"
-  grep -q 'failed 3 times on the network' "$TMP/out" || fail "the message of endless resets" "$TMP/out"
+  grep -q 'failed 3 times on a download' "$TMP/out" || fail "the message of endless resets" "$TMP/out"
   # a lock that does not match package.json: fails at once, one try
   real 0 "$TMP/r4" || fail "the control install" "$TMP/out"
   echo '{"name":"proj","version":"1.0.0","dependencies":{"tiny":"2.0.0"}}' > "$TMP/r4/package.json"

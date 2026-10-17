@@ -3,13 +3,16 @@
 #
 #   retry <label> <command> [args...]
 #
-# Retried only on the failures of a connection (npm's and Playwright's
-# own words for them, below): a lock that does not match package.json, a
-# version that does not exist or a missing file fails at once, since a
-# second try cannot change it. E2E_ATTEMPTS (default 3) is the number of
-# tries, E2E_PAUSE_S (default 15) the first pause; the tests set both small.
+# Retried only on the failures of a download: a connection that dropped
+# (npm's and Playwright's own words for them, below), or an archive cut
+# short, which sdkmanager reports as "Error on ZipFile unknown archive"
+# and still exits 0 (bats-lang/quire#617). A lock that does not match
+# package.json, a version that does not exist or a missing file fails at
+# once, since a second try cannot change it. E2E_ATTEMPTS (default 3) is
+# the number of tries, E2E_PAUSE_S (default 15) the first pause; the tests
+# set both small.
 
-NETWORK_FAILURE='code (ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|ESOCKETTIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|EHOSTUNREACH|ENETUNREACH|FETCH_ERROR|E429|E50[0-9])|network (read|timeout|socket)|socket hang up|Download failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN'
+NETWORK_FAILURE='code (ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|ESOCKETTIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|EHOSTUNREACH|ENETUNREACH|FETCH_ERROR|E429|E50[0-9])|network (read|timeout|socket)|socket hang up|Download failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ZipFile unknown archive'
 
 retry() {
   label=$1; shift
@@ -28,10 +31,10 @@ retry() {
       rm -f "$log"; return "$status"
     fi
     if [ "$n" -ge "$attempts" ]; then
-      echo "::error::$label failed $attempts times on the network (the connection dropped each time); nothing was tested"
+      echo "::error::$label failed $attempts times on a download (the connection dropped, or an archive was cut short, each time); nothing was tested"
       rm -f "$log"; return "$status"
     fi
-    echo "::warning::$label: the connection dropped (try $n of $attempts); again in ${pause}s"
+    echo "::warning::$label: the download failed (try $n of $attempts); again in ${pause}s"
     sleep "$pause"
     pause=$((pause * 2)); n=$((n + 1))
   done

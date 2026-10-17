@@ -443,6 +443,66 @@ jobs:
           path: /usr/local/lib/android/sdk/system-images/android-34/default/x86_64
           key: system-image-android-34-default-x86_64
 
+      # The SDK packages the emulator action installs next, before it, under
+      # the retry of the e2e-setup action (bats-lang/quire#617). The action's
+      # sdkmanager call prints "Error on ZipFile unknown archive" for a
+      # download cut short and exits 0, so the action goes on with no
+      # emulator and fails two steps later at adb. Here the packages are
+      # checked in place (the emulator, adb, the system image), and the
+      # install is tried again when that text shows. Research (quire#617 and
+      # bats-lang/pwa#98): the emulator action's own install has no check
+      # of this; the projects that hit it pre-install with a retry on this
+      # error and a hard check after, as this does. The emulator package is
+      # not cached: its key would name the latest emulator, which changes
+      # when Google publishes one, so a hit would keep an old one silently.
+      - name: Check this workflow's commit
+        env:
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          # The retry script is read from the commit this workflow runs at
+          # (job.workflow_sha: the called file's own commit, as the caller's
+          # pin says); a value that is not one stops the job before the
+          # checkout, which would otherwise read the default branch
+          case $WORKFLOW_SHA in
+            *[!0-9a-f]*) ;;
+            ????????????????????????????????????????) exit 0 ;;
+          esac
+          echo "::error::job.workflow_sha is not a 40-digit lower case commit: $WORKFLOW_SHA"
+          exit 1
+
+      - name: Get the retry script
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: pwa
+          sparse-checkout: .github/actions/e2e-setup
+          persist-credentials: false
+
+      - name: Install the emulator's SDK packages, retried
+        env:
+          SDK_ROOT: /usr/local/lib/android/sdk
+        run: |
+          . pwa/.github/actions/e2e-setup/retry.sh
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER" || { echo "::error::No sdkmanager at $SDKMANAGER"; exit 1; }
+          # The licences, as the emulator action accepts them (the image has
+          # them accepted already)
+          yes | "$SDKMANAGER" --licenses > /dev/null
+          # The packages the action installs (the same channel, stable, as
+          # its default), and the three files the smoke test uses, checked in
+          # place: sdkmanager's own status does not show the failure. The
+          # download cache is emptied before each try, so a retry does not
+          # reuse an archive that was cut short. stderr stays in the log,
+          # where the retry looks for the text.
+          retry "the SDK packages" sh -c '
+            rm -rf "$HOME/.android/cache"
+            "$0" --install platform-tools "platforms;android-34" emulator "system-images;android-34;default;x86_64" --channel=0 > /dev/null
+            test -x "$SDK_ROOT/emulator/emulator" &&
+              test -x "$SDK_ROOT/platform-tools/adb" &&
+              test -f "$SDK_ROOT/system-images/android-34/default/x86_64/system.img"
+          ' "$SDKMANAGER"
+
       # What a failed smoke test prints into the job log while the
       # emulator still runs (bats-lang/quire#258): the app's processes and
       # threads, dumpsys activity, window and gfxinfo for the app, the
