@@ -12,7 +12,7 @@
 # unknown option is said; a Playwright older than 1.58, and one whose
 # version cannot be read, is refused and said (bats-lang/pwa#92); a
 # Playwright that exits 70, 71 or 143 is a failed run, and a keeper killed
-# by a signal is said as killed (bats-lang/pwa#84).
+# by a signal is said as one whose exit status could not be read (bats-lang/pwa#84).
 # usage: tests/test-command/check.sh <gen-pwa binary> <built dist/pwa>
 set -eu
 GEN=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
@@ -29,6 +29,7 @@ browsers_json 1194
 cat > "$TMP/fake-pw" <<'FAKE'
 #!/bin/sh
 log=$FAKE_PW_LOG
+echo "keeper $PPID" >> "$log"
 { echo "start $$ $*"; echo "url $PWA_TEST_BASE_URL"; echo "browsers $PLAYWRIGHT_BROWSERS_PATH"; echo "json ${PLAYWRIGHT_JSON_OUTPUT_NAME:-}"; } >> "$log"
 node -e "fetch(process.env.PWA_TEST_BASE_URL + '/app.wasm').then(r => console.log('fetched', r.status, r.headers.get('content-type')))" >> "$log" 2>&1
 # a path with a NUL is refused, and the server goes on serving
@@ -93,7 +94,10 @@ kill -TERM $gen
 wait $gen 2>/dev/null || true
 i=0; while pgrep -f "$TMP/fake-pw" > /dev/null; do i=$((i + 1)); [ $i -lt 50 ] || { echo "FAIL: the stand-in outlived gen-pwa"; pgrep -af "$TMP/fake-pw"; exit 1; }; sleep 0.2; done
 for p in $(ports "$TMP/k.log"); do closed "$p" || { echo "FAIL: port $p still served after kill -TERM"; exit 1; }; done
-if pgrep -f "gen-pwa test: cannot serve" > /dev/null || pgrep -f "http.createServer" > /dev/null; then echo "FAIL: a keeper is left"; exit 1; fi
+for k in $(sed -n 's/^keeper //p' "$TMP/k.log"); do
+  s=$(ps -o stat= -p "$k" 2>/dev/null) || true
+  case $s in ''|Z*) ;; *) echo "FAIL: keeper $k is left"; ps -o pid=,args= -p "$k"; exit 1 ;; esac
+done
 
 # a failing run: its status, and nothing left
 if FAKE_PW_EXIT=1 run "$TMP/f.log" > "$TMP/f.out" 2>&1; then echo "FAIL: a failing run passed"; exit 1; fi
@@ -110,13 +114,24 @@ for code in 70 71 143; do
 done
 
 # a keeper killed by a signal (SIGKILL: it cannot say how its run ended) is
-# said as killed, not as a run that failed or as node that could not start
+# said as one whose exit status could not be read, not as a run that failed
+# or as node that could not start
 ( st=0; FAKE_PW_SLEEP=30 run "$TMP/s.log" > "$TMP/s.out" 2>&1 || st=$?; echo $st > "$TMP/s.st.part"; mv "$TMP/s.st.part" "$TMP/s.st" ) &
 i=0; while ! grep -q '^fetched' "$TMP/s.log" 2>/dev/null; do i=$((i + 1)); [ $i -lt 100 ] || { echo "FAIL: the signal run did not start"; exit 1; }; sleep 0.2; done
-i=0; while [ ! -e "$TMP/s.st" ]; do i=$((i + 1)); [ $i -lt 100 ] || { echo "FAIL: the signal run did not end"; exit 1; }; pkill -KILL -f "http.createServer" 2>/dev/null || true; sleep 0.2; done
+# the keepers are the parents of this test's stand-ins (logged as "keeper <pid>"):
+# each is signalled once, when first logged; no other process is looked for
+killed=" "
+i=0; while [ ! -e "$TMP/s.st" ]; do
+  i=$((i + 1)); [ $i -lt 200 ] || { echo "FAIL: the signal run did not end"; exit 1; }
+  for k in $(sed -n 's/^keeper //p' "$TMP/s.log" 2>/dev/null); do
+    case $killed in *" $k "*) ;; *) killed="$killed$k "; kill -KILL "$k" 2>/dev/null || true ;; esac
+  done
+  sleep 0.2
+done
+[ "$killed" != " " ] || { echo "FAIL: no keeper of the signal run was found to kill"; cat "$TMP/s.out"; exit 1; }
 wait
 [ "$(cat "$TMP/s.st")" -ne 0 ] || { echo "FAIL: a run whose keeper was killed passed"; exit 1; }
-grep -q "killed by a signal" "$TMP/s.out" || { echo "FAIL: a killed keeper not said as killed"; cat "$TMP/s.out"; exit 1; }
+grep -q "its exit status could not be read (killed by a signal, or waitpid failed)" "$TMP/s.out" || { echo "FAIL: a killed keeper not said as unread"; cat "$TMP/s.out"; exit 1; }
 grep -q "could not be started\|tests failed" "$TMP/s.out" && { echo "FAIL: a killed keeper said as another outcome"; cat "$TMP/s.out"; exit 1; }
 
 # a Playwright older than 1.58 (the fake clock can set the time back), the

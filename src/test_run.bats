@@ -597,8 +597,9 @@ in if per < 1 then 1 else per end
 (* What a run's keeper said by its status. The keeper's status is either
    its own outcome (70, 71, 143, below) or Playwright's, which it passes
    on only as 0 (passed) or 1 (failed), so Playwright's status can never
-   be read as one of the keeper's. A keeper killed by a signal leaves no
-   status at all: that is KeeperKilled, not a failure of Playwright. *)
+   be read as one of the keeper's. When the keeper's exit status cannot be
+   read (child_wait's error: a signal, or waitpid failed) that is
+   KeeperStatusUnread, not a failure of Playwright. *)
 datatype run_end =
   | RunPassed
   | RunFailed         (* Playwright's tests failed *)
@@ -606,7 +607,7 @@ datatype run_end =
   | PlaywrightAbsent  (* Playwright could not be started *)
   | RunStopped        (* stopped: gen-pwa's end, or a signal to the keeper *)
   | KeeperAbsent      (* node could not be started *)
-  | KeeperKilled      (* the keeper was killed by a signal: its end is unknown *)
+  | KeeperStatusUnread (* the keeper's exit status could not be read: killed by a signal, or waitpid failed *)
 
 (* The keeper: serves argv[1] (dist/pwa) on 127.0.0.1 at a port the
    kernel picks, runs argv[2] with the rest in its own process group with
@@ -762,7 +763,7 @@ fn _run (kind: run_kind, workers: int): run_end = let
            at gen-pwa's end however it comes, is what stops the keeper *)
         val ec = (case+ $P.child_wait(child) of
           | ~$R.ok(n) => _end_of(n)
-          | ~$R.err(_) => KeeperKilled()): run_end
+          | ~$R.err(_) => KeeperStatusUnread()): run_end
         val () = $P.pipe_end_close(sin_p)
       in ec end
     | ~$R.err(_) => KeeperAbsent()): run_end
@@ -783,7 +784,7 @@ fn _said {sn:nat} (name: string sn, e: run_end): bool = let
     | PlaywrightAbsent() => _bput(m, ": Playwright could not be started (npm install, or set PWA_TEST_PLAYWRIGHT)\n")
     | RunStopped() => _bput(m, ": stopped\n")
     | KeeperAbsent() => _bput(m, ": node could not be started\n")
-    | KeeperKilled() => _bput(m, ": killed by a signal, so how the run ended is not known\n"))
+    | KeeperStatusUnread() => _bput(m, ": its exit status could not be read (killed by a signal, or waitpid failed), so how the run ended is not known\n"))
   val () = _say(m)
 in passed end
 
