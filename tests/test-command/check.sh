@@ -66,6 +66,17 @@ if grep -q -- '--reporter' "$TMP/j.log"; then echo "FAIL: a reporter added witho
 if run "$TMP/u.log" --timing x > "$TMP/u.out" 2>&1; then echo "FAIL: an unknown option ran"; exit 1; fi
 grep -q "unknown option '--timing'" "$TMP/u.out" || { echo "FAIL: an unknown option not said"; cat "$TMP/u.out"; exit 1; }
 [ ! -e "$TMP/u.log" ] || { echo "FAIL: Playwright ran with an unknown option"; exit 1; }
+
+# --timings with no directory (last, empty, or "--", which is the end of
+# gen-pwa's options): refused with the usage line, nothing run
+usage='gen-pwa test \[--timings <dir>\] \[-- <playwright args>\]'
+run "$TMP/t1.log" --timings > "$TMP/t1.out" 2>&1 && { echo "FAIL: --timings last ran"; cat "$TMP/t1.out"; exit 1; }
+grep -q "^gen-pwa test: --timings needs a directory: $usage\$" "$TMP/t1.out" || { echo "FAIL: --timings last not said"; cat "$TMP/t1.out"; exit 1; }
+run "$TMP/t2.log" --timings "" > "$TMP/t2.out" 2>&1 && { echo "FAIL: --timings \"\" ran"; cat "$TMP/t2.out"; exit 1; }
+grep -q "^gen-pwa test: --timings needs a directory: $usage\$" "$TMP/t2.out" || { echo "FAIL: --timings \"\" not said"; cat "$TMP/t2.out"; exit 1; }
+run "$TMP/t3.log" --timings -- > "$TMP/t3.out" 2>&1 && { echo "FAIL: --timings -- ran"; cat "$TMP/t3.out"; exit 1; }
+grep -q "^gen-pwa test: --timings needs a directory: $usage\$" "$TMP/t3.out" || { echo "FAIL: --timings -- not said"; cat "$TMP/t3.out"; exit 1; }
+[ ! -e "$TMP/t1.log" ] && [ ! -e "$TMP/t2.log" ] && [ ! -e "$TMP/t3.log" ] || { echo "FAIL: Playwright ran with --timings and no directory"; exit 1; }
 for p in $(ports "$TMP/a.log"); do closed "$p" || { echo "FAIL: port $p still served after the run"; exit 1; }; done
 
 # a caller's --workers: one run, as given

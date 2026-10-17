@@ -848,17 +848,46 @@ fun _unknown_option {l:agz}{i:nat} .<max(4096 - i, 0)>.
     val next = _nat(e + 1)
   in
     if _is(b, i, e, "--", true) then ~1
-    else if _is(b, i, e, "--timings", true) then let
+    else if _is(b, i, e, "--timings", true) then
+      (* a "--" for the directory is the end of gen-pwa's options, not a directory *)
+      (if _is(b, next, _arg_end(b, next, k), "--", true) then ~1 else let
         val after = _nat(_arg_end(b, next, k) + 1)
-      in if after <= i then ~1 else _unknown_option(b, after, k) end
+      in if after <= i then ~1 else _unknown_option(b, after, k) end)
     else i
   end
 
-(* Says an option gen-pwa test does not know: whether there was one *)
+(* Whether a --timings among gen-pwa's own options (argv[2] on, before
+   "--") has no directory: it is the last argument, empty, or "--" *)
+fun _timings_bare {l:agz}{i:nat} .<max(4096 - i, 0)>.
+  (b: !$A.borrow(byte, l, 4096), i: int i, k: int): bool =
+  if i >= k then false
+  else if i >= 4096 then false
+  else let
+    val e = _arg_end(b, i, k)
+    val next = g1ofg0(e + 1)
+  in
+    if _is(b, i, e, "--", true) then false
+    else if _is(b, i, e, "--timings", true) then let
+        val v = _nat(e + 1)
+        val ve = _arg_end(b, v, k)
+      in
+        if ve <= v || _is(b, v, ve, "--", true) then true
+        else let
+          val after = g1ofg0(ve + 1)
+        in if after <= i then false else _timings_bare(b, after, k) end
+      end
+    else if next <= i then false
+    else _timings_bare(b, next, k)
+  end
+
+(* Says an option gen-pwa test does not know, or a --timings with no
+   directory: whether there was one *)
 fn _options_refused (): bool = let
   val buf = $A.alloc<byte>(4096)
   val k = _args(buf)
   val @(fz_b, bv_b) = $A.freeze<byte>(buf)
+  val bare = _timings_bare(bv_b, _nat(_options_start(bv_b, k)), k)
+  val () = (if bare then _say_s("gen-pwa test: --timings needs a directory: gen-pwa test [--timings <dir>] [-- <playwright args>]\n") else ())
   val bad = _unknown_option(bv_b, _nat(_options_start(bv_b, k)), k)
   val () = (if bad >= 0 then let
       var m : $B.builder_v = $B.create()
@@ -868,7 +897,7 @@ fn _options_refused (): bool = let
     in _say(m) end else ())
   val () = $A.drop<byte>(fz_b, bv_b)
   val () = $A.free<byte>($A.thaw<byte>(fz_b))
-in bad >= 0 end
+in bare || bad >= 0 end
 
 implement gen_test_run () =
   if _options_refused () then 2 else let
