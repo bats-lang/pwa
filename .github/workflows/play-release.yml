@@ -78,7 +78,7 @@ on:
 
 jobs:
   play-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # One release at a time: two edits committed together would conflict
     concurrency:
       group: play-release-${{ inputs.package }}-${{ inputs.track }}
