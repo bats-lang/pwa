@@ -594,31 +594,37 @@ in if per < 1 then 1 else per end
    4, 5, 6. The runs
    ============================================================ *)
 
-(* What a run's keeper said by its status *)
+(* What a run's keeper said by its status. The keeper's status is either
+   its own outcome (70, 71, 143, below) or Playwright's, which it passes
+   on only as 0 (passed) or 1 (failed), so Playwright's status can never
+   be read as one of the keeper's. When the keeper's exit status cannot be
+   read (child_wait's error: a signal, or waitpid failed) that is
+   KeeperStatusUnread, not a failure of Playwright. *)
 datatype run_end =
   | RunPassed
   | RunFailed         (* Playwright's tests failed *)
   | ServeFailed       (* dist/pwa could not be served *)
   | PlaywrightAbsent  (* Playwright could not be started *)
-  | RunStopped        (* stopped: gen-pwa's end, or a signal *)
+  | RunStopped        (* stopped: gen-pwa's end, or a signal to the keeper *)
   | KeeperAbsent      (* node could not be started *)
+  | KeeperStatusUnread (* the keeper's exit status could not be read: killed by a signal, or waitpid failed *)
 
 (* The keeper: serves argv[1] (dist/pwa) on 127.0.0.1 at a port the
    kernel picks, runs argv[2] with the rest in its own process group with
-   PWA_TEST_BASE_URL and PWA_TEST_PORT, and exits with its status; when
-   its stdin closes (gen-pwa ended) or it is signalled, it stops that
+   PWA_TEST_BASE_URL and PWA_TEST_PORT, and exits with its status: 0 if
+   Playwright passed, else 1 (Playwright's own status is not passed on).
+   When its stdin closes (gen-pwa ended) or it is signalled, it stops that
    group and exits 143. 70: it could not serve (an exception in the
    server stops the run the same way); 71: argv[2] could not be
    started. A path with a NUL is refused (400) before the file system
    sees it. *)
-#define KEEPER "const http=require('http'),fs=require('fs'),path=require('path'),{spawn}=require('child_process');const [root,cmd,...args]=process.argv.slice(1);const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.webmanifest':'application/manifest+json','.wasm':'application/wasm','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif','.webp':'image/webp','.svg':'image/svg+xml','.ico':'image/x-icon','.woff2':'font/woff2','.woff':'font/woff','.ttf':'font/ttf','.txt':'text/plain; charset=utf-8','.xml':'application/xml','.epub':'application/epub+zip','.map':'application/json'};const base=path.resolve(root);let child=null,stopping=false,code=143;const server=http.createServer((q,r)=>{try{let p;try{p=decodeURIComponent(new URL(q.url,'http://h').pathname)}catch(e){r.writeHead(400);r.end();return}if(p.includes('\\0')){r.writeHead(400);r.end();return}let f=path.join(base,p);if(f!==base&&!f.startsWith(base+path.sep)){r.writeHead(403);r.end();return}fs.stat(f,(e,s)=>{if(!e&&s.isDirectory())f=path.join(f,'index.html');fs.readFile(f,(e2,d)=>{if(e2){r.writeHead(404,{'content-type':'text/plain; charset=utf-8'});r.end('not found');return}r.writeHead(200,{'content-type':types[path.extname(f).toLowerCase()]||'application/octet-stream','cache-control':'no-store'});r.end(q.method==='HEAD'?undefined:d)})})}catch(e){try{r.writeHead(500);r.end()}catch(e2){}}});const stop=()=>{if(stopping)return;stopping=true;if(!child)process.exit(code);try{process.kill(-child.pid,'SIGTERM')}catch(e){}setTimeout(()=>{try{process.kill(-child.pid,'SIGKILL')}catch(e){}process.exit(code)},5000).unref()};process.on('uncaughtException',e=>{console.error('gen-pwa test: the server failed: '+e.message);code=70;stop()});for(const s of ['SIGINT','SIGTERM','SIGHUP'])process.on(s,stop);process.stdin.on('end',stop);process.stdin.on('error',stop);process.stdin.resume();server.on('error',e=>{console.error('gen-pwa test: cannot serve '+root+': '+e.message);process.exit(70)});fs.stat(path.join(base,'index.html'),e=>{if(e){console.error('gen-pwa test: '+root+'/index.html not found: build the app first');process.exit(70)}server.listen(0,'127.0.0.1',()=>{const port=server.address().port;child=spawn(cmd,args,{stdio:['ignore','inherit','inherit'],detached:true,env:{...process.env,PWA_TEST_BASE_URL:'http://127.0.0.1:'+port,PWA_TEST_PORT:String(port)}});child.on('error',e=>{console.error('gen-pwa test: cannot run '+cmd+': '+e.message);process.exit(71)});child.on('exit',(status)=>{try{process.kill(-child.pid,'SIGKILL')}catch(e){}process.exit(stopping?code:(status===null?1:status))})})})"
+#define KEEPER "const http=require('http'),fs=require('fs'),path=require('path'),{spawn}=require('child_process');const [root,cmd,...args]=process.argv.slice(1);const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.webmanifest':'application/manifest+json','.wasm':'application/wasm','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif','.webp':'image/webp','.svg':'image/svg+xml','.ico':'image/x-icon','.woff2':'font/woff2','.woff':'font/woff','.ttf':'font/ttf','.txt':'text/plain; charset=utf-8','.xml':'application/xml','.epub':'application/epub+zip','.map':'application/json'};const base=path.resolve(root);let child=null,stopping=false,code=143;const server=http.createServer((q,r)=>{try{let p;try{p=decodeURIComponent(new URL(q.url,'http://h').pathname)}catch(e){r.writeHead(400);r.end();return}if(p.includes('\\0')){r.writeHead(400);r.end();return}let f=path.join(base,p);if(f!==base&&!f.startsWith(base+path.sep)){r.writeHead(403);r.end();return}fs.stat(f,(e,s)=>{if(!e&&s.isDirectory())f=path.join(f,'index.html');fs.readFile(f,(e2,d)=>{if(e2){r.writeHead(404,{'content-type':'text/plain; charset=utf-8'});r.end('not found');return}r.writeHead(200,{'content-type':types[path.extname(f).toLowerCase()]||'application/octet-stream','cache-control':'no-store'});r.end(q.method==='HEAD'?undefined:d)})})}catch(e){try{r.writeHead(500);r.end()}catch(e2){}}});const stop=()=>{if(stopping)return;stopping=true;if(!child)process.exit(code);try{process.kill(-child.pid,'SIGTERM')}catch(e){}setTimeout(()=>{try{process.kill(-child.pid,'SIGKILL')}catch(e){}process.exit(code)},5000).unref()};process.on('uncaughtException',e=>{console.error('gen-pwa test: the server failed: '+e.message);code=70;stop()});for(const s of ['SIGINT','SIGTERM','SIGHUP'])process.on(s,stop);process.stdin.on('end',stop);process.stdin.on('error',stop);process.stdin.resume();server.on('error',e=>{console.error('gen-pwa test: cannot serve '+root+': '+e.message);process.exit(70)});fs.stat(path.join(base,'index.html'),e=>{if(e){console.error('gen-pwa test: '+root+'/index.html not found: build the app first');process.exit(70)}server.listen(0,'127.0.0.1',()=>{const port=server.address().port;child=spawn(cmd,args,{stdio:['ignore','inherit','inherit'],detached:true,env:{...process.env,PWA_TEST_BASE_URL:'http://127.0.0.1:'+port,PWA_TEST_PORT:String(port)}});child.on('error',e=>{console.error('gen-pwa test: cannot run '+cmd+': '+e.message);process.exit(71)});child.on('exit',(status)=>{try{process.kill(-child.pid,'SIGKILL')}catch(e){}process.exit(stopping?code:(status===0?0:1))})})})"
 
 fn _end_of (status: int): run_end =
   if status = 0 then RunPassed()
   else if status = 70 then ServeFailed()
   else if status = 71 then PlaywrightAbsent()
   else if status = 143 then RunStopped()
-  else if status < 0 then KeeperAbsent()
   else RunFailed()
 
 (* b[i, e) as an argument *)
@@ -747,7 +753,7 @@ fn _run (kind: run_kind, workers: int): run_end = let
   val env = $L.list_vt_cons(_arg(bp), _json_entries(timed, kind, timings))
   val x = _program("node")
   val @(fz_x, bv_x) = $A.freeze<byte>(x)
-  val status = (case+ $P.spawn_inherit_env_with(bv_x, _rev(acc, $L.list_vt_nil()), env,
+  val ended = (case+ $P.spawn_inherit_env_with(bv_x, _rev(acc, $L.list_vt_nil()), env,
       $P.pipe_new(), $P.inherit(), $P.inherit()) of
     | ~$R.ok(sp) => let
         val+ ~$P.spawn_pipes_mk(child, sin_p, sout_p, serr_p) = sp
@@ -755,13 +761,15 @@ fn _run (kind: run_kind, workers: int): run_end = let
         val () = $P.pipe_end_close(serr_p)
         (* sin_p, the keeper's stdin, stays open until it ends: its end,
            at gen-pwa's end however it comes, is what stops the keeper *)
-        val ec = (case+ $P.child_wait(child) of | ~$R.ok(n) => n | ~$R.err(_) => 1): int
+        val ec = (case+ $P.child_wait(child) of
+          | ~$R.ok(n) => _end_of(n)
+          | ~$R.err(_) => KeeperStatusUnread()): run_end
         val () = $P.pipe_end_close(sin_p)
       in ec end
-    | ~$R.err(_) => ~1): int
+    | ~$R.err(_) => KeeperAbsent()): run_end
   val () = $A.drop<byte>(fz_x, bv_x)
   val () = $A.free<byte>($A.thaw<byte>(fz_x))
-in _end_of(status) end
+in ended end
 
 (* Says how a run ended: whether it passed *)
 fn _said {sn:nat} (name: string sn, e: run_end): bool = let
@@ -775,7 +783,8 @@ fn _said {sn:nat} (name: string sn, e: run_end): bool = let
     | ServeFailed() => _bput(m, ": dist/pwa could not be served (see above)\n")
     | PlaywrightAbsent() => _bput(m, ": Playwright could not be started (npm install, or set PWA_TEST_PLAYWRIGHT)\n")
     | RunStopped() => _bput(m, ": stopped\n")
-    | KeeperAbsent() => _bput(m, ": node could not be started\n"))
+    | KeeperAbsent() => _bput(m, ": node could not be started\n")
+    | KeeperStatusUnread() => _bput(m, ": its exit status could not be read (killed by a signal, or waitpid failed), so how the run ended is not known\n"))
   val () = _say(m)
 in passed end
 
