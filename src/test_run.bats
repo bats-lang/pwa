@@ -326,9 +326,49 @@ fun _slot_free {i,n:nat} .<max(n - i, 0)>. (i: int i, n: int n): try_found =
     | ~Unopenable() => Unopenable()
     | ~Unlockable() => Unlockable())
 
-(* Takes a slot: the first free one, else, said, slot 0 once it is free
-   (with more than one slot, a run that waits waits for slot 0, though
-   another may be freed first) *)
+(* A run that waits for a slot used to block on slot 0: flock(2) waits on
+   one file only, so with a free slot beside it the run waited for the
+   wrong one. It polls now: a pass tries every slot without waiting, then
+   sleeps a second (POSIX sleep takes whole seconds), and passes go on
+   until one takes a slot. The passes are counted, which gives the
+   recursion its termination metric: after SLOT_PASSES_MAX passes (a day)
+   the run waits on slot 0 as before, and so does a run whose sleep cannot
+   be started. Decided by research (bats-lang/pwa#84): flock(1) has no
+   wait on several files either, and its users poll `flock -n` over them
+   with a sleep between passes; GNU make's jobserver keeps its tokens in
+   one pipe, not in per-slot lock files, so it is no model here; bats's
+   BATS_SLOTS still blocks on slot 0 and says so (bats-lang/bats, helpers),
+   which is left to a change of its own. *)
+fn _slot_blocking (): slot =
+  case+ _slot_try(0, $F.LockWaits()) of
+  | ~Taken(fd) => SlotHeld(fd)
+  | ~Busy() => LockUnsupported()
+  | ~Unopenable() => NoLockFile()
+  | ~Unlockable() => LockUnsupported()
+
+(* sleep 1 ran and returned 0 *)
+fn _pass_pause (): bool = let
+  var ignored : $B.builder_v = $B.create()
+  val rc = _sh("sleep 1", $L.list_vt_nil(), ignored)
+  val () = $B.builder_free(ignored)
+in rc = 0 end
+
+(* One day of passes, a second each *)
+#define SLOT_PASSES_MAX 86400
+
+(* The passes of a run that waits for one of n slots (0 to n - 1), with
+   p passes made before this one *)
+fun _slot_poll {n:nat} {p:nat} .<max(SLOT_PASSES_MAX - p, 0)>. (n: int n, p: int p): slot =
+  if p >= SLOT_PASSES_MAX then _slot_blocking()
+  else if ~_pass_pause() then _slot_blocking()
+  else (case+ _slot_free(0, n) of
+    | ~Taken(fd) => SlotHeld(fd)
+    | ~Unopenable() => NoLockFile()
+    | ~Unlockable() => LockUnsupported()
+    | ~Busy() => _slot_poll(n, p + 1))
+
+(* Takes a slot: the first free one, else, said, the first one to free
+   up while a pass is made every second (_slot_poll) *)
 fn _lock (): slot = let
   var d : $B.builder_v = $B.create()
   val () = _lock_dir(d)
@@ -350,11 +390,7 @@ in
         val () = _bput(m, " at once, PWA_TEST_SLOTS)\n")
         val () = _say(m)
       in
-        case+ _slot_try(0, $F.LockWaits()) of
-        | ~Taken(fd) => SlotHeld(fd)
-        | ~Busy() => LockUnsupported()
-        | ~Unopenable() => NoLockFile()
-        | ~Unlockable() => LockUnsupported()
+        _slot_poll(n, 0)
       end)
 end
 

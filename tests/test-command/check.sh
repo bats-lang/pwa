@@ -97,6 +97,28 @@ wait $second || { echo "FAIL: the second of two"; cat "$TMP/second.out"; exit 1;
 grep -q "waiting for another gen-pwa test" "$TMP/second.out" || { echo "FAIL: the second did not say it waited"; cat "$TMP/second.out"; exit 1; }
 awk '$1 == "start" { if (open != "") { print "overlap"; bad = 1 } open = $2 } $1 == "end" { open = "" } END { exit bad }' "$TMP/two.log" || { echo "FAIL: two runs at once"; cat "$TMP/two.log"; exit 1; }
 
+# with two slots, a run that waits takes the slot that frees first, not
+# slot 0 (bats-lang/pwa#84). Run A takes slot 0 and holds it for 60 s, run
+# B takes slot 1 and holds it 12 s; run C starts while both are busy, says
+# it waits, and must have finished (on slot 1, when B ends) while A still
+# holds slot 0. A run that blocks on slot 0 finishes only after A ends.
+slot_a= slot_b= slot_c=
+slot_wait_fail() { kill "$slot_a" "$slot_b" "$slot_c" 2>/dev/null || true; echo "FAIL: $1"; cat "$TMP"/slot-*.out 2>/dev/null; exit 1; }
+PWA_TEST_SLOTS=2 FAKE_PW_SLEEP=60 FAKE_PW_LOG="$TMP/slot-a.log" "$GEN" test > "$TMP/slot-a.out" 2>&1 &
+slot_a=$!
+i=0; while ! grep -q '^start' "$TMP/slot-a.log" 2>/dev/null; do i=$((i + 1)); [ $i -lt 100 ] || slot_wait_fail "slot run A did not start"; sleep 0.2; done
+PWA_TEST_SLOTS=2 FAKE_PW_SLEEP=12 FAKE_PW_LOG="$TMP/slot-b.log" "$GEN" test > "$TMP/slot-b.out" 2>&1 &
+slot_b=$!
+i=0; while ! grep -q '^start' "$TMP/slot-b.log" 2>/dev/null; do i=$((i + 1)); [ $i -lt 100 ] || slot_wait_fail "slot run B did not start"; sleep 0.2; done
+PWA_TEST_SLOTS=2 FAKE_PW_SLEEP=0 FAKE_PW_LOG="$TMP/slot-c.log" "$GEN" test > "$TMP/slot-c.out" 2>&1 &
+slot_c=$!
+i=0; while ! grep -q "waiting for another gen-pwa test" "$TMP/slot-c.out" 2>/dev/null; do i=$((i + 1)); [ $i -lt 100 ] || slot_wait_fail "slot run C did not wait"; sleep 0.2; done
+if ! wait $slot_c; then slot_wait_fail "the waiting run C failed"; fi
+grep -q '^end' "$TMP/slot-c.log" || slot_wait_fail "the waiting run C did not run"
+if grep -q '^end' "$TMP/slot-a.log"; then slot_wait_fail "run C waited for slot 0: it finished only after run A, which held slot 0 for 60 s, had ended"; fi
+wait $slot_a || slot_wait_fail "run A failed"
+wait $slot_b || slot_wait_fail "run B failed"
+
 # kill -TERM of gen-pwa mid-run: no server, no stand-in left
 (FAKE_PW_SLEEP=30 FAKE_PW_LOG="$TMP/k.log" exec "$GEN" test > "$TMP/k.out" 2>&1) &
 gen=$!
