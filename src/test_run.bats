@@ -10,8 +10,14 @@
       run ends, however it ends, and what the run starts inherits it.
    2. The browsers' location (PLAYWRIGHT_BROWSERS_PATH, else Playwright's
       default) must hold the headless Chromium the project's Playwright
-      expects; nothing is downloaded, and a missing or older one is said
-      with both revisions.
+      expects: chromium_headless_shell-<revision> in playwright-core's
+      browsers.json, which is what a headless run of browserName chromium
+      launches (Playwright's default; a headed run launches chromium-
+      <revision>, a channel another build). That is the whole of the
+      check: a headed run's Chromium, a channel, another browser, and
+      ffmpeg (video recording only) are not checked, and Playwright
+      reports a missing one when a test launches it. Nothing is
+      downloaded, and a missing or older one is said with both revisions.
    3. The workers: half the cores (Playwright's default) divided by the
       slots, at least 1.
    4. The tests tagged @serial run alone on one worker, then the others
@@ -974,10 +980,10 @@ implement gen_test_run () =
     | NoNode() => false): bool
   val () = (case+ found of
     | BrowsersReady() => $B.builder_free(said)
-    | BrowsersOlder() => _say_line("gen-pwa test: the browsers are older than this Playwright expects: ", said,
-        " (install the Playwright they were installed for, or the browsers this one expects: npx playwright install chromium)\n")
-    | BrowsersMissing() => _say_line("gen-pwa test: the browser this Playwright expects is not installed: ", said,
-        " (npx playwright install chromium; set PLAYWRIGHT_BROWSERS_PATH where they are)\n")
+    | BrowsersOlder() => _say_line("gen-pwa test: the headless Chromium is older than this Playwright expects: ", said,
+        " (install the Playwright it was installed for, or the browsers this one expects: npx playwright install chromium; this check covers the headless shell only)\n")
+    | BrowsersMissing() => _say_line("gen-pwa test: the headless Chromium this Playwright expects is not installed: ", said,
+        " (npx playwright install chromium installs it; set PLAYWRIGHT_BROWSERS_PATH where it is. This check covers the headless shell only: a headed run's Chromium (chromium-<revision>), a channel, or another browser is not checked, and Playwright reports a missing one when a test launches it)\n")
     | NoPlaywrightCore() => let
         val () = $B.builder_free(said)
       in _say_s("gen-pwa test: the project has no Playwright (node_modules/playwright-core): npm install\n") end
