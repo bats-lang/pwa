@@ -497,6 +497,13 @@ jobs:
           # where the retry looks for the text.
           retry "the SDK packages" sh -c '
             rm -rf "$HOME/.android/cache"
+            if [ ! -e "$HOME/.fault-first-download" ]; then
+              : > "$HOME/.fault-first-download"
+              mkdir -p "$SDK_ROOT/emulator"
+              echo "FAULT INJECTION (scratch only): first try, a download cut short" >&2
+              echo "Warning: An error occurred while preparing SDK package Android Emulator: Error on ZipFile unknown archive." >&2
+              exit 0
+            fi
             "$0" --install platform-tools "platforms;android-34" emulator "system-images;android-34;default;x86_64" --channel=0 > /dev/null
             test -x "$SDK_ROOT/emulator/emulator" &&
               test -x "$SDK_ROOT/platform-tools/adb" &&
