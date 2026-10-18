@@ -129,7 +129,7 @@ jobs:
       - name: Set up the e2e tests
         uses: ./.github/actions/e2e-setup
         with:
-          node-version: 20
+          node-version: 22.23.3
           working-directory: example
 
       # the action's scripts, against a fake npm and a registry that resets
