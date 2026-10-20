@@ -63,14 +63,15 @@ staload TR = "./test_run.sats"
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 2000] $B.builder(m)): void
 
 (* build-android.sh: builds the Capacitor project it sits in into a
-   release AAB and APK (pnpm install, cap add android, the app's own
+   release AAB and APK (pnpm install --frozen-lockfile, from the pnpm-lock.yaml
+   the app commits beside the script, and refused without one; cap add android, the app's own
    MainActivity, its intent filters and launcher icon, the Gradle above,
    cap sync, gradlew bundleRelease assembleRelease); signed when
    ANDROID_KEYSTORE names a keystore file. The launcher icon is the
    PWA's icon-512.png in web_dir (relative to the project), when there
    is one. *)
-#pub fn build_android_script {nw:nat | nw < 256}{n:nat | n + 4000 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 4000] $B.builder(m), web_dir: string nw): void
+#pub fn build_android_script {nw:nat | nw < 256}{n:nat | n + 5000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 5000] $B.builder(m), web_dir: string nw): void
 
 (* MainActivity.java for app app_id: the Capacitor activity, which hands
    each file the app is opened with (VIEW) or shared (SEND,
@@ -447,7 +448,19 @@ implement build_android_script (b, web_dir) = let
   val () = $B.bput(b, "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0\n")
   val () = $B.bput(b, "pnpm=\"corepack pnpm@12.9.1\"\n")
   val () = $B.bput(b, "printf 'nodeLinker: hoisted\\n' > pnpm-workspace.yaml\n")
-  val () = $B.bput(b, "$pnpm install\n")
+  val () = $B.bput(b, "# installed from the lock the app commits (pnpm-lock.yaml, next to this\n")
+  val () = $B.bput(b, "# script), exactly and nothing else: --frozen-lockfile fails when the\n")
+  val () = $B.bput(b, "# lock does not match package.json and never rewrites it, so what pnpm\n")
+  val () = $B.bput(b, "# resolves for the plugins' own dependencies cannot move under a commit\n")
+  val () = $B.bput(b, "# (bats-lang/pwa#131). It is made, in a clean directory holding the\n")
+  val () = $B.bput(b, "# package.json written beside this script, by:\n")
+  val () = $B.bput(b, "#   printf 'nodeLinker: hoisted\\n' > pnpm-workspace.yaml\n")
+  val () = $B.bput(b, "#   corepack pnpm@12.9.1 install --lockfile-only\n")
+  val () = $B.bput(b, "[ -f pnpm-lock.yaml ] || {\n")
+  val () = $B.bput(b, "  echo \"error: no pnpm-lock.yaml next to $0: the plugins are installed from a committed lock, never resolved afresh (see the comment above this check)\" >&2\n")
+  val () = $B.bput(b, "  exit 1\n")
+  val () = $B.bput(b, "}\n")
+  val () = $B.bput(b, "$pnpm install --frozen-lockfile\n")
   val () = $B.bput(b, "$pnpm exec cap add android\n")
   val () = $B.bput(b, "if [ -n \"${ANDROID_KEYSTORE:-}\" ]; then\n")
   val () = $B.bput(b, "  cp \"$ANDROID_KEYSTORE\" android/app/release.jks\n")

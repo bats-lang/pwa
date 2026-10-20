@@ -1,0 +1,48 @@
+---
+paths:
+  - src/lib.bats
+  - tests/android-lock/**
+  - example/pnpm-lock.yaml
+---
+
+# The generated Android project installs from a committed lock (pwa#131, repository-prototype#352 row 8)
+
+`build-android.sh` (`build_android_script` in `src/lib.bats`) ran a bare
+`pnpm install` in the project `create_android` writes, with no lock: the
+plugins' own dependencies (and the `^8.1.0` ranges of Capacitor's core,
+Android platform and CLI) resolved to whatever the registry held on the
+day, so a commit that built once could build differently later.
+
+* **The lock is the app's, committed beside the project.** The project is
+  written afresh by every build (`rm -rf android`, a generated
+  `package.json`), so the lock cannot live in it: the app commits
+  `pnpm-lock.yaml` and puts it next to `build-android.sh`, as the example
+  does (`example/pnpm-lock.yaml`, copied by check.yml). pwa generates no
+  lock and adds no input to `create_android`.
+* **The install is frozen.** The script stops with a message when there is
+  no `pnpm-lock.yaml`, then runs `pnpm install --frozen-lockfile`: it
+  fails when the lock does not match `package.json` (pnpm's
+  `ERR_PNPM_OUTDATED_LOCKFILE`) and never rewrites the lock. The lock is
+  made in a clean directory with the generated `package.json` and the
+  `nodeLinker: hoisted` workspace file, by `corepack pnpm@12.9.1 install
+  --lockfile-only`; the line is in the script's own comment.
+* **Process, not a capability.** What the app does, the APK's plugins and
+  what pwa generates besides the script's install line do not change;
+  `tests/android/plugins.py` still checks `package.json` against bridge's
+  table. It is the same rule as `e2e-setup`'s `npm ci`.
+* **Research.** npm's `npm ci` and pnpm's `--frozen-lockfile` are the
+  documented way to install exactly a lock (both fail on a mismatch and
+  never write it; pnpm's documented default for `--frozen-lockfile` is
+  true in CI only "if a lockfile is present", so with none a CI install
+  would resolve afresh, which is why the script requires the file).
+  Capacitor's environment-setup docs say nothing of lock files or CI
+  installs (read for this), so nothing is taken from them. Cargo's
+  `--locked`, Bundler's frozen mode and Gradle's dependency locking are
+  the same shape. A lock whose entries are git
+  subfolder tarballs (the google-authorize plugin) pins by commit.
+* `tests/android-lock/check.sh <build-android.sh>` (a step of check.yml)
+  plays it: no lock refused with corepack never called; a lock, then
+  `install --frozen-lockfile` once; with the real pnpm, a lock it made
+  passes and a `package.json` that gained a dependency fails with the lock
+  byte for byte as it was. The `android` job of check.yml installs the
+  example's lock for real.

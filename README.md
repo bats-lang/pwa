@@ -79,7 +79,16 @@ It installs the packages with pnpm, at the one version it names, through
 corepack (pnpm installs a plugin from a subfolder of a git repository,
 which npm cannot: bats-lang/quire#321), with `node_modules` flat
 (`nodeLinker: hoisted` in the `pnpm-workspace.yaml` it writes), where
-Capacitor's Gradle files look for the plugins. CI checks that the APK
+Capacitor's Gradle files look for the plugins. The install is
+`pnpm install --frozen-lockfile` from the `pnpm-lock.yaml` the app
+commits and puts beside `build-android.sh` (it is not generated, so what
+pnpm resolves for the plugins' own dependencies cannot move under a
+commit): the script stops without one, and the install fails on a lock
+that does not match the generated `package.json`, without rewriting it.
+The lock is made in a clean directory holding that `package.json` and a
+`pnpm-workspace.yaml` of `nodeLinker: hoisted`, by `corepack pnpm@12.9.1
+install --lockfile-only`; it is made again when bridge's plugin table
+changes `package.json` (the example's is `example/pnpm-lock.yaml`). CI checks that the APK
 registers exactly the plugins `package.json` installs, each with its
 class in the APK.
 
