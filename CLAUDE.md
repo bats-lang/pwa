@@ -64,6 +64,22 @@ It is moved by hand, in a pull request of its own, when GitHub announces
 the successor. quire's `android` job runs `android.yml` at the pwa commit
 quire pins, so it picks up a new label only after quire moves that pin.
 
+Which tool moves which pin (bats-lang/pwa#141, decided on
+bats-lang/repository-prototype#367): Dependabot (`.github/dependabot.yml`,
+weekly, a 7-day cooldown) moves the actions by commit with their release
+comments, except the bats-lang ones, and the npm versions and lock of
+`example/` (Playwright and serve). The daily relock moves the compiler
+(`.github/bats-version`), the package repository
+(`.github/repository-version`) and the workflow pins of `publish.yml` and
+`relock.yml`. Renovate moves Node's version (a literal in `check.yml`,
+`android.yml` and the input default of `.github/actions/e2e-setup`) and
+Java's (`android.yml`) once the Renovate app is installed
+(bats-lang/repository-prototype#369); until then they are moved by hand.
+quire takes its Node version from `e2e-setup` through its pin of pwa, so a
+bump here reaches quire when quire's pwa pin moves, not by itself. The bats
+setup action's commit and the runner label are moved by hand, each in a
+pull request of its own.
+
 ## Adversarial review before merge
 
 No pull request merges before an adversarial review: a comment on the

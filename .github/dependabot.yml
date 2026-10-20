@@ -1,0 +1,36 @@
+# Keeps the pins of CI moving through reviewed pull requests (bats-lang/
+# pwa#141, decided on bats-lang/repository-prototype#367, as dom#93 and
+# capacitor-plugins#15 have it). github-actions updates each action pinned by
+# commit with its "# vX.Y.Z" comment. npm updates example/package.json and
+# example/package-lock.json (the Playwright and serve versions the e2e tests
+# run on).
+#
+# Not here: Node's version, which is a literal in check.yml and android.yml and
+# the input default of .github/actions/e2e-setup. Dependabot's docs name none of
+# them, so Renovate moves them once its app is installed
+# (bats-lang/repository-prototype#369), and by hand until then. Java's version
+# in android.yml is moved the same way. The bats setup action's commit (ignored
+# below) and the runner label are moved by hand.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    # The docs (dependabot-options-reference) read /.github/workflows and the
+    # root action.yml only; they do not name composite actions under
+    # .github/actions, so each of those directories is listed by its glob.
+    directories:
+      - /
+      - /.github/actions/*
+    schedule:
+      interval: weekly
+    # a release is a week old before it is proposed, so a compromised one
+    # can be noticed first
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: bats-lang/*
+  - package-ecosystem: npm
+    directory: /example
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
