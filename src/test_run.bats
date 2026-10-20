@@ -178,15 +178,6 @@ in
   else (e - s >= n && loop(b, s, e, lit, n, 0))
 end
 
-(* The program called name, looked up on PATH as execvp does, as a
-   NUL-terminated path *)
-fn _program {sn:nat} (name: string sn): [l:agz] $A.arr(byte, l, 524288) = let
-  var b : $B.builder_v = $B.create()
-  val () = _bput(b, name)
-  val () = _put(b, 0)
-  val @(a, _) = $B.to_arr(b)
-in a end
-
 (* b[i, k) up to its first newline appended to out *)
 fun _put_line {l:agz}{i:nat} .<max(4096 - i, 0)>.
   (b: !$A.borrow(byte, l, 4096), i: int i, k: int, out: !$B.builder_v >> $B.builder_v): void =
@@ -204,12 +195,12 @@ fun _put_line {l:agz}{i:nat} .<max(4096 - i, 0)>.
    it writes to stderr is shown. *)
 fn _sh {sn:nat}
   (script: string sn, args: $L.listv($P.arg_entry), out: !$B.builder_v >> $B.builder_v): int = let
-  val x = _program("sh")
-  val @(fz_x, bv_x) = $A.freeze<byte>(x)
+  val @(nul_x | x) = $P.path_of_string_proved("sh")
+  val @(fz_x, bv_x) = $A.barr_freeze(x)
   val argv = $L.list_vt_cons(_arg_s("sh"), $L.list_vt_cons(_arg_s("-c"),
     $L.list_vt_cons(_arg_s(script), $L.list_vt_cons(_arg_s("sh"), args))))
   val buf = $A.alloc<byte>(4096)
-  val rc = (case+ $P.spawn_inherit_env(bv_x, argv, $P.dev_null(), $P.pipe_new(), $P.inherit()) of
+  val rc = (case+ $P.spawn_inherit_env_proved(nul_x | bv_x, argv, $P.dev_null(), $P.pipe_new(), $P.inherit()) of
     | ~$R.ok(sp) => let
         val+ ~$P.spawn_pipes_mk(child, sin_p, sout_p, serr_p) = sp
         val () = $P.pipe_end_close(sin_p)
@@ -227,8 +218,8 @@ fn _sh {sn:nat}
     | ~$R.err(_) => let
         val () = $A.free<byte>(buf)
       in ~1 end): int
-  val () = $A.drop<byte>(fz_x, bv_x)
-  val () = $A.free<byte>($A.thaw<byte>(fz_x))
+  val () = $A.cborrow_drop(fz_x, bv_x)
+  val () = $A.barr_free($A.barr_thaw(fz_x))
 in rc end
 
 (* The number b starts with, or ~1 when it starts with none *)
@@ -793,9 +784,9 @@ fn _run (kind: run_kind, workers: int): run_end = let
   val () = _bput(bp, "PLAYWRIGHT_BROWSERS_PATH=")
   val () = _browsers_dir(bp)
   val env = $L.list_vt_cons(_arg(bp), _json_entries(timed, kind, timings))
-  val x = _program("node")
-  val @(fz_x, bv_x) = $A.freeze<byte>(x)
-  val ended = (case+ $P.spawn_inherit_env_with(bv_x, _rev(acc, $L.list_vt_nil()), env,
+  val @(nul_x | x) = $P.path_of_string_proved("node")
+  val @(fz_x, bv_x) = $A.barr_freeze(x)
+  val ended = (case+ $P.spawn_inherit_env_with_proved(nul_x | bv_x, _rev(acc, $L.list_vt_nil()), env,
       $P.pipe_new(), $P.inherit(), $P.inherit()) of
     | ~$R.ok(sp) => let
         val+ ~$P.spawn_pipes_mk(child, sin_p, sout_p, serr_p) = sp
@@ -809,8 +800,8 @@ fn _run (kind: run_kind, workers: int): run_end = let
         val () = $P.pipe_end_close(sin_p)
       in ec end
     | ~$R.err(_) => KeeperAbsent()): run_end
-  val () = $A.drop<byte>(fz_x, bv_x)
-  val () = $A.free<byte>($A.thaw<byte>(fz_x))
+  val () = $A.cborrow_drop(fz_x, bv_x)
+  val () = $A.barr_free($A.barr_thaw(fz_x))
 in ended end
 
 (* Says how a run ended: whether it passed *)
