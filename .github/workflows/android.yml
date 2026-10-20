@@ -479,6 +479,17 @@ jobs:
           sparse-checkout: .github/actions/e2e-setup
           persist-credentials: false
 
+      # Decided on bats-lang/pwa#130: these packages are deliberately not
+      # pinned to a revision. sdkmanager has no revision syntax for emulator,
+      # platform-tools, platforms or system images (only NDK, CMake and
+      # cmdline-tools take a version); the emulator action's own pin,
+      # emulator-build, downloads with no checksum and no retry, the failure
+      # this step guards against (quire#617); and Google's feeds keep only
+      # the newest system image and two emulator revisions, with no published
+      # retention for the rest. The packages float to the stable channel, as
+      # the action does: a new emulator that breaks the smoke test is seen at
+      # once, and the fix is a pin in a pull request.
+      # unpinned: sdkmanager has no revision syntax, and the action's pin has no checksum (pwa#130)
       - name: Install the emulator's SDK packages, retried
         env:
           SDK_ROOT: /usr/local/lib/android/sdk
