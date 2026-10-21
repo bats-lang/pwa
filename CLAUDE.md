@@ -280,3 +280,5 @@ names is touched (its `paths:`):
 * The e2e setup action (quire#637): `.claude/rules/e2e-setup.md`
 * The Play release workflow (pwa#90, quire#623): `.claude/rules/play-release.md`
 * The signing key's fingerprints (pwa#96, quire#623): `.claude/rules/key-fingerprints.md`
+
+A comment states its reason in one line and names the area by keyword; the detail lives in `.claude/rules/*.md`: search them for the keyword before changing the code.
