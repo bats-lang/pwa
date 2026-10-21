@@ -438,7 +438,7 @@ jobs:
       # sdkmanager an archive it cannot open, and no emulator starts
       # (bats-lang/quire#220). The cache is saved only by a run that passed
       - name: Keep the system image
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /usr/local/lib/android/sdk/system-images/android-34/default/x86_64
           key: system-image-android-34-default-x86_64
