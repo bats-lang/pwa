@@ -137,6 +137,14 @@ jobs:
       - name: e2e-setup action
         run: tests/e2e-setup/check.sh
 
+      # fetch-pnpm.sh, which build-android.sh sources (bats-lang/pwa#158): the
+      # real corepack against a mirror whose first answer comes after the
+      # downloader's 30 s timeout, and one that never answers. Shell, since
+      # it tests a generated shell script that runs in an app's checkout
+      # with no bats (tests/android/activity.sh is the precedent)
+      - name: pnpm fetch script
+        run: sh tests/android/pnpm.sh example/dist/android/fetch-pnpm.sh
+
       # scripts/play-release.sh (bats-lang/pwa#90) against a stub of Play's
       # edits API, and the pins of play-release.yml's actions; the workflow
       # itself needs Google and runs in an app's release job

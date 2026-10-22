@@ -71,12 +71,14 @@ implement main0 () =
 `create_android(app_name, app_id, web_dir, project_dir)` writes a
 [Capacitor](https://capacitorjs.com) project in `project_dir` around the
 PWA in `web_dir` (relative to `project_dir`, e.g. `"../pwa"`):
-`capacitor.config.json`, `package.json`, `android-release.gradle` and
-`build-android.sh`. With Node (22 or 24, which ship corepack), a JDK 21
+`capacitor.config.json`, `package.json`, `android-release.gradle`,
+`build-android.sh` and `fetch-pnpm.sh`. With Node (22 or 24, which ship corepack), a JDK 21
 and the Android SDK (`ANDROID_HOME`), `sh <project_dir>/build-android.sh`
 builds a release AAB and APK into `<project_dir>/android/app/build/outputs/`.
 It installs the packages with pnpm, at the one version it names, through
-corepack (pnpm installs a plugin from a subfolder of a git repository,
+corepack (`fetch-pnpm.sh`: pnpm's binary is downloaded on first use, so the
+first run is retried when the network failed, 3 tries, and the wrapper and
+the binary are checked against pinned checksums, bats-lang/pwa#158; pnpm installs a plugin from a subfolder of a git repository,
 which npm cannot: bats-lang/quire#321), with `node_modules` flat
 (`nodeLinker: hoisted` in the `pnpm-workspace.yaml` it writes), where
 Capacitor's Gradle files look for the plugins. CI checks that the APK
