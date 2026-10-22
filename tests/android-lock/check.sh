@@ -1,6 +1,6 @@
 #!/bin/bash
 # The generated Android project installs its packages from a committed
-# lock (bats-lang/pwa#131): build-android.sh, the one create_android
+# lock (bats-lang/pwa#131): build-android.sh, the one create_android_locked
 # wrote, refuses to run without a pnpm-lock.yaml beside it, installs with
 # --frozen-lockfile, and so fails on a lock that does not match its
 # package.json, before anything else of the build runs and without

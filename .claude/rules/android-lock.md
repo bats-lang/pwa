@@ -2,13 +2,21 @@
 paths:
   - src/lib.bats
   - tests/android-lock/**
+  - tests/dynamic/android-compat/**
   - example/pnpm-lock.yaml
 ---
 
 # The generated Android project installs from a committed lock (pwa#131, repository-prototype#352 row 8)
 
 `build-android.sh` (`build_android_script` in `src/lib.bats`) ran a bare
-`pnpm install` in the project `create_android` writes, with no lock: the
+`pnpm install` in the project `create_android` writes, with no lock. That
+form, and `create_android`, stay exactly as published (type and text) for
+one published version, and the locked form is beside them, additive:
+`build_android_script_locked` and `create_android_locked`, which an app opts
+into by calling (the example does). `tests/dynamic/android-compat` prints the
+old script and compares it with `expected`, the text of origin/main's
+function; bats-lang/pwa#165 removes the old names once quire (quire#735)
+has moved. Everything below is about the locked form. The old form had no lock: the
 plugins' own dependencies (and the `^8.1.0` ranges of Capacitor's core,
 Android platform and CLI) resolved to whatever the registry held on the
 day, so a commit that built once could build differently later.

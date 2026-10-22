@@ -1,0 +1,8 @@
+[package]
+name = "android-compat"
+kind = "bin"
+
+[dependencies]
+"array" = ""
+"builder" = ""
+"pwa" = ""

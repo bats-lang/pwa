@@ -1,0 +1,54 @@
+#!/bin/sh
+# Builds this Capacitor project into a release AAB and APK, in
+# android/app/build/outputs/{bundle,apk}/release/. Needs Node with
+# corepack (22 or 24; Node 25 ships none), a JDK (21) and the Android
+# SDK (ANDROID_HOME).
+#
+# Signed when ANDROID_KEYSTORE names a keystore file, with
+# ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD;
+# unsigned otherwise. ANDROID_VERSION_CODE is the version code (1 when
+# unset); each upload to Google Play needs a higher one.
+set -eu
+cd "$(dirname "$0")"
+rm -rf android
+# pnpm, at one version, through the corepack Node ships (quire#321: it
+# installs a package from a subfolder of a git repository, which npm
+# cannot); node_modules flat, where Capacitor's Gradle files look for
+# the plugins (pnpm reads nodeLinker from pnpm-workspace.yaml, not
+# from .npmrc)
+export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+# at its pinned version, fetched with a retry (bats-lang/pwa#158)
+. ./fetch-pnpm.sh
+printf 'nodeLinker: hoisted\n' > pnpm-workspace.yaml
+$pnpm install
+$pnpm exec cap add android
+if [ -n "${ANDROID_KEYSTORE:-}" ]; then
+  cp "$ANDROID_KEYSTORE" android/app/release.jks
+fi
+# the app's activity, which hands the files it is opened with and
+# shared to the page, and its intent filters
+cp MainActivity.java "$(find android/app/src/main/java -name MainActivity.java)"
+m=android/app/src/main/AndroidManifest.xml
+awk 'FNR==NR { f = f $0 "\n"; next } /<\/activity>/ && !d { printf "%s", f; d = 1 } { print }' intent-filters.xml "$m" > "$m.new"
+mv "$m.new" "$m"
+# Auto Backup keeps the directory of bridge's backed-up files and
+# nothing else of the app's (the WebView's data, the books, stay out)
+mkdir -p android/app/src/main/res/xml
+cp backup-rules.xml android/app/src/main/res/xml/backup_rules.xml
+cp data-extraction-rules.xml android/app/src/main/res/xml/data_extraction_rules.xml
+awk '/<application/ && !d { sub(/<application/, "<application android:fullBackupContent=\"@xml/backup_rules\" android:dataExtractionRules=\"@xml/data_extraction_rules\""); d = 1 } { print }' "$m" > "$m.new"
+mv "$m.new" "$m"
+# the launcher icon: the PWA's
+icon="../pwa/icon-512.png"
+if [ -f "$icon" ]; then
+  for d in android/app/src/main/res/mipmap-*dpi; do
+    for f in ic_launcher ic_launcher_round ic_launcher_foreground; do
+      cp "$icon" "$d/$f.png"
+    done
+  done
+  rm -rf android/app/src/main/res/mipmap-anydpi-v26
+fi
+cat android-release.gradle >> android/app/build.gradle
+$pnpm exec cap sync android
+cd android
+./gradlew bundleRelease assembleRelease
