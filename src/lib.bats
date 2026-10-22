@@ -66,12 +66,25 @@ staload TR = "./test_run.sats"
    release AAB and APK (pnpm install --frozen-lockfile, from the pnpm-lock.yaml
    the app commits beside the script, and refused without one; cap add android, the app's own
    MainActivity, its intent filters and launcher icon, the Gradle above,
-   cap sync, gradlew bundleRelease assembleRelease); signed when
+   cap sync, gradlew bundleRelease assembleRelease; pnpm comes from
+   fetch-pnpm.sh, below); signed when
    ANDROID_KEYSTORE names a keystore file. The launcher icon is the
    PWA's icon-512.png in web_dir (relative to the project), when there
    is one. *)
 #pub fn build_android_script {nw:nat | nw < 256}{n:nat | n + 5000 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 5000] $B.builder(m), web_dir: string nw): void
+
+(* fetch-pnpm.sh: sourced by build-android.sh, which then runs "$pnpm"
+   (bats-lang/pwa#158). pnpm 12's corepack entry downloads its native
+   binary from the registry on first use, with a 30 s timeout and no
+   retry, so one slow answer failed the Android build. The script runs
+   pnpm once, again when the network failed (3 tries, the pause doubling;
+   PNPM_ATTEMPTS and PNPM_PAUSE_S for the tests), and exits non-zero
+   naming the URL when every try failed. The wrapper is pinned by its
+   sha512 (corepack refuses another tarball) and the binary by its
+   sha256, for the hosts pnpm releases one for (tests/android/pnpm.sh). *)
+#pub fn build_pnpm_script {n:nat | n + 4000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 4000] $B.builder(m)): void
 
 (* MainActivity.java for app app_id: the Capacitor activity, which hands
    each file the app is opened with (VIEW) or shared (SEND,
@@ -446,7 +459,8 @@ implement build_android_script (b, web_dir) = let
   val () = $B.bput(b, "# the plugins (pnpm reads nodeLinker from pnpm-workspace.yaml, not\n")
   val () = $B.bput(b, "# from .npmrc)\n")
   val () = $B.bput(b, "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0\n")
-  val () = $B.bput(b, "pnpm=\"corepack pnpm@12.9.1\"\n")
+  val () = $B.bput(b, "# at its pinned version, fetched with a retry (bats-lang/pwa#158)\n")
+  val () = $B.bput(b, ". ./fetch-pnpm.sh\n")
   val () = $B.bput(b, "printf 'nodeLinker: hoisted\\n' > pnpm-workspace.yaml\n")
   val () = $B.bput(b, "# installed from the lock the app commits (pnpm-lock.yaml, next to this\n")
   val () = $B.bput(b, "# script), exactly and nothing else: --frozen-lockfile fails when the\n")
@@ -494,6 +508,64 @@ implement build_android_script (b, web_dir) = let
   val () = $B.bput(b, "$pnpm exec cap sync android\n")
   val () = $B.bput(b, "cd android\n")
   val () = $B.bput(b, "./gradlew bundleRelease assembleRelease\n")
+in end
+
+implement build_pnpm_script (b) = let
+  val () = $B.bput(b, "# Makes pnpm ready for build-android.sh, which sources this file and then runs\n")
+  val () = $B.bput(b, "# \"$pnpm\" (bats-lang/pwa#158). pnpm 12's corepack entry downloads its native\n")
+  val () = $B.bput(b, "# binary from the registry on first use, with a 30 s timeout and no retry, so\n")
+  val () = $B.bput(b, "# one slow answer failed the build. Here the first run is retried when the\n")
+  val () = $B.bput(b, "# network failed (PNPM_ATTEMPTS tries, default 3; PNPM_PAUSE_S, default 15,\n")
+  val () = $B.bput(b, "# the first pause, doubled each time), and what it fetched is checked against\n")
+  val () = $B.bput(b, "# pins: the wrapper's sha512 by corepack (a tarball that differs is refused)\n")
+  val () = $B.bput(b, "# and the binary's sha256 below, for the hosts pnpm releases a binary for.\n")
+  val () = $B.bput(b, "pnpm_version=12.9.1\n")
+  val () = $B.bput(b, "pnpm=\"corepack pnpm@$pnpm_version+sha512.06b055fff5cd20dc12781de173ced3310ce0951bf2ec620211a16045d5444d5c93a663210764ef29a653a610459ba0368f0e74f84d80c54723cf95aae7bc0d6d\"\n")
+  val () = $B.bput(b, "attempts=${PNPM_ATTEMPTS:-3}\n")
+  val () = $B.bput(b, "pause=${PNPM_PAUSE_S:-15}\n")
+  val () = $B.bput(b, "try=1\n")
+  val () = $B.bput(b, "log=$(mktemp)\n")
+  val () = $B.bput(b, "until $pnpm --version > \"$log\" 2>&1; do\n")
+  val () = $B.bput(b, "  cat \"$log\" >&2\n")
+  val () = $B.bput(b, "  if ! grep -Eq 'Could not reach|Could not download .*: (429|5[0-9][0-9]) |ECONN|ETIMEDOUT|EAI_AGAIN|fetch failed|timed out' \"$log\"; then\n")
+  val () = $B.bput(b, "    echo \"build-android.sh: pnpm failed, and not from the network: trying again would change nothing\" >&2\n")
+  val () = $B.bput(b, "    rm -f \"$log\"; exit 1\n")
+  val () = $B.bput(b, "  fi\n")
+  val () = $B.bput(b, "  url=$(sed -n 's/.*Could not \\(reach\\|download\\) \\(https\\{0,1\\}:\\/\\/[^ ]*\\).*/\\2/p' \"$log\" | tail -n 1)\n")
+  val () = $B.bput(b, "  url=${url%:}\n")
+  val () = $B.bput(b, "  url=${url:-${COREPACK_NPM_REGISTRY:-https://registry.npmjs.org}}\n")
+  val () = $B.bput(b, "  if [ \"$try\" -ge \"$attempts\" ]; then\n")
+  val () = $B.bput(b, "    echo \"build-android.sh: could not download pnpm from $url in $attempts tries\" >&2\n")
+  val () = $B.bput(b, "    rm -f \"$log\"; exit 1\n")
+  val () = $B.bput(b, "  fi\n")
+  val () = $B.bput(b, "  echo \"build-android.sh: the download from $url failed (try $try of $attempts); again in ${pause}s\" >&2\n")
+  val () = $B.bput(b, "  sleep \"$pause\"\n")
+  val () = $B.bput(b, "  pause=$((pause * 2)); try=$((try + 1))\n")
+  val () = $B.bput(b, "done\n")
+  val () = $B.bput(b, "cat \"$log\"; rm -f \"$log\"\n")
+  val () = $B.bput(b, "binary=${COREPACK_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/node/corepack}/v1/pnpm/$pnpm_version/pnpm-native\n")
+  val () = $B.bput(b, "host=$(uname -s)-$(uname -m)\n")
+  val () = $B.bput(b, "if [ \"$(uname -s)\" = Linux ] && ldd --version 2>&1 | grep -qi musl; then host=$host-musl; fi\n")
+  val () = $B.bput(b, "case $host in\n")
+  val () = $B.bput(b, "  Linux-x86_64) want=e5cbe9432a815791a541c33aa736d6c66cfc005560397d6c07deb9898947ee96 ;;\n")
+  val () = $B.bput(b, "  Linux-aarch64) want=36fb9c61cd01b303c7bd00483039167b254fd130b2e1f9618721fa64a20acae0 ;;\n")
+  val () = $B.bput(b, "  Darwin-x86_64) want=c737e3b0cefd53c7ab8fcd7ff4767eb55b1bd2f846dfcd780d55f947bf3619cc ;;\n")
+  val () = $B.bput(b, "  Darwin-arm64) want=95396efaa4fae8ae0a70b3a3e5a70350f23f3839de546c758ae59f3ef80b1cdd ;;\n")
+  val () = $B.bput(b, "  *) want= ;;\n")
+  val () = $B.bput(b, "esac\n")
+  val () = $B.bput(b, "if [ -z \"$want\" ]; then\n")
+  val () = $B.bput(b, "  echo \"build-android.sh: no pinned checksum of the pnpm binary for $host; the npm signature checked at its download is the only check\" >&2\n")
+  val () = $B.bput(b, "elif [ ! -f \"$binary\" ]; then\n")
+  val () = $B.bput(b, "  echo \"build-android.sh: the pnpm binary is not at $binary, so it cannot be checked\" >&2\n")
+  val () = $B.bput(b, "  exit 1\n")
+  val () = $B.bput(b, "else\n")
+  val () = $B.bput(b, "  if command -v sha256sum > /dev/null; then got=$(sha256sum \"$binary\"); else got=$(shasum -a 256 \"$binary\"); fi\n")
+  val () = $B.bput(b, "  got=${got%% *}\n")
+  val () = $B.bput(b, "  if [ \"$got\" != \"$want\" ]; then\n")
+  val () = $B.bput(b, "    echo \"build-android.sh: the pnpm binary $binary has sha256 $got, not the pinned $want; removed\" >&2\n")
+  val () = $B.bput(b, "    rm -f \"$binary\"; exit 1\n")
+  val () = $B.bput(b, "  fi\n")
+  val () = $B.bput(b, "fi\n")
 in end
 
 implement build_main_activity (b, app_id) = let
@@ -995,6 +1067,9 @@ implement create_android (app_name, app_id, web_dir, project_dir, mime) = let
   var sh_b = $B.create()
   val () = build_android_script(sh_b, web_dir)
   val () = _write_mode(project_dir, "build-android.sh", sh_b, 493)
+  var pnpm_b = $B.create()
+  val () = build_pnpm_script(pnpm_b)
+  val () = _write_to(project_dir, "fetch-pnpm.sh", pnpm_b)
   var st_b = $B.create()
   val () = build_smoke_test_script(st_b, app_id)
 in _write_mode(project_dir, "smoke-test.sh", st_b, 493) end

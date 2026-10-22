@@ -12,7 +12,8 @@
 # unknown option is said; a Playwright older than 1.58, and one whose
 # version cannot be read, is refused and said (bats-lang/pwa#92); a
 # Playwright that exits 70, 71 or 143 is a failed run, and a keeper killed
-# by a signal is said as one whose exit status could not be read (bats-lang/pwa#84).
+# by a signal is said as one whose exit status could not be read (bats-lang/pwa#84);
+# a lock that cannot be taken is refused and said, nothing run (bats-lang/pwa#155).
 # usage: tests/test-command/check.sh <gen-pwa binary> <built dist/pwa>
 set -eu
 GEN=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
@@ -69,6 +70,19 @@ if grep -q -- '--reporter' "$TMP/j.log"; then echo "FAIL: a reporter added witho
 if run "$TMP/u.log" --timing x > "$TMP/u.out" 2>&1; then echo "FAIL: an unknown option ran"; exit 1; fi
 grep -q "unknown option '--timing'" "$TMP/u.out" || { echo "FAIL: an unknown option not said"; cat "$TMP/u.out"; exit 1; }
 [ ! -e "$TMP/u.log" ] || { echo "FAIL: Playwright ran with an unknown option"; exit 1; }
+
+# a lock that cannot be taken (bats-lang/pwa#155): refused, said, exit 1,
+# nothing run. NoLockDir: the lock's directory is under a file, so it cannot
+# be made. NoLockFile: slot-0.lock is a directory, so it cannot be opened
+# (root too). LockUnsupported (a file system with no locks) cannot be made
+# here; its mapping is tested in the bats test block of src/test_run.bats.
+: > "$TMP/notdir"
+PWA_TEST_LOCK_DIR="$TMP/notdir/locks" FAKE_PW_LOG="$TMP/nd.log" "$GEN" test > "$TMP/nd.out" 2>&1 && { echo "FAIL: a run with no lock directory ran"; cat "$TMP/nd.out"; exit 1; }
+grep -q "could not be made: refusing to run without the machine's lock" "$TMP/nd.out" || { echo "FAIL: no lock directory not said"; cat "$TMP/nd.out"; exit 1; }
+mkdir -p "$TMP/badlock/slot-0.lock"
+PWA_TEST_LOCK_DIR="$TMP/badlock" FAKE_PW_LOG="$TMP/nf.log" "$GEN" test > "$TMP/nf.out" 2>&1 && { echo "FAIL: a run with no lock file ran"; cat "$TMP/nf.out"; exit 1; }
+grep -q "could not be opened: refusing to run without the machine's lock" "$TMP/nf.out" || { echo "FAIL: no lock file not said"; cat "$TMP/nf.out"; exit 1; }
+[ ! -e "$TMP/nd.log" ] && [ ! -e "$TMP/nf.log" ] || { echo "FAIL: Playwright ran without its lock"; exit 1; }
 
 # --timings with no directory (last, empty, or "--", which is the end of
 # gen-pwa's options): refused with the usage line, nothing run

@@ -11,7 +11,16 @@
 # (bats-lang/repository-prototype#369), and by hand until then. Java's version
 # in android.yml is moved the same way. The bats setup action's commit (ignored
 # below) and the runner label are moved by hand.
+#
+# One pull request for all of them (bats-lang/pwa#156, as quire#799): the group
+# below spans both ecosystems, so a weekly run opens one pull request and one
+# `check` run, not one for each update.
 version: 2
+multi-ecosystem-groups:
+  dependencies:
+    schedule:
+      interval: weekly
+    patterns: ["*"]
 updates:
   - package-ecosystem: github-actions
     # The docs (dependabot-options-reference) read /.github/workflows and the
@@ -22,8 +31,8 @@ updates:
     directories:
       - /
       - /.github/actions/*
-    schedule:
-      interval: weekly
+    multi-ecosystem-group: dependencies
+    patterns: ["*"]
     # a release is a week old before it is proposed, so a compromised one
     # can be noticed first
     cooldown:
@@ -32,7 +41,7 @@ updates:
       - dependency-name: bats-lang/*
   - package-ecosystem: npm
     directory: /example
-    schedule:
-      interval: weekly
+    multi-ecosystem-group: dependencies
+    patterns: ["*"]
     cooldown:
       default-days: 7
