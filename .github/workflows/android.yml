@@ -221,9 +221,9 @@ jobs:
       # between runs: a build that fetched all of them from the network
       # each time failed whenever one fetch timed out (dl.google.com's
       # "Read timed out", bats-lang/quire#258). One set per month and per
-      # project (its package.json, the Gradle file and the build script
-      # pwa writes), restored only under that exact key and saved only
-      # when it was not there: no set is grown from another, so each holds
+      # project (its package.json, the Gradle file and the two scripts pwa
+      # writes), restored only under that exact key and saved only when it
+      # was not there: no set is grown from another, so each holds
       # what one build downloaded, and a new month starts afresh (GitHub
       # drops a set unused for 7 days). What the build resolves is still
       # what package.json and the Gradle files say; anything missing is
@@ -233,7 +233,7 @@ jobs:
         env:
           PROJECT: app/${{ inputs.project-dir }}
         run: |
-          SET=$(cat "$PROJECT/package.json" "$PROJECT/android-release.gradle" "$PROJECT/build-android.sh" | sha256sum | cut -c1-32)
+          SET=$(cat "$PROJECT/package.json" "$PROJECT/android-release.gradle" "$PROJECT/build-android.sh" "$PROJECT/fetch-pnpm.sh" | sha256sum | cut -c1-32)
           echo "key=android-downloads-${{ runner.os }}-$(date -u +%Y-%m)-$SET" >> "$GITHUB_OUTPUT"
 
       - name: Restore the downloads of an earlier build
