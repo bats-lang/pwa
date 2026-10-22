@@ -81,7 +81,18 @@ first run is retried when the network failed, 3 tries, and the wrapper and
 the binary are checked against pinned checksums, bats-lang/pwa#158; pnpm installs a plugin from a subfolder of a git repository,
 which npm cannot: bats-lang/quire#321), with `node_modules` flat
 (`nodeLinker: hoisted` in the `pnpm-workspace.yaml` it writes), where
-Capacitor's Gradle files look for the plugins. CI checks that the APK
+Capacitor's Gradle files look for the plugins. In the locked form
+(`create_android_locked`, beside `create_android`, which keeps a bare
+`pnpm install` until bats-lang/pwa#165 removes it) the install is
+`pnpm install --frozen-lockfile` from the `pnpm-lock.yaml` the app
+commits and puts beside `build-android.sh` (it is not generated, so what
+pnpm resolves for the plugins' own dependencies cannot move under a
+commit): the script stops without one, and the install fails on a lock
+that does not match the generated `package.json`, without rewriting it.
+The lock is made in a clean directory holding that `package.json` and a
+`pnpm-workspace.yaml` of `nodeLinker: hoisted`, by `corepack pnpm@12.9.1
+install --lockfile-only`; it is made again when bridge's plugin table
+changes `package.json` (the example's is `example/pnpm-lock.yaml`). CI checks that the APK
 registers exactly the plugins `package.json` installs, each with its
 class in the APK.
 
