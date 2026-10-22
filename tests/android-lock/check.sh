@@ -34,8 +34,12 @@ esac
 STUB
 chmod +x "$TMP/bin/corepack"
 
+# fetch-pnpm.sh, which build-android.sh sources, is replaced by a stand-in
+# that only names the pnpm (its download and checksums are tested by
+# tests/android/pnpm.sh, bats-lang/pwa#158), so the log holds the install alone
 project() { # <dir>: the script beside a package.json
   mkdir -p "$1"; cp "$SCRIPT" "$1/build-android.sh"
+  echo 'pnpm="corepack pnpm@12.9.1"' > "$1/fetch-pnpm.sh"
 }
 run() { # <dir> -> status in $TMP/status, output in $TMP/out
   rm -f "$STUB_LOG"; : > "$STUB_LOG"

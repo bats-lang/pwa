@@ -44,5 +44,7 @@ day, so a commit that built once could build differently later.
   plays it: no lock refused with corepack never called; a lock, then
   `install --frozen-lockfile` once; with the real pnpm, a lock it made
   passes and a `package.json` that gained a dependency fails with the lock
-  byte for byte as it was. The `android` job of check.yml installs the
+  byte for byte as it was. It replaces `fetch-pnpm.sh` (sourced by
+  `build-android.sh`, pwa#158) with a stand-in that only names the pnpm,
+  whose download `tests/android/pnpm.sh` tests. The `android` job of check.yml installs the
   example's lock for real.
