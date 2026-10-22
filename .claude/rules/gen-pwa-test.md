@@ -13,7 +13,11 @@ app's Playwright suite against its built `dist/pwa`; they are tooling
 for the app's tests, not part of anything pwa generates or the app runs,
 so a change to them is a process change (see "Adversarial review before merge" in CLAUDE.md). A run
 takes a slot of the machine's lock (flock, file's `fd_lock`, on one of
-`PWA_TEST_SLOTS` files in `PWA_TEST_LOCK_DIR`), checks that the browsers'
+`PWA_TEST_SLOTS` files in `PWA_TEST_LOCK_DIR`); a run that cannot take one
+(directory, file or lock unavailable) is refused, said, exit 1, and runs
+nothing (bats-lang/pwa#155, the `_lock_refused` predicate), as `flock(1)`
+does (it exits 66 on an open failure and 1 on a busy lock under `-n`); the
+research is on that issue. It checks that the browsers'
 location holds the headless Chromium the project's Playwright expects
 (never downloading), runs the tests tagged `@serial` alone on one worker
 and then the others (on half the cores divided by the slots), each
