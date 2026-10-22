@@ -68,7 +68,14 @@ Which tool moves which pin (bats-lang/pwa#141, decided on
 bats-lang/repository-prototype#367): Dependabot (`.github/dependabot.yml`,
 weekly, a 7-day cooldown) moves the actions by commit with their release
 comments, except the bats-lang ones, and the npm versions and lock of
-`example/` (Playwright and serve). The daily relock moves the compiler
+`example/` (Playwright and serve). All of its updates arrive in one pull
+request: `.github/dependabot.yml` has one `multi-ecosystem-groups` group,
+`dependencies`, that the `npm` and `github-actions` entries join with
+`multi-ecosystem-group: dependencies` and `patterns: ["*"]`, so a weekly run
+opens one pull request for both ecosystems and one `check` run (owner ruling
+on quire#795, quire#799; documentation:
+https://docs.github.com/en/code-security/concepts/supply-chain-security/multi-ecosystem-updates).
+The daily relock moves the compiler
 (`.github/bats-version`), the package repository
 (`.github/repository-version`) and the workflow pins of `publish.yml` and
 `relock.yml`. Renovate moves Node's version (a literal in `check.yml`,
