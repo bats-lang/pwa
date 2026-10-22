@@ -14,6 +14,13 @@
 #      with the lock out of date, the lock byte for byte as it was.
 # usage: tests/android-lock/check.sh <build-android.sh>
 set -eu
+# Hang guards, not budgets: no call below may wait for ever (a CI run once
+# sat 3 h 53 min here), so each blocking one is bounded by `timeout`, with
+# stdin closed. A bound is generous for the work (a pnpm download, an
+# install of two local packages); passing it fails the check, with the
+# output, and never passes it.
+HANG_GUARD_S=300
+export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 [ $# = 1 ] || { echo "usage: $0 <build-android.sh>" >&2; exit 2; }
 SCRIPT=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 TMP=$(mktemp -d)
@@ -29,7 +36,7 @@ shift # pnpm@version
 echo "pnpm $*" >> "$STUB_LOG"
 case "$1" in
   exec) exit 42 ;;
-  *) [ -z "${STUB_REAL:-}" ] || exec $STUB_REAL "$@" ;;
+  *) [ -z "${STUB_REAL:-}" ] || exec $STUB_REAL "$@" ;; # STUB_REAL names its program by absolute path: by name it would find this stand-in again, and exec itself forever
 esac
 STUB
 chmod +x "$TMP/bin/corepack"
@@ -44,7 +51,7 @@ project() { # <dir>: the script beside a package.json
 run() { # <dir> -> status in $TMP/status, output in $TMP/out
   rm -f "$STUB_LOG"; : > "$STUB_LOG"
   set +e
-  (cd "$1" && PATH="$TMP/bin:$PATH" sh ./build-android.sh) > "$TMP/out" 2>&1
+  (cd "$1" && PATH="$TMP/bin:$PATH" timeout "$HANG_GUARD_S" sh ./build-android.sh <&-) > "$TMP/out" 2>&1
   echo $? > "$TMP/status"
   set -e
 }
@@ -67,8 +74,9 @@ grep -qx "pnpm install --frozen-lockfile" "$STUB_LOG" || fail "lock: install is 
 [ "$(grep -c '^pnpm install' "$STUB_LOG")" = 1 ] || fail "lock: installed more than once" "$STUB_LOG"
 
 # 3. the real pnpm
-if command -v pnpm > /dev/null; then REAL=pnpm
-elif command -v corepack > /dev/null && corepack pnpm@12.9.1 --version > /dev/null 2>&1; then REAL="corepack pnpm@12.9.1"
+# the real program by absolute path (see the stand-in's STUB_REAL)
+if command -v pnpm > /dev/null; then REAL=$(command -v pnpm)
+elif command -v corepack > /dev/null && timeout "$HANG_GUARD_S" "$(command -v corepack)" pnpm@12.9.1 --version > /dev/null 2>&1 <&-; then REAL="$(command -v corepack) pnpm@12.9.1"
 else REAL=; fi
 if [ -z "$REAL" ]; then
   [ -z "${CI:-}" ] || fail "no pnpm in CI"
@@ -80,7 +88,7 @@ else
   mkdir -p "$P/other"; cp "$TMP/other.json" "$P/other/package.json"
   echo '{"name":"p","private":true,"dependencies":{"dep":"file:./dep"}}' > "$P/package.json"
   printf 'nodeLinker: hoisted\n' > "$P/pnpm-workspace.yaml"
-  (cd "$P" && $REAL install --lockfile-only > "$TMP/lock.out" 2>&1) || fail "the real pnpm made no lock" "$TMP/lock.out"
+  (cd "$P" && timeout "$HANG_GUARD_S" $REAL install --lockfile-only > "$TMP/lock.out" 2>&1 <&-) || fail "the real pnpm made no lock" "$TMP/lock.out"
   [ -f "$P/pnpm-lock.yaml" ] || fail "no lock written"
   STUB_REAL="$REAL" run "$P"
   [ "$(cat "$TMP/status")" = 42 ] || fail "real: a matching lock failed (status $(cat "$TMP/status"))" "$TMP/out"

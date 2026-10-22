@@ -46,5 +46,8 @@ day, so a commit that built once could build differently later.
   passes and a `package.json` that gained a dependency fails with the lock
   byte for byte as it was. It replaces `fetch-pnpm.sh` (sourced by
   `build-android.sh`, pwa#158) with a stand-in that only names the pnpm,
-  whose download `tests/android/pnpm.sh` tests. The `android` job of check.yml installs the
+  whose download `tests/android/pnpm.sh` tests. Every blocking call of the test has a hang guard
+  (`timeout`, stdin closed), and the step has `timeout-minutes`: a run once sat
+  3 h 53 min because the stand-in corepack ran `exec corepack ...` by name
+  and found itself again; the real program is named by absolute path. The `android` job of check.yml installs the
   example's lock for real.

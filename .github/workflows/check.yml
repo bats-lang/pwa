@@ -121,6 +121,7 @@ jobs:
       # the generated install fails on a missing lock and on one that does
       # not match package.json (a stand-in corepack, then the real pnpm)
       - name: Android install from a lock
+        timeout-minutes: 15
         run: tests/android-lock/check.sh example/dist/android/build-android.sh
 
       # A file for the Android smoke test to open the app with
