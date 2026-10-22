@@ -8,6 +8,8 @@
       (default 1) files in PWA_TEST_LOCK_DIR (default ~/.cache/pwa-test),
       said when the run waits for one. The kernel releases it when the
       run ends, however it ends, and what the run starts inherits it.
+      A run that cannot take one is refused, said, and runs nothing
+      (bats-lang/pwa#155: flock(1) also stops on an open failure).
    2. The browsers' location (PLAYWRIGHT_BROWSERS_PATH, else Playwright's
       default) must hold the headless Chromium the project's Playwright
       expects: chromium_headless_shell-<revision> in playwright-core's
@@ -275,7 +277,7 @@ fn _lock_dir (out: !$B.builder_v >> $B.builder_v): void = let
   val () = $A.free<byte>($A.thaw<byte>(fz_h))
 in if set then _bput(out, "") else _bput(out, "/.cache/pwa-test") end
 
-(* A slot of the lock, or why the run goes on without one *)
+(* A slot of the lock, or why the run is refused without one (pwa#155) *)
 datavtype slot =
   | SlotHeld of $F.fd
   | NoLockDir        (* the lock's directory cannot be made *)
@@ -397,6 +399,15 @@ fn _unlock (s: slot): void =
   | ~NoLockDir() => ()
   | ~NoLockFile() => ()
   | ~LockUnsupported() => ()
+
+(* A run without its slot is refused, not run (bats-lang/pwa#155) *)
+fn _lock_refused (s: !slot): bool =
+  case+ s of
+  | SlotHeld(_) => false
+  | NoLockDir() => true
+  | NoLockFile() => true
+  | LockUnsupported() => true
+
 
 (* ============================================================
    2. Playwright and its browsers
@@ -941,14 +952,23 @@ fn _options_refused (): bool = let
   val () = $A.free<byte>($A.thaw<byte>(fz_b))
 in bare || bad >= 0 end
 
+(* Says why a refused run is refused; a held slot says nothing *)
+fn _lock_said (s: !slot): void =
+  case+ s of
+  | SlotHeld(_) => ()
+  | NoLockDir() => _say_s("gen-pwa test: the lock's directory (PWA_TEST_LOCK_DIR) could not be made: refusing to run without the machine's lock\n")
+  | NoLockFile() => _say_s("gen-pwa test: a lock file in PWA_TEST_LOCK_DIR could not be opened: refusing to run without the machine's lock\n")
+  | LockUnsupported() => _say_s("gen-pwa test: the lock's file system has no locks: refusing to run without the machine's lock\n")
+
 implement gen_test_run () =
   if _options_refused () then 2 else let
   val held = _lock()
-  val () = (case+ held of
-    | SlotHeld(_) => ()
-    | NoLockDir() => _say_s("gen-pwa test: the lock's directory (PWA_TEST_LOCK_DIR) could not be made: running without the machine's lock\n")
-    | NoLockFile() => _say_s("gen-pwa test: a lock file in PWA_TEST_LOCK_DIR could not be opened: running without the machine's lock\n")
-    | LockUnsupported() => _say_s("gen-pwa test: the lock's file system has no locks: running without the machine's lock\n"))
+  val () = _lock_said(held)
+in
+  if _lock_refused(held) then let
+    val () = _unlock(held)
+  in 1 end
+  else let
   val @(gate, version_text) = _version_gate()
   val gated = (case+ gate of
     | GateOpen() => true
@@ -992,7 +1012,8 @@ implement gen_test_run () =
       in if serial && parallel then 0 else 1 end
     end): int
   val () = _unlock(held)
-in status end
+  in status end
+end
 
 (* ============================================================
    Tests (bats test): the Playwright version check, bats-lang/pwa#92
@@ -1058,4 +1079,22 @@ fn test_garbage (): bool =
 fn test_numbers_too_long (): bool =
   _refused_unreadable("1.1000000.0") && _refused_unreadable("99999999999999.0.0")
   && _accepted("1.999999.0")
+
+(* A run whose slot is NoLockDir, NoLockFile or LockUnsupported is refused
+   (bats-lang/pwa#155); the real refusals are checked by check.sh *)
+fn test_no_lock_dir_refused (): bool = let
+  val s = NoLockDir()
+  val r = _lock_refused(s)
+  val () = _unlock(s)
+in r end
+fn test_no_lock_file_refused (): bool = let
+  val s = NoLockFile()
+  val r = _lock_refused(s)
+  val () = _unlock(s)
+in r end
+fn test_lock_unsupported_refused (): bool = let
+  val s = LockUnsupported()
+  val r = _lock_refused(s)
+  val () = _unlock(s)
+in r end
 end
