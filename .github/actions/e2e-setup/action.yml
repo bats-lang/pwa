@@ -25,6 +25,12 @@ inputs:
       Keep the browsers directory between runs, keyed on the Playwright
       version ("true" or "false")
     default: "true"
+  stall-tools:
+    description: >-
+      Install gdb, elfutils, libc6-dbg and rr for an app's stall capture
+      ("true" or "false"); every apt call is bounded and a failure never
+      fails the job (bats-lang/pwa#178)
+    default: "false"
 outputs:
   playwright-version:
     description: The installed Playwright version
@@ -73,3 +79,9 @@ runs:
       run: ${{ github.action_path }}/browsers.sh
       env:
         PLAYWRIGHT_BROWSERS_PATH: ${{ steps.version.outputs.browsers }}
+
+    # keyword: stall-tools (.claude/rules/e2e-setup.md)
+    - name: Install gdb, elfutils and libc6-dbg
+      if: inputs.stall-tools == 'true'
+      shell: bash
+      run: ${{ github.action_path }}/stall-tools.sh
