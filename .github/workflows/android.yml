@@ -19,8 +19,9 @@
 # launches
 # it and waits for that text, which should be one only the app's wasm
 # renders; it fails when the text never shows, the app crashes or the
-# page logs a console error, and uploads a screenshot, the UI dump and
-# the logcat as the artifact android-smoke-test. With smoke-share-file
+# page logs a console error, and uploads a screenshot, the UI dump, the
+# logcat and, when the text never showed, the page's DOM (dom.html; area
+# keyword android-smoke, pwa#166) as the artifact android-smoke-test. With smoke-share-file
 # (a path in the artifact), smoke-share-type and smoke-share-text set,
 # it then starts the app anew with that file (VIEW) and waits for that
 # text too, turns and recreates the app, and opens and shares the file
@@ -781,6 +782,7 @@ jobs:
             smoke/screenshot.png
             smoke/ui.xml
             smoke/logcat.txt
+            smoke/dom.html
           if-no-files-found: ignore
 
       # Only once the test passed: a failed test keeps the APK (for a

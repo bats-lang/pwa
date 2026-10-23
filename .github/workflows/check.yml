@@ -167,6 +167,10 @@ jobs:
       - name: pnpm fetch script
         run: sh tests/android/pnpm.sh example/dist/android/fetch-pnpm.sh
 
+      # android-smoke: smoke-test.sh keeps the page's DOM when its text never shows (pwa#166)
+      - name: Smoke test keeps the page's DOM
+        run: tests/android-smoke-dom/check.sh example/dist/android/smoke-test.sh
+
       # scripts/play-release.sh (bats-lang/pwa#90) against a stub of Play's
       # edits API, and the pins of play-release.yml's actions; the workflow
       # itself needs Google and runs in an app's release job

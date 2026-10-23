@@ -3,6 +3,7 @@ paths:
   - src/lib.bats
   - .github/workflows/android.yml
   - tests/android/**
+  - tests/android-smoke-dom/**
   - tools/android-sdk-pins/**
   - tests/android-sdk-pins/**
 ---
@@ -95,3 +96,34 @@ paths:
   tarballs from npm and fails if a pin is not theirs.
 * The cache `~/.cache/node/corepack` is checked too: a binary that is not the
   pinned one is removed and the build fails.
+
+# The page's DOM, kept when the smoke test's wait gives up (pwa#166)
+
+* The dump (`ui.xml`, the accessibility tree) and the screenshot (the pixels) can
+  disagree about a page: the WebView's tree may lack text that is on the screen.
+  Neither shows the page's own state, so when `shown` gives up, `smoke-test.sh`
+  also keeps the page's DOM, `dom.html`, beside them in the artifact
+  `android-smoke-test`. A fix for a missing text starts from which of the three
+  has it: the DOM, the tree or the pixels.
+* `keep_dom` (in the script `build_smoke_test_script` writes) reads the app's pid,
+  finds `webview_devtools_remote_<pid>` in `/proc/net/unix`, makes `adb forward
+  tcp:0 localabstract:<it>` (a port the host picks, so it cannot meet a forward the
+  failure evidence in `android.yml` makes on 9222), asks each page of
+  `/json` for `document.documentElement.outerHTML` over the DevTools protocol
+  (`Runtime.evaluate`) and writes them, each after a line `<!-- page: type url -->`.
+  A message over 64 MiB is not read. It removes the forward.
+* It says what it could not do in `dom.html` itself: `No DevTools socket (app pid
+  N)`, or `DevTools did not answer` (60 s at most). A run that gives up twice keeps
+  the last, as `ui.xml` does.
+* Shell and python3, since the script runs on the emulator's host with adb and no
+  bats, in an app's checkout (bats has no WebSocket client and the script no bats;
+  `tests/android/activity.sh` is the precedent for a test of generated shell). It
+  runs on the CI host only and reads the page: no JS of pwa's is added to the page
+  or the activity, and nothing the app runs changes.
+* `tests/android-smoke-dom/check.sh <smoke-test.sh>` (a step of `check`) runs the
+  script against a stand-in `adb` and a stand-in DevTools endpoint (`server.py`: a
+  page and a worker listed, a console event before the answer, the document in two
+  frames of more than 65535 bytes with a ping between): a text never shown keeps
+  `dom.html` with the `bats-root` element next to the other three files; a text
+  shown keeps none and makes no forward; no socket and a silent page are said in
+  the file, and the forward is removed after silence.
