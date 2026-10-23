@@ -5,8 +5,8 @@
 # used to record a test: the preflight runs `rr record true` for its verdict).
 # keyword: stall-tools (.claude/rules/e2e-setup.md).
 #
-# Every apt call is bounded twice (pwa#163: `apt-get update` never returned
-# for 56 minutes on a stalled mirror, so the attempts after it never ran):
+# Every apt call is bounded twice (pwa#163: a call that never returns would
+# stop the attempts after it):
 # apt's own -o Acquire::http::Timeout, Acquire::https::Timeout and
 # Acquire::Retries (a transfer that stalls fails), and `timeout` around the
 # whole call (a hang guard for what apt's options do not reach, never a
