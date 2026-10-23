@@ -39,7 +39,7 @@ runs:
   steps:
     # The downloads of npm's cache, keyed by setup-node on the lock's hash
     - name: Set up Node.js
-      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version: ${{ inputs.node-version }}
         cache: npm
@@ -62,7 +62,7 @@ runs:
 
     - name: Restore the browsers
       if: inputs.cache-browsers == 'true'
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ steps.version.outputs.browsers }}
         key: ${{ steps.version.outputs.browsers-key }}
