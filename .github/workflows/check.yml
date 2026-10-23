@@ -167,9 +167,7 @@ jobs:
       - name: pnpm fetch script
         run: sh tests/android/pnpm.sh example/dist/android/fetch-pnpm.sh
 
-      # smoke-test.sh keeps the page's DOM when its text never shows
-      # (bats-lang/pwa#166), against a stand-in adb and DevTools endpoint.
-      # Shell: it tests a generated shell script (tests/android/activity.sh)
+      # android-smoke: smoke-test.sh keeps the page's DOM when its text never shows (pwa#166)
       - name: Smoke test keeps the page's DOM
         run: tests/android-smoke-dom/check.sh example/dist/android/smoke-test.sh
 

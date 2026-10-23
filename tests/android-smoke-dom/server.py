@@ -1,6 +1,6 @@
-# A stand-in for the WebView's DevTools endpoint, as the forwarded socket shows it
-# (bats-lang/pwa#166): GET /json lists a page and a worker, and the page's WebSocket
-# answers Runtime.evaluate with a console event first and then the document, split
+# android-smoke: a stand-in for the WebView's DevTools endpoint (pwa#166)
+# GET /json lists a page and a worker, and the page's WebSocket answers
+# Runtime.evaluate with a console event first and then the document, split
 # in two frames (the second a continuation) of more than 65535 bytes each.
 # usage: server.py <portfile> <ok|silent>
 #   silent: takes the evaluation and never answers it
@@ -44,13 +44,16 @@ class Handler(socketserver.StreamRequestHandler):
         if path == '/json':
             body = json.dumps([
                 {'type': 'page', 'url': 'https://localhost/',
-                 'webSocketDebuggerUrl': 'ws://127.0.0.1:%d/devtools/page/1' % self.server.server_address[1]},
+                 'webSocketDebuggerUrl':
+                     'ws://127.0.0.1:%d/devtools/page/1' % self.server.server_address[1]},
                 {'type': 'service_worker', 'url': 'https://localhost/service-worker.js'},
             ]).encode()
-            self.wfile.write(b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\n'
+            self.wfile.write(b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n'
+                             b'Content-Length: %d\r\n'
                              b'Connection: close\r\n\r\n' % len(body) + body)
             return
-        accept = base64.b64encode(hashlib.sha1(headers['sec-websocket-key'].encode() + GUID).digest())
+        key = headers['sec-websocket-key'].encode()
+        accept = base64.b64encode(hashlib.sha1(key + GUID).digest())
         self.wfile.write(b'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n'
                          b'Connection: Upgrade\r\nSec-WebSocket-Accept: ' + accept + b'\r\n\r\n')
         first, second = read_exact(self.rfile, 2)
@@ -65,10 +68,13 @@ class Handler(socketserver.StreamRequestHandler):
         assert call['params']['expression'] == 'document.documentElement.outerHTML', call
         if mode == 'silent':
             return
-        self.wfile.write(frame(1, True, json.dumps({'method': 'Runtime.executionContextCreated'}).encode()))
-        answer = json.dumps({'id': call['id'], 'result': {'result': {'type': 'string', 'value': DOCUMENT}}}).encode()
+        event = json.dumps({'method': 'Runtime.executionContextCreated'}).encode()
+        self.wfile.write(frame(1, True, event))
+        value = {'result': {'type': 'string', 'value': DOCUMENT}}
+        answer = json.dumps({'id': call['id'], 'result': value}).encode()
         half = len(answer) // 2
-        self.wfile.write(frame(1, False, answer[:half]) + frame(9, True, b'') + frame(0, True, answer[half:]))
+        self.wfile.write(frame(1, False, answer[:half]) + frame(9, True, b'')
+                         + frame(0, True, answer[half:]))
 
 
 class Server(socketserver.ThreadingTCPServer):
