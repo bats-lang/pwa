@@ -6,7 +6,8 @@
 # for a failure that is not the network's, a lock that does not match
 # package.json or is missing fails, the Playwright minimum, the browsers'
 # key changing with the Playwright version and not with the app, the
-# browsers install retried, sdkmanager's cut repository index retried, and the stall tools' apt calls bounded (a
+# browsers install retried, sdkmanager's cut repository index retried, and the stall
+# tools' apt calls bounded (a
 # stalled apt-get is stopped and the next attempt runs, pwa#163). The action's YAML (setup-node, the cache) can
 # only run in a workflow: the job of check.yml that uses it is that test.
 # usage: tests/e2e-setup/check.sh
@@ -158,7 +159,8 @@ rm -f "$TMP/count"
  . "$ACT/retry.sh"; retry "the SDK packages" "$TMP/index-cut") > "$TMP/out" 2>&1 \
   || fail "a repository index cut short was not retried" "$TMP/out"
 [ "$(cat "$TMP/count")" = 2 ] || fail "the index case ran $(cat "$TMP/count") times, not 2"
-grep -q 'the download failed (try 1 of 3)' "$TMP/out" || fail "the index retry was not said" "$TMP/out"
+grep -q 'the download failed (try 1 of 3)' "$TMP/out" \
+  || fail "the index retry was not said" "$TMP/out"
 
 # --- the stall tools: every apt call bounded, a stalled one stopped, the next attempt run
 mkdir -p "$TMP/f/bin"

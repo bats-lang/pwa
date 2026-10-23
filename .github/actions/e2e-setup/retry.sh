@@ -14,7 +14,13 @@
 # the number of tries, E2E_PAUSE_S (default 15) the first pause; the tests
 # set both small.
 
-NETWORK_FAILURE='code (ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|ESOCKETTIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|EHOSTUNREACH|ENETUNREACH|FETCH_ERROR|E429|E50[0-9])|network (read|timeout|socket)|socket hang up|Download failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ZipFile unknown archive|parsing problem|XML document structures must start and end within the same entity'
+NETWORK_FAILURE='code (ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|ESOCKETTIMEDOUT'
+NETWORK_FAILURE="$NETWORK_FAILURE"'|EAI_AGAIN|ENOTFOUND|EPIPE|EHOSTUNREACH|ENETUNREACH'
+NETWORK_FAILURE="$NETWORK_FAILURE"'|FETCH_ERROR|E429|E50[0-9])|network (read|timeout|socket)'
+NETWORK_FAILURE="$NETWORK_FAILURE"'|socket hang up|Download failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN'
+NETWORK_FAILURE="$NETWORK_FAILURE"'|ZipFile unknown archive|parsing problem'
+NETWORK_FAILURE="$NETWORK_FAILURE"'|XML document structures must start and end'
+NETWORK_FAILURE="$NETWORK_FAILURE"' within the same entity'
 
 retry() {
   label=$1; shift
