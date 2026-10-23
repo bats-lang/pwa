@@ -44,3 +44,24 @@ that resets the first N connections (inside npm's retries, past them, for
 ever), a lock out of sync, a missing lock, the minimum and the key; the
 `check` job runs it, and the example is the action's first user (its
 `package-lock.json` is committed for that).
+
+## The stall tools (`stall-tools: "true"`, pwa#178, pwa#163)
+
+An app's stall capture (quire#575) takes native stacks of a frozen renderer
+with gdb, elfutils (`eu-stack`), libc6-dbg of exactly the installed libc6 and
+rr. The input `stall-tools` (default `"false"`) runs `stall-tools.sh` after
+the browsers, on a runner that keeps its passwordless sudo. Every apt call is
+bounded twice: apt's own `-o Acquire::http::Timeout`, `Acquire::https::Timeout`
+(30 s) and `Acquire::Retries=3`, and `timeout -k 10` around the call
+(`E2E_APT_HANG_S`, 600 s: a hang guard for what apt's options do not reach,
+never a budget), so a stalled mirror makes an attempt fail and the next of 3
+attempts run (`apt-get update` once never returned for 56 minutes and the
+attempts after it never ran). A diagnostic for a rare freeze never fails the
+job: what cannot be installed is a warning and the script exits 0. No
+wall-clock budget bounds the step. `tests/e2e-setup/check.sh` plays an
+`apt-get` that never returns on its first call, and on every call.
+
+The script is shell because a composite action's steps are shell and the
+action's other scripts already are (`retry.sh`, `npm-ci.sh`); `timeout` and
+`apt-get` are the tools it drives, and bats has no process to run in a runner
+before bats is built.

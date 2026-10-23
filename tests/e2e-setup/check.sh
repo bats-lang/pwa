@@ -5,8 +5,9 @@
 # requests, once inside npm's own retries and once past them), not retried
 # for a failure that is not the network's, a lock that does not match
 # package.json or is missing fails, the Playwright minimum, the browsers'
-# key changing with the Playwright version and not with the app, and the
-# browsers install retried. The action's YAML (setup-node, the cache) can
+# key changing with the Playwright version and not with the app, the
+# browsers install retried, and the stall tools' apt calls bounded (a
+# stalled apt-get is stopped and the next attempt runs, pwa#163). The action's YAML (setup-node, the cache) can
 # only run in a workflow: the job of check.yml that uses it is that test.
 # usage: tests/e2e-setup/check.sh
 set -eu
@@ -137,5 +138,41 @@ rm -f "$TMP/count" "$TMP/count.args"
 [ -d "$TMP/br/ms/chromium_headless_shell-1" ] || fail "no browsers directory"
 [ "$(cat "$TMP/count")" = 3 ] || fail "the install ran $(cat "$TMP/count") times"
 grep -q "^install chromium in $TMP/br/ms$" "$TMP/count.args" || fail "install's arguments" "$TMP/count.args"
+
+# --- the stall tools: every apt call bounded, a stalled one stopped, the next attempt run
+mkdir -p "$TMP/f/bin"
+cat > "$TMP/f/bin/sudo" <<'FAKE'
+#!/bin/sh
+exec "$@"
+FAKE
+cat > "$TMP/f/bin/dpkg-query" <<'FAKE'
+#!/bin/sh
+printf '2.39-0ubuntu8'
+FAKE
+cat > "$TMP/f/bin/apt-get" <<'FAKE'
+#!/bin/sh
+# FAKE_STALL: the number of first calls that never return (a mirror that stalls)
+n=$(cat "$FAKE_COUNT" 2>/dev/null || echo 0); n=$((n + 1)); echo $n > "$FAKE_COUNT"
+echo "$*" >> "$FAKE_COUNT.args"
+if [ "$n" -le "${FAKE_STALL:-0}" ]; then exec sleep 60; fi
+exit 0
+FAKE
+chmod +x "$TMP/f/bin/sudo" "$TMP/f/bin/dpkg-query" "$TMP/f/bin/apt-get"
+stall() { # <stalled calls> -> stall-tools.sh with an apt-get that stalls that many calls
+  rm -f "$TMP/count" "$TMP/count.args"
+  PATH="$TMP/f/bin:$PATH" FAKE_COUNT="$TMP/count" FAKE_STALL=$1 E2E_APT_HANG_S=1 E2E_PAUSE_S=0 "$ACT/stall-tools.sh" > "$TMP/out" 2>&1
+}
+stall 1 || fail "stall-tools.sh failed after a stalled update" "$TMP/out"
+grep -q 'apt-get update: apt-get did not return in 1s and was stopped (try 1 of 3)' "$TMP/out" || fail "the stalled update was not stopped" "$TMP/out"
+grep -q 'installed=yes' "$TMP/out" || fail "the next attempt did not install" "$TMP/out"
+[ "$(grep -c '^-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 update -q$' "$TMP/count.args")" = 2 ] || fail "the update did not run twice, bounded" "$TMP/count.args"
+[ "$(wc -l < "$TMP/count.args")" = 5 ] || fail "apt-get ran $(wc -l < "$TMP/count.args") times, not 5" "$TMP/count.args"
+[ "$(grep -c '^-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 ' "$TMP/count.args")" = 5 ] || fail "an apt call without apt's own bounds" "$TMP/count.args"
+grep -q 'install -y -q --no-upgrade libc6-dbg=2.39-0ubuntu8$' "$TMP/count.args" || fail "libc6-dbg is not pinned to the installed libc6" "$TMP/count.args"
+# every call stalls: three tries of the update, then the job goes on (exit 0) saying why
+stall 1000 || fail "stall-tools.sh failed the job when every call stalled" "$TMP/out"
+grep -q 'installed=no' "$TMP/out" || fail "installed=no not said" "$TMP/out"
+grep -q 'gdb and elfutils are not installed' "$TMP/out" || fail "the missing tools not said" "$TMP/out"
+[ "$(grep -c ' update -q$' "$TMP/count.args")" = 3 ] || fail "the update was not tried 3 times" "$TMP/count.args"
 
 echo "e2e-setup: all checks passed"
