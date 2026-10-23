@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # android-sdk-pins (bats-lang/pwa#137) against small packages and a stand-in
 # for Google's download server: the pinned download installed, a package
 # already as pinned left alone, a download that is not the pinned one refused
@@ -155,10 +155,12 @@ cmp "$TMP/key.out" "$TMP/key-again.out" || fail "key: the same pins gave another
 # (the same checksum, another archive), then a line added
 KEY_SHA1=$(grep '^system-image ' "$PINS/pins.txt" | cut -d' ' -f3)
 KEY_URL=$(grep '^system-image ' "$PINS/pins.txt" | cut -d' ' -f2)
+# pins.txt as text (the x keeps the last newline from the substitution that strips it), the old text replaced by the new in bash
+PINS_TEXT=$(cat "$PINS/pins.txt"; printf x); PINS_TEXT=${PINS_TEXT%x}
 for moved in sha1 url line; do
   case $moved in
-    sha1) python3 -I -c 'import sys; print(open(sys.argv[1]).read().replace(sys.argv[2], sys.argv[3]), end="")' "$PINS/pins.txt" "$KEY_SHA1" "$BAD" > "$TMP/key/pins.txt" ;;
-    url) python3 -I -c 'import sys; print(open(sys.argv[1]).read().replace(sys.argv[2], sys.argv[3]), end="")' "$PINS/pins.txt" "$KEY_URL" "${KEY_URL}x" > "$TMP/key/pins.txt" ;;
+    sha1) printf '%s' "${PINS_TEXT//"$KEY_SHA1"/$BAD}" > "$TMP/key/pins.txt" ;;
+    url) printf '%s' "${PINS_TEXT//"$KEY_URL"/${KEY_URL}x}" > "$TMP/key/pins.txt" ;;
     line) { cat "$PINS/pins.txt"; echo "extra https://example.invalid/x.zip $BAD . extra"; } > "$TMP/key/pins.txt" ;;
   esac
   cmp -s "$PINS/pins.txt" "$TMP/key/pins.txt" && fail "key $moved: the pins did not change"
