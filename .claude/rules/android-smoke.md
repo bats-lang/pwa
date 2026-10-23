@@ -34,7 +34,11 @@ paths:
   no-op while the pins are the newest in the stable channel, and an upgrade
   when Google has published newer ones. So `android.yml` runs the tool a second
   time in the action's `pre-emulator-launch-script`, which puts the pins back
-  before the emulator starts. The tool is built in the job `sdk-pins-tool`
+  before the emulator starts (the AVD is made before that, and refers to the
+  image by its directory, `image.sysdir.1=system-images/android-34/default/x86_64/`
+  in its `config.ini`, which the tool keeps and replaces the contents of; the
+  emulator reads the kernel, ramdisk and system image from that directory at
+  boot). The tool is built in the job `sdk-pins-tool`
   (the bats setup action, called by commit, at pwa's own `.github/bats-version`)
   while the app builds, and handed to the smoke test as an artifact. The system
   image's cache is keyed on a hash of `pins.txt`.
@@ -45,9 +49,8 @@ paths:
   of the stable channel, `channel-0`, and for `platforms;android-34` the highest
   revision), edit its line in `pins.txt`, and replace `<name>.xml` with the
   `package.xml` sdkmanager writes for it (`sdkmanager --sdk_root=<empty dir>
-  --install '<package>' --channel=0`, copy `<dir>/package.xml`). Nothing moves a
-  pin by itself: the daily relock does not read `pins.txt`, so the pull request
-  that moves one is a ticket's. When Google removes an archive the pin names, the
+  --install '<package>' --channel=0`, copy `<dir>/package.xml`). Moving them with the
+  relock is pwa#173. When Google removes an archive the pin names, the
   smoke test's job fails in the step "Install the emulator's SDK packages at their
   pins" with `curl: (22) ... 404` and `the download failed`, then `no download that
   matches the pinned SHA-1 could be had: refused`; the fix is that pull request. A
@@ -57,7 +60,10 @@ paths:
   packages and a stand-in for Google's server: the pinned download installed
   (its first response cut short), a package already as pinned left alone with
   nothing downloaded, a download with a bad SHA-1 refused on every try with the
-  package that was there kept, a 404, and a pins file that is not usable. The
+  package that was there kept, a package at another revision replaced (the old
+  files gone, the new in place, `package.xml` the pinned one), the lines
+  installed in order and stopping at the first that fails, a 404, and a pins
+  file that is not usable. The
   real packages are installed by the smoke test itself, in the `android` job.
 * An image in the cache or an SDK of the runner that is not the pinned revision
   is replaced; one that is cannot be told apart by its files, only by its

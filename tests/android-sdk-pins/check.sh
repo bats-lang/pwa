@@ -2,7 +2,8 @@
 # android-sdk-pins (bats-lang/pwa#137) against small packages and a stand-in
 # for Google's download server: the pinned download installed, a package
 # already as pinned left alone, a download that is not the pinned one refused
-# (and the package that was there kept), a download cut short tried again, a
+# (and the package that was there kept), a package at another revision
+# replaced, the lines installed in order, a download cut short tried again, a
 # download that cannot be had, and a pins file that is not usable.
 # Shell, since it drives a built binary against files and a local server
 # (tests/android/pnpm.sh is the precedent); the tool it tests is bats.
@@ -63,6 +64,20 @@ run good "tools $URL/tools.zip $GOOD . tools"
 cmp "$TMP/tools.xml" "$TMP/good-sdk/tools/package.xml" || fail "good: package.xml is not the pinned one"
 [ ! -e "$TMP/good-sdk/.android-sdk-pins/tools.zip" ] || fail "good: the zip is left behind"
 
+# 1b. a package present at another revision (its own files, another
+# package.xml) is replaced by the pinned download: the old content is gone,
+# the new in place, package.xml the pinned one
+mkdir -p "$TMP/replace-sdk/tools/bin"
+echo old > "$TMP/replace-sdk/tools/OLD"
+echo old > "$TMP/replace-sdk/tools/bin/run"
+echo "<package>an older package.xml</package>" > "$TMP/replace-sdk/tools/package.xml"
+run replace "tools $URL/tools.zip $GOOD . tools"
+[ "$RC" = 0 ] || fail "replace: exit $RC"
+[ ! -e "$TMP/replace-sdk/tools/OLD" ] || fail "replace: the old package's file is still there"
+[ "$(cat "$TMP/replace-sdk/tools/bin/run")" = run ] || fail "replace: the new package is not in place"
+cmp "$TMP/tools.xml" "$TMP/replace-sdk/tools/package.xml" || fail "replace: package.xml is not the pinned one"
+grep -q 'installed, SHA-1 of the download as pinned' "$TMP/replace.out" || fail "replace: not said"
+
 # 2. as pinned already: nothing is downloaded (the URL has no server)
 mkdir -p "$TMP/again-sdk/tools"; cp "$TMP/tools.xml" "$TMP/again-sdk/tools/package.xml"
 run again "tools http://127.0.0.1:1/never.zip $GOOD . tools"
@@ -85,6 +100,23 @@ grep -q 'refused' "$TMP/bad.out" || fail "bad: not refused"
 run missing "tools $URL/nothing.zip $GOOD . tools" ANDROID_SDK_PINS_ATTEMPTS=1
 [ "$RC" = 1 ] || fail "missing: exit $RC"
 grep -q 'the download failed' "$TMP/missing.out" || fail "missing: not said"
+
+# 4b. the lines are installed in order and the run stops at the first that
+# fails: the first is installed, the second refused, the third not reached
+mkdir -p "$TMP/order"
+printf 'tools %s/tools.zip %s . tools\ntools2 %s/tools.zip %s . tools2\ntools3 %s/tools.zip %s . tools3\n' \
+  "$URL" "$GOOD" "$URL" "$BAD" "$URL" "$GOOD" > "$TMP/order/pins.txt"
+cp "$TMP/tools.xml" "$TMP/order/tools.xml"
+mkdir -p "$TMP/order-sdk"
+set +e
+(cd "$TMP/order" && ANDROID_SDK_PINS_ATTEMPTS=1 "$BIN" install "$TMP/order-sdk") > "$TMP/order.out" 2>&1
+RC=$?
+set -e
+echo "== order (exit $RC)"; cat "$TMP/order.out"
+[ "$RC" = 1 ] || fail "order: exit $RC"
+[ "$(cat "$TMP/order-sdk/tools/bin/run")" = run ] || fail "order: the first line is not installed"
+grep -q 'tools2: no download that matches' "$TMP/order.out" || fail "order: the second line is not refused"
+[ ! -e "$TMP/order-sdk/tools3" ] || fail "order: the third line was reached"
 
 # 5. a pins file that is not usable
 run short "tools $URL/tools.zip $GOOD ."
