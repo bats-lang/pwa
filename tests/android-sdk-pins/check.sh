@@ -4,7 +4,8 @@
 # already as pinned left alone, a download that is not the pinned one refused
 # (and the package that was there kept), a package at another revision
 # replaced, the lines installed in order, a download cut short tried again, a
-# download that cannot be had, and a pins file that is not usable.
+# download that cannot be had, a pins file that is not usable, and the digest
+# of pins.txt that the system image's cache key ends with.
 # Shell, since it drives a built binary against files and a local server
 # (tests/android/pnpm.sh is the precedent); the tool it tests is bats.
 #
@@ -136,5 +137,42 @@ grep -v '^#' "$PINS/pins.txt" | while read -r name url sha1 into dir extra; do
   case $url in https://dl.google.com/android/repository/*.zip) ;; *) fail "pins.txt: $name is not from Google" ;; esac
   [ -f "$PINS/$name.xml" ] || fail "pins.txt: no $name.xml"
 done
+
+# 7. the cache key's digest (bats-lang/pwa#138): android.yml's system image
+# key ends with `android-sdk-pins key`, the SHA-256 of pins.txt. It is that
+# digest, the same for the same pins, and another when a pin moves (the
+# SHA-1 of a line, the URL of a line, a line added)
+mkdir -p "$TMP/key"
+cp "$PINS/pins.txt" "$TMP/key/pins.txt"
+(cd "$TMP/key" && "$BIN" key) > "$TMP/key.out" 2>&1 || fail "key: exit $?"
+echo "== key"; cat "$TMP/key.out"
+WANT=$(sha256sum "$TMP/key/pins.txt" | cut -c1-64)
+[ "$(cat "$TMP/key.out")" = "$WANT" ] || fail "key: not the SHA-256 of pins.txt"
+echo "$WANT" | grep -Eq '^[0-9a-f]{64}$' || fail "key: not 64 hex digits"
+(cd "$TMP/key" && "$BIN" key) > "$TMP/key-again.out" 2>&1 || fail "key again: exit $?"
+cmp "$TMP/key.out" "$TMP/key-again.out" || fail "key: the same pins gave another digest"
+# a pin that moves: the system image's SHA-1 (a new revision), then its URL
+# (the same checksum, another archive), then a line added
+KEY_SHA1=$(grep '^system-image ' "$PINS/pins.txt" | cut -d' ' -f3)
+KEY_URL=$(grep '^system-image ' "$PINS/pins.txt" | cut -d' ' -f2)
+for moved in sha1 url line; do
+  case $moved in
+    sha1) python3 -I -c 'import sys; print(open(sys.argv[1]).read().replace(sys.argv[2], sys.argv[3]), end="")' "$PINS/pins.txt" "$KEY_SHA1" "$BAD" > "$TMP/key/pins.txt" ;;
+    url) python3 -I -c 'import sys; print(open(sys.argv[1]).read().replace(sys.argv[2], sys.argv[3]), end="")' "$PINS/pins.txt" "$KEY_URL" "${KEY_URL}x" > "$TMP/key/pins.txt" ;;
+    line) { cat "$PINS/pins.txt"; echo "extra https://example.invalid/x.zip $BAD . extra"; } > "$TMP/key/pins.txt" ;;
+  esac
+  cmp -s "$PINS/pins.txt" "$TMP/key/pins.txt" && fail "key $moved: the pins did not change"
+  (cd "$TMP/key" && "$BIN" key) > "$TMP/key-$moved.out" 2>&1 || fail "key $moved: exit $?"
+  [ "$(cat "$TMP/key-$moved.out")" = "$(sha256sum "$TMP/key/pins.txt" | cut -c1-64)" ] || fail "key $moved: not the SHA-256 of pins.txt"
+  ! cmp -s "$TMP/key.out" "$TMP/key-$moved.out" || fail "key $moved: a pin moved and the key did not"
+done
+# no pins.txt: no digest, exit 2
+mkdir "$TMP/key-none"
+set +e
+(cd "$TMP/key-none" && "$BIN" key) > "$TMP/key-none.out" 2>&1
+RC=$?
+set -e
+[ "$RC" = 2 ] || fail "key without pins.txt: exit $RC"
+! grep -Eq '^[0-9a-f]{64}$' "$TMP/key-none.out" || fail "key without pins.txt: a digest"
 
 echo "android-sdk-pins: all passed"

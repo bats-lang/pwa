@@ -5,8 +5,15 @@
    of what the app runs. Area keyword: android-smoke (.claude/rules/android-smoke.md).
 
    android-sdk-pins install <sdk-root>
+   android-sdk-pins key
 
-   run in the directory that holds pins.txt and the packages' package.xml
+   key prints the SHA-256 of pins.txt (64 lower case hex digits and a newline,
+   from sha256sum) on stdout: the digest that android.yml's system-image cache
+   key ends with, so a pin that moves is a new key (bats-lang/pwa#138;
+   tests/android-sdk-pins/check.sh, the key cases). Exit 0, or 2 when pins.txt
+   cannot be read.
+
+   install runs in the directory that holds pins.txt and the packages' package.xml
    files. A line of pins.txt is five words separated by single spaces:
 
      <name> <url> <sha1> <unzip-into> <package-dir>
@@ -641,6 +648,40 @@ fun _lines {arguments_loc:agz}{pins_loc:agz}
    The command
    ============================================================ *)
 
+(* Whether the arguments are "<program> key" *)
+fn _is_key {l:agz}{size:nat | size <= 4096}
+  (arguments_borrow: !$A.borrow(byte, l, 4096), size: int size): bool = let
+  val program_end = _argument_end(arguments_borrow, 0, size)
+in
+  if program_end >= size then false
+  else let
+    val command_start = program_end + 1
+    val command_end = _argument_end(arguments_borrow, command_start, size)
+  in _is(arguments_borrow, command_start, command_end, "key", 4096) end
+end
+
+(* The digest sha256sum prints for pins.txt, 64 hex digits and a newline, on
+   stdout (android.yml's cache key ends with it): 0, or 2 when it cannot be had *)
+fn _key (): int = let
+  var sum : $B.builder_v = $B.create()
+  val status = _run("sha256sum", $L.list_vt_cons(_argument_of("pins.txt"), $L.list_vt_nil()), sum)
+  val @(array, size) = $B.to_arr(sum)
+  val @(frozen, view) = $A.freeze<byte>(array)
+  fun loop {l:agz}{i:nat | i <= 64} .<64 - i>.
+    (view: !$A.borrow(byte, l, 524288), i: int i): void =
+    if i >= 64 then print_char('\n')
+    else let
+      val () = print_char(int2char0(byte2int0($A.read<byte>(view, i))))
+    in loop(view, i + 1) end
+  val code = (if status <> 0 then 2
+    else if size < 65 then 2
+    else if byte2int0($A.read<byte>(view, 64)) <> 32 then 2
+    else let val () = loop(view, 0) in 0 end): int
+  val () = $A.drop<byte>(frozen, view)
+  val () = $A.free<byte>($A.thaw<byte>(frozen))
+  val () = (if code <> 0 then _say_text("android-sdk-pins: sha256sum could not digest pins.txt\n") else ())
+in code end
+
 fn _status (code: int): void =
   if code <> 0 then exit_void(code) else ()
 
@@ -650,8 +691,9 @@ implement main0 () = let
   val @(frozen_arguments, arguments_borrow) = $A.freeze<byte>(arguments)
   val @(root_start, root_end) = _root_range(arguments_borrow, arguments_size)
   val usable = (arguments_size < 4095 && root_end > root_start): bool
-  val status = (if ~usable then let
-      val () = _say_text("usage: android-sdk-pins install <sdk-root>   (in the directory with pins.txt)\n")
+  val status = (if arguments_size < 4095 && _is_key(arguments_borrow, arguments_size) then _key()
+    else if ~usable then let
+      val () = _say_text("usage: android-sdk-pins install <sdk-root> | key   (in the directory with pins.txt)\n")
     in 2 end
     else let
       val pins = $A.alloc<byte>(65536)
