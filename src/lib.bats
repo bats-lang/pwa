@@ -73,6 +73,18 @@ staload TR = "./test_run.sats"
 #pub fn build_android_script {nw:nat | nw < 256}{n:nat | n + 4000 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 4000] $B.builder(m), web_dir: string nw): void
 
+(* build_android_script_locked (bats-lang/pwa#131): the same script, with
+   the install from a lock. It runs pnpm install --frozen-lockfile on the
+   pnpm-lock.yaml the app commits beside the script (it fails when the lock
+   does not match package.json and never rewrites it) and stops with a
+   message when there is none, so what pnpm resolves for the plugins' own
+   dependencies cannot move under a commit. build_android_script, above,
+   is unchanged (a bare pnpm install) and stays for one published version,
+   until the apps have moved (the ticket that removes it is named in
+   .claude/rules/android-lock.md). *)
+#pub fn build_android_script_locked {nw:nat | nw < 256}{n:nat | n + 5000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 5000] $B.builder(m), web_dir: string nw): void
+
 (* fetch-pnpm.sh: sourced by build-android.sh, which then runs "$pnpm"
    (bats-lang/pwa#158). pnpm 12's corepack entry downloads its native
    binary from the registry on first use, with a 30 s timeout and no
@@ -162,6 +174,14 @@ staload TR = "./test_run.sats"
    and is shared files of type mime. No secret is written: signing
    reads the keystore and its passwords when the build runs. *)
 #pub fn create_android {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nd:nat | nd < 256}{nm:nat | nm < 256}
+  (app_name: string na, app_id: string ni, web_dir: string nw, project_dir: string nd, mime: string nm): void
+
+(* create_android_locked (bats-lang/pwa#131): create_android with the
+   locked form of build-android.sh (build_android_script_locked): the app
+   commits a pnpm-lock.yaml beside the project, and the install from it is
+   frozen. An app moves to it by calling this in place of create_android;
+   create_android is unchanged. *)
+#pub fn create_android_locked {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nd:nat | nd < 256}{nm:nat | nm < 256}
   (app_name: string na, app_id: string ni, web_dir: string nw, project_dir: string nd, mime: string nm): void
 
 (* ============================================================
@@ -438,7 +458,10 @@ implement build_android_gradle (b) = let
   val () = $B.bput(b, "}\n")
 in end
 
-implement build_android_script (b, web_dir) = let
+(* the script's text up to its install, shared by the two forms *)
+fn _android_script_head
+  {n:nat | n + 1100 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 1100] $B.builder(m)): void = let
   val () = $B.bput(b, "#!/bin/sh\n")
   val () = $B.bput(b, "# Builds this Capacitor project into a release AAB and APK, in\n")
   val () = $B.bput(b, "# android/app/build/outputs/{bundle,apk}/release/. Needs Node with\n")
@@ -461,7 +484,11 @@ implement build_android_script (b, web_dir) = let
   val () = $B.bput(b, "# at its pinned version, fetched with a retry (bats-lang/pwa#158)\n")
   val () = $B.bput(b, ". ./fetch-pnpm.sh\n")
   val () = $B.bput(b, "printf 'nodeLinker: hoisted\\n' > pnpm-workspace.yaml\n")
-  val () = $B.bput(b, "$pnpm install\n")
+in end
+
+(* the script's text after its install, shared by the two forms *)
+fn _android_script_tail {nw:nat | nw < 256}{n:nat | n + 1800 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 1800] $B.builder(m), web_dir: string nw): void = let
   val () = $B.bput(b, "$pnpm exec cap add android\n")
   val () = $B.bput(b, "if [ -n \"${ANDROID_KEYSTORE:-}\" ]; then\n")
   val () = $B.bput(b, "  cp \"$ANDROID_KEYSTORE\" android/app/release.jks\n")
@@ -496,6 +523,28 @@ implement build_android_script (b, web_dir) = let
   val () = $B.bput(b, "cd android\n")
   val () = $B.bput(b, "./gradlew bundleRelease assembleRelease\n")
 in end
+
+implement build_android_script (b, web_dir) = let
+  val () = _android_script_head(b)
+  val () = $B.bput(b, "$pnpm install\n")
+in _android_script_tail(b, web_dir) end
+
+implement build_android_script_locked (b, web_dir) = let
+  val () = _android_script_head(b)
+  val () = $B.bput(b, "# installed from the lock the app commits (pnpm-lock.yaml, next to this\n")
+  val () = $B.bput(b, "# script), exactly and nothing else: --frozen-lockfile fails when the\n")
+  val () = $B.bput(b, "# lock does not match package.json and never rewrites it, so what pnpm\n")
+  val () = $B.bput(b, "# resolves for the plugins' own dependencies cannot move under a commit\n")
+  val () = $B.bput(b, "# (bats-lang/pwa#131). It is made, in a clean directory holding the\n")
+  val () = $B.bput(b, "# package.json written beside this script, by:\n")
+  val () = $B.bput(b, "#   printf 'nodeLinker: hoisted\\n' > pnpm-workspace.yaml\n")
+  val () = $B.bput(b, "#   corepack pnpm@12.9.1 install --lockfile-only\n")
+  val () = $B.bput(b, "[ -f pnpm-lock.yaml ] || {\n")
+  val () = $B.bput(b, "  echo \"error: no pnpm-lock.yaml next to $0: the plugins are installed from a committed lock, never resolved afresh (see the comment above this check)\" >&2\n")
+  val () = $B.bput(b, "  exit 1\n")
+  val () = $B.bput(b, "}\n")
+  val () = $B.bput(b, "$pnpm install --frozen-lockfile\n")
+in _android_script_tail(b, web_dir) end
 
 implement build_pnpm_script (b) = let
   val () = $B.bput(b, "# Makes pnpm ready for build-android.sh, which sources this file and then runs\n")
@@ -1026,7 +1075,9 @@ implement create_pwa_opening (app_name, app_id, wasm_path, wasm_name, out_dir, a
   val () = _copy_assets(assets, 0, asset_len, out_dir)
 in end
 
-implement create_android (app_name, app_id, web_dir, project_dir, mime) = let
+(* everything of the Android project but build-android.sh, which the two forms write each its own way *)
+fn _android_project_files {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nd:nat | nd < 256}{nm:nat | nm < 256}
+  (app_name: string na, app_id: string ni, web_dir: string nw, project_dir: string nd, mime: string nm): void = let
   val () = _mkdir(project_dir)
   var cap_b = $B.create()
   val () = build_capacitor_config(cap_b, app_name, app_id, web_dir)
@@ -1051,15 +1102,24 @@ implement create_android (app_name, app_id, web_dir, project_dir, mime) = let
   var extraction_b = $B.create()
   val () = $BR.produce_data_extraction_rules(extraction_b)
   val () = _write_to(project_dir, "data-extraction-rules.xml", extraction_b)
-  var sh_b = $B.create()
-  val () = build_android_script(sh_b, web_dir)
-  val () = _write_mode(project_dir, "build-android.sh", sh_b, 493)
   var pnpm_b = $B.create()
   val () = build_pnpm_script(pnpm_b)
   val () = _write_to(project_dir, "fetch-pnpm.sh", pnpm_b)
   var st_b = $B.create()
   val () = build_smoke_test_script(st_b, app_id)
 in _write_mode(project_dir, "smoke-test.sh", st_b, 493) end
+
+implement create_android (app_name, app_id, web_dir, project_dir, mime) = let
+  val () = _android_project_files(app_name, app_id, web_dir, project_dir, mime)
+  var sh_b = $B.create()
+  val () = build_android_script(sh_b, web_dir)
+in _write_mode(project_dir, "build-android.sh", sh_b, 493) end
+
+implement create_android_locked (app_name, app_id, web_dir, project_dir, mime) = let
+  val () = _android_project_files(app_name, app_id, web_dir, project_dir, mime)
+  var sh_b = $B.create()
+  val () = build_android_script_locked(sh_b, web_dir)
+in _write_mode(project_dir, "build-android.sh", sh_b, 493) end
 
 (* ============================================================
    gen-pwa test (bats-lang/pwa#82)
