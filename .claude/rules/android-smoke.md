@@ -41,7 +41,10 @@ paths:
   boot). The tool is built in the job `sdk-pins-tool`
   (the bats setup action, called by commit, at pwa's own `.github/bats-version`)
   while the app builds, and handed to the smoke test as an artifact. The system
-  image's cache is keyed on a hash of `pins.txt`.
+  image's cache key ends with the SHA-256 of `pins.txt`, which the tool prints
+  (`android-sdk-pins key`, run in the step "Name the system image's cache"; not
+  `hashFiles`, a GitHub expression no test can run), so a pin that moves is a new
+  key and an old key never serves a changed image (pwa#138).
 * Moving a pin is a pull request that runs the same CI, never a floating
   install: take the new revision's `<checksum>`, `<url>` and `<display-name>` from
   `https://dl.google.com/android/repository/repository2-1.xml` (the system image:
@@ -63,7 +66,9 @@ paths:
   package that was there kept, a package at another revision replaced (the old
   files gone, the new in place, `package.xml` the pinned one), the lines
   installed in order and stopping at the first that fails, a 404, and a pins
-  file that is not usable. The
+  file that is not usable, and the digest `key` prints (the SHA-256 of
+  `pins.txt`; another when a SHA-1, a URL or a line of the pins changes; none
+  without `pins.txt`). The
   real packages are installed by the smoke test itself, in the `android` job.
 * An image in the cache or an SDK of the runner that is not the pinned revision
   is replaced; one that is cannot be told apart by its files, only by its

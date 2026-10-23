@@ -524,6 +524,19 @@ jobs:
           sparse-checkout: tools/android-sdk-pins
           persist-credentials: false
 
+      # The digest of pins.txt that the system image's cache key ends with,
+      # computed by the tool (`android-sdk-pins key`, SHA-256 of the file),
+      # which tests/android-sdk-pins/check.sh tests: a pin that moves changes
+      # it (bats-lang/pwa#138; area keyword android-smoke). A tool that
+      # fails fails the step: no key is made with an empty digest
+      - name: Name the system image's cache
+        id: image-pins
+        working-directory: pwa/tools/android-sdk-pins
+        run: |
+          chmod +x "$GITHUB_WORKSPACE/sdk-pins-bin/android-sdk-pins"
+          DIGEST=$("$GITHUB_WORKSPACE/sdk-pins-bin/android-sdk-pins" key)
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
       # The system image, kept between runs: its download is large. Keyed on
       # the pins, so a pin that moves is a new key; what a hit restores is
       # used only if its package.xml is the pinned one (android-sdk-pins
@@ -532,7 +545,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /usr/local/lib/android/sdk/system-images/android-34/default/x86_64
-          key: system-image-android-34-default-x86_64-${{ hashFiles('pwa/tools/android-sdk-pins/pins.txt') }}
+          key: system-image-android-34-default-x86_64-${{ steps.image-pins.outputs.digest }}
 
       # The four SDK packages the emulator runs on (platform-tools,
       # platforms;android-34, the emulator, the system image) at the
