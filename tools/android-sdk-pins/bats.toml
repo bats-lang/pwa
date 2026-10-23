@@ -1,0 +1,14 @@
+[package]
+name = "android-sdk-pins"
+kind = "bin"
+unsafe = false
+
+[dependencies]
+"array" = ""
+"arith" = ""
+"builder" = ""
+"env" = ""
+"file" = ""
+"list" = ""
+"process" = ""
+"result" = ""

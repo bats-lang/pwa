@@ -1,0 +1,11 @@
+# The Android SDK packages the smoke test runs on (bats-lang/pwa#137). A line:
+#   <name> <url> <sha1> <unzip-into> <package-dir>
+# The sha1 is the <checksum> of the package's archive in Google's repository XML:
+#   https://dl.google.com/android/repository/repository2-1.xml (platform-tools, emulator, platforms;android-34)
+#   https://dl.google.com/android/repository/sys-img/android/sys-img2-1.xml (system-images;android-34;default;x86_64)
+# <name>.xml is the package.xml sdkmanager writes for that revision.
+# Moving a pin: .claude/rules/android-smoke.md
+platform-tools https://dl.google.com/android/repository/platform-tools_r37.0.1-linux.zip 477254aa5f903c15cf51001717bdf347fb6b53e0 . platform-tools
+platforms-android-34 https://dl.google.com/android/repository/platform-34-ext7_r03.zip 1f2e9478d6a7601425ceaa553311dc43191f103d platforms platforms/android-34
+emulator https://dl.google.com/android/repository/emulator-linux_x64-16428233.zip cd7362ea55dfb86a418958138dc396e74165dd01 . emulator
+system-image https://dl.google.com/android/repository/sys-img/android/x86_64-34_r04.zip 5f6a249f9bc3b1b4c459b13ce2eb646c9680bed1 system-images/android-34/default system-images/android-34/default/x86_64
