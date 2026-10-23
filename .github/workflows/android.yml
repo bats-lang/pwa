@@ -405,8 +405,68 @@ jobs:
           path: app/${{ inputs.project-dir }}/android/app/build/outputs/apk/release/*.apk
           retention-days: 1
 
+  # The tool that installs the smoke test's SDK packages at their pins
+  # (tools/android-sdk-pins, bats-lang/pwa#137), built in a job of its own
+  # beside the build, so the smoke test waits for no compiler. Its source is
+  # read from the commit this workflow runs at (job.workflow_sha).
+  sdk-pins-tool:
+    if: inputs.smoke-test-text != ''
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check this workflow's commit
+        env:
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          # a value that is not a commit stops the job before the checkout,
+          # which would otherwise read the default branch
+          case $WORKFLOW_SHA in
+            *[!0-9a-f]*) ;;
+            ????????????????????????????????????????) exit 0 ;;
+          esac
+          echo "::error::job.workflow_sha is not a 40-digit lower case commit: $WORKFLOW_SHA"
+          exit 1
+
+      - name: Get the tool's source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: pwa
+          sparse-checkout: |
+            tools/android-sdk-pins
+            .github/bats-version
+            .github/repository-version
+          persist-credentials: false
+
+      # The compiler pwa pins (.github/bats-version) and the package
+      # repository at .github/repository-version, as pwa's own check job
+      # sets them up, called by commit
+      - name: Set up bats
+        id: bats
+        uses: bats-lang/bats/.github/actions/setup@8e978dfe7fac83726730361329c91b0e829beaad # bats 8e978df (#287)
+        with:
+          working-directory: pwa/tools/android-sdk-pins
+          bats-version-file: ../../.github/bats-version
+          repository-version-file: ../../.github/repository-version
+          commit: ${{ job.workflow_sha }}
+
+      - name: Build the tool
+        working-directory: pwa/tools/android-sdk-pins
+        run: |
+          # `bats build --release` is not a flag: bats prints its usage and exits 0
+          bats build --only release --repository "$HOME/repository"
+          test -f dist/release/android-sdk-pins
+
+      - name: Hand the tool to the smoke test
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-sdk-pins
+          path: pwa/tools/android-sdk-pins/dist/release/android-sdk-pins
+          retention-days: 1
+          if-no-files-found: error
+
   smoke-test:
-    needs: build-android
+    needs: [build-android, sdk-pins-tool]
     if: inputs.smoke-test-text != ''
     runs-on: ubuntu-24.04
     steps:
@@ -419,6 +479,12 @@ jobs:
         with:
           name: ${{ inputs.publish && 'release-apk' || 'smoke-apk' }}
           path: apk
+
+      - name: Get the SDK pins tool
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: android-sdk-pins
+          path: sdk-pins-bin
 
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
@@ -434,32 +500,11 @@ jobs:
       - name: Find the APK
         run: echo "SMOKE_APK=$(find apk -name '*.apk' | head -1)" >> "$GITHUB_ENV"
 
-      # The system image, kept between runs: a download cut short leaves
-      # sdkmanager an archive it cannot open, and no emulator starts
-      # (bats-lang/quire#220). The cache is saved only by a run that passed
-      - name: Keep the system image
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: /usr/local/lib/android/sdk/system-images/android-34/default/x86_64
-          key: system-image-android-34-default-x86_64
-
-      # The SDK packages the emulator action installs next, before it, under
-      # the retry of the e2e-setup action (bats-lang/quire#617). The action's
-      # sdkmanager call prints "Error on ZipFile unknown archive" for a
-      # download cut short and exits 0, so the action goes on with no
-      # emulator and fails two steps later at adb. Here the packages are
-      # checked in place (the emulator, adb, the system image), and the
-      # install is tried again when that text shows. Research (quire#617 and
-      # bats-lang/pwa#98): the emulator action's own install has no check
-      # of this; the projects that hit it pre-install with a retry on this
-      # error and a hard check after, as this does. The emulator package is
-      # not cached: its key would name the latest emulator, which changes
-      # when Google publishes one, so a hit would keep an old one silently.
       - name: Check this workflow's commit
         env:
           WORKFLOW_SHA: ${{ job.workflow_sha }}
         run: |
-          # The retry script is read from the commit this workflow runs at
+          # the pins are read from the commit this workflow runs at
           # (job.workflow_sha: the called file's own commit, as the caller's
           # pin says); a value that is not one stops the job before the
           # checkout, which would otherwise read the default branch
@@ -470,49 +515,47 @@ jobs:
           echo "::error::job.workflow_sha is not a 40-digit lower case commit: $WORKFLOW_SHA"
           exit 1
 
-      - name: Get the retry script
+      - name: Get the SDK pins
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
           path: pwa
-          sparse-checkout: .github/actions/e2e-setup
+          sparse-checkout: tools/android-sdk-pins
           persist-credentials: false
 
-      # Decided on bats-lang/pwa#130: these packages are deliberately not
-      # pinned to a revision. sdkmanager has no revision syntax for emulator,
-      # platform-tools, platforms or system images (only NDK, CMake and
-      # cmdline-tools take a version); the emulator action's own pin,
-      # emulator-build, downloads with no checksum and no retry, the failure
-      # this step guards against (quire#617); and Google's feeds keep only
-      # the newest system image and two emulator revisions, with no published
-      # retention for the rest. The packages float to the stable channel, as
-      # the action does: a new emulator that breaks the smoke test is seen at
-      # once, and the fix is a pin in a pull request.
-      # unpinned: sdkmanager has no revision syntax, and the action's pin has no checksum (pwa#130)
-      - name: Install the emulator's SDK packages, retried
+      # The system image, kept between runs: its download is large. Keyed on
+      # the pins, so a pin that moves is a new key; what a hit restores is
+      # used only if its package.xml is the pinned one (android-sdk-pins
+      # replaces it otherwise). The cache is saved only by a run that passed
+      - name: Keep the system image
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /usr/local/lib/android/sdk/system-images/android-34/default/x86_64
+          key: system-image-android-34-default-x86_64-${{ hashFiles('pwa/tools/android-sdk-pins/pins.txt') }}
+
+      # The four SDK packages the emulator runs on (platform-tools,
+      # platforms;android-34, the emulator, the system image) at the
+      # revisions tools/android-sdk-pins/pins.txt names, each download
+      # checked against the SHA-1 of Google's repository XML, tried again
+      # on a dropped or cut-short download and refused on a mismatch
+      # (bats-lang/pwa#137; area keyword android-smoke, .claude/rules/android-smoke.md).
+      # The emulator action installs the newest of the same packages
+      # after this: a no-op while the pins are the newest, and replaced by
+      # the pins again just before the emulator starts (its
+      # pre-emulator-launch-script) when Google has published newer ones
+      - name: Install the emulator's SDK packages at their pins
         env:
           SDK_ROOT: /usr/local/lib/android/sdk
         run: |
-          . pwa/.github/actions/e2e-setup/retry.sh
           SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
           test -x "$SDKMANAGER" || { echo "::error::No sdkmanager at $SDKMANAGER"; exit 1; }
           # The licences, as the emulator action accepts them (the image has
           # them accepted already)
           yes | "$SDKMANAGER" --licenses > /dev/null
-          # The packages the action installs (the same channel, stable, as
-          # its default), and the three files the smoke test uses, checked in
-          # place: sdkmanager's own status does not show the failure. The
-          # download cache is emptied before each try, so a retry does not
-          # reuse an archive that was cut short. stderr stays in the log,
-          # where the retry looks for the text.
-          retry "the SDK packages" sh -c '
-            rm -rf "$HOME/.android/cache"
-            "$0" --install platform-tools "platforms;android-34" emulator "system-images;android-34;default;x86_64" --channel=0 > /dev/null
-            test -x "$SDK_ROOT/emulator/emulator" &&
-              test -x "$SDK_ROOT/platform-tools/adb" &&
-              test -f "$SDK_ROOT/system-images/android-34/default/x86_64/system.img"
-          ' "$SDKMANAGER"
+          chmod +x sdk-pins-bin/android-sdk-pins
+          cd pwa/tools/android-sdk-pins
+          "$GITHUB_WORKSPACE/sdk-pins-bin/android-sdk-pins" install "$SDK_ROOT"
 
       # What a failed smoke test prints into the job log while the
       # emulator still runs (bats-lang/quire#258): the app's processes and
@@ -676,7 +719,11 @@ jobs:
             -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
             -skin 960x1920
             -stdouterr-file ${{ runner.temp }}/emulator.log
+          # The SDK pins again (android-sdk-pins, pwa#137): the action installed
+          # the newest packages first, which replaced the pins if Google has
+          # published newer ones
           pre-emulator-launch-script: |
+            cd "$GITHUB_WORKSPACE/pwa/tools/android-sdk-pins" && "$GITHUB_WORKSPACE/sdk-pins-bin/android-sdk-pins" install /usr/local/lib/android/sdk
             touch "$RUNNER_TEMP/emulator.log"
             config="${ANDROID_AVD_HOME:-$HOME/.android/avd}/test.avd/config.ini" && sed -i '/^hw\.lcd\.\(width\|height\|density\)=/d' "$config" && printf 'hw.lcd.width=960\nhw.lcd.height=1920\nhw.lcd.density=480\n' >> "$config" && grep -E '^(hw\.lcd|skin)\.' "$config"
           # The screen is checked first, and named in a notice: a screen

@@ -40,6 +40,14 @@ jobs:
       - name: Dynamic tests
         run: tests/dynamic/run.sh $HOME/repository
 
+      # The tool android.yml installs the smoke test's SDK packages with
+      # (bats-lang/pwa#137), built as the android job builds it, against
+      # small packages and a stand-in for Google's download server
+      - name: SDK pins tool
+        run: |
+          (cd tools/android-sdk-pins && bats build --repository $HOME/repository)
+          tests/android-sdk-pins/check.sh tools/android-sdk-pins/dist/debug/android-sdk-pins
+
       - name: Upload library to local repository
         run: bats upload --repository $HOME/repository
 
