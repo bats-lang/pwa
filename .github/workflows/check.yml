@@ -206,7 +206,7 @@ jobs:
       artifact: example-android
       project-dir: android
       # Rendered by the example's wasm (not in its static files)
-      smoke-test-text: BATS PWA
+      smoke-test-text: NEVER ON SCREEN
       # then opened with a text file and shared it: each handed to the
       # page once (the example shows its text whatever it is given)
       smoke-share-file: android/smoke-share.txt
