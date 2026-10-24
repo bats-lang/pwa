@@ -284,6 +284,7 @@ names is touched (its `paths:`):
 
 * gen-pwa test (pwa#82): `.claude/rules/gen-pwa-test.md`
 * The Android smoke test: `.claude/rules/android-smoke.md`
+* The relock of the Android SDK pins (pwa#185): `.claude/rules/android-relock.md`
 * The e2e setup action (quire#637): `.claude/rules/e2e-setup.md`
 * The Play release workflow (pwa#90, quire#623): `.claude/rules/play-release.md`
 * The signing key's fingerprints (pwa#96, quire#623): `.claude/rules/key-fingerprints.md`
