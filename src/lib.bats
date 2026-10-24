@@ -671,6 +671,7 @@ implement build_main_activity (b, app_id) = let
   val () = $B.bput(b, "        Log.i(TAG, savedInstanceState == null ? \"created\" : \"recreated\");\n")
   val () = $B.bput(b, "        super.onCreate(savedInstanceState);\n")
   val () = $B.bput(b, "        launchHandedOver = false;\n")
+  val () = $B.bput(b, "        if (bridge != null && bridge.getWebView() != null) bridge.getWebView().getSettings().setTextZoom(100);\n")
   val () = $B.bput(b, "        // At each window insets dispatch, the window's own insets' isVisible\n")
   val () = $B.bput(b, "        // of the status bar and of the navigation bar (not the insets the\n")
   val () = $B.bput(b, "        // web view is given, which Capacitor's SystemBars rewrites, and from\n")
