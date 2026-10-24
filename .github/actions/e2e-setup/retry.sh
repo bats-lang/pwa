@@ -6,13 +6,21 @@
 # Retried only on the failures of a download: a connection that dropped
 # (npm's and Playwright's own words for them, below), or an archive cut
 # short, which sdkmanager reports as "Error on ZipFile unknown archive"
-# and still exits 0 (bats-lang/quire#617). A lock that does not match
+# and still exits 0 (bats-lang/quire#617), or a repository index cut short,
+# which sdkmanager reports as "parsing problem. XML document structures must
+# start and end within the same entity" (bats-lang/pwa#169). A lock that does not match
 # package.json, a version that does not exist or a missing file fails at
 # once, since a second try cannot change it. E2E_ATTEMPTS (default 3) is
 # the number of tries, E2E_PAUSE_S (default 15) the first pause; the tests
 # set both small.
 
-NETWORK_FAILURE='code (ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|ESOCKETTIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|EHOSTUNREACH|ENETUNREACH|FETCH_ERROR|E429|E50[0-9])|network (read|timeout|socket)|socket hang up|Download failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ZipFile unknown archive'
+NETWORK_FAILURE='code (ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|ESOCKETTIMEDOUT'
+NETWORK_FAILURE="$NETWORK_FAILURE"'|EAI_AGAIN|ENOTFOUND|EPIPE|EHOSTUNREACH|ENETUNREACH'
+NETWORK_FAILURE="$NETWORK_FAILURE"'|FETCH_ERROR|E429|E50[0-9])|network (read|timeout|socket)'
+NETWORK_FAILURE="$NETWORK_FAILURE"'|socket hang up|Download failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN'
+NETWORK_FAILURE="$NETWORK_FAILURE"'|ZipFile unknown archive|parsing problem'
+NETWORK_FAILURE="$NETWORK_FAILURE"'|XML document structures must start and end'
+NETWORK_FAILURE="$NETWORK_FAILURE"' within the same entity'
 
 retry() {
   label=$1; shift

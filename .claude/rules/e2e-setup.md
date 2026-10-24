@@ -19,7 +19,10 @@ after the checkout), that does it once for every app:
   match `package.json` and never rewrites it) with `--fetch-retries=5`
   (npm's default is 2) and npm's default 10 s to 60 s backoff, and the
   whole install again, up to 3 tries with a doubling pause, when it fails
-  with a connection's error (`retry.sh`); any other failure ends at once;
+  with a connection's error (`retry.sh`), or an index or archive cut short
+  (sdkmanager's `ZipFile unknown archive`, and `parsing problem. XML document
+  structures must start and end within the same entity`, both with exit 0 or
+  a missing package after); any other failure ends at once;
 * the installed Playwright version read from `playwright-core` and
   refused below `playwright-minimum` (pwa#92's reason: quire's fake clock
   needs 1.58), with the message saying why;
