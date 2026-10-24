@@ -33,7 +33,8 @@ def probe_answer():
     right = WINDOW + 30 if mode == 'outside' and scale > 1 else 100 * scale
     scroll = WINDOW + 50 if mode == 'wide' and scale > 1 else WINDOW
     return json.dumps({'line': line, 'left': 8, 'right': right,
-                       'width': WINDOW, 'scrollWidth': scroll})
+                       'width': WINDOW, 'scrollWidth': scroll},
+                      separators=(',', ':'))  # as JSON.stringify writes it
 
 
 def read_exact(rfile, n):
