@@ -243,7 +243,8 @@ Play.
    an attribute condition that admits only the runs that may release,
    for example
    `assertion.repository == 'OWNER/REPO' && assertion.ref == 'refs/heads/main' && assertion.event_name == 'push'`.
-   Let the pool's identities of that repository impersonate the service
+   Without a condition, any workflow of any repository that knows the
+   provider's name could ask for the account's token. Let the pool's identities of that repository impersonate the service
    account (`roles/iam.workloadIdentityUser` on the account for
    `principalSet://iam.googleapis.com/projects/<number>/locations/global/workloadIdentityPools/<pool>/attribute.repository/OWNER/REPO`).
    The `repository`, `ref` and `event_name` claims are the *calling*
@@ -257,16 +258,15 @@ Play.
    or on `job_workflow_sha` (the commit of this file); a caller that
    copies the job or points at another version of the workflow then
    gets no token, and moving the pin means changing the condition in
-   the same step. GitHub documents both claims: "the ref path to the
+   the same step. Such a condition pins the workflow file only: the
+   script that runs comes from the commit named by `pwa-ref`, which the
+   condition does not pin. GitHub documents both claims: "the ref path to the
    reusable workflow" and "the commit SHA for the reusable workflow
    file"
    (https://docs.github.com/en/actions/reference/security/oidc);
    Google's attribute conditions can use any claim the provider
    maps or reads from `assertion`
    (https://cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines).
-   Without a
-   condition, any workflow of any repository that knows the provider's
-   name could ask for the account's token.
 3. **Play's user management** (Users and permissions, then Invite new
    users): the service account's address, with the permission *Release
    apps to testing tracks* for this app and nothing else. Production
