@@ -53,13 +53,44 @@ paths:
   of the stable channel, `channel-0`, and for `platforms;android-34` the highest
   revision), edit its line in `pins.txt`, and replace `<name>.xml` with the
   `package.xml` sdkmanager writes for it (`sdkmanager --sdk_root=<empty dir>
-  --install '<package>' --channel=0`, copy `<dir>/package.xml`). Moving them with the
-  relock is pwa#173. When Google removes an archive the pin names, the
+  --install '<package>' --channel=0`, copy `<dir>/package.xml`). `android-sdk-pins repin`
+  does that by program (below). When Google removes an archive the pin names, the
   smoke test's job fails in the step "Install the emulator's SDK packages at their
   pins" with `curl: (22) ... 404` and `the download failed`, then `no download that
   matches the pinned SHA-1 could be had: refused`; the fix is that pull request. A
   replaced archive at the same URL fails with `is not the pinned one: its SHA-1
   differs from the pin`.
+* `android-sdk-pins repin <feed-directory>`, run in the directory of `pins.txt`, moves
+  the pins to the newest stable revision in Google's two repository XML files, which
+  the caller has put in `<feed-directory>` as `repository2-1.xml` and `sys-img2-1.xml`
+  (the tool makes no network call). Beside them the caller writes `<archive file
+  name>.age`, the whole days since the archive's `Last-Modified`, for the pinned
+  archive of each package and for the one it may move to (the repository XML has no
+  date). The XML is read as text, never parsed as a tree: a package is the
+  `<remotePackage path="P">` blocks of its path (a block with another attribute,
+  `obsolete="true"`, is not one); the stable channel is the `<channel id="X">stable`
+  whose id the block's `<channelRef ref="X"/>` names (the ids are Google's to number;
+  a revision on dev, beta or canary is not a newer pin); the latest revision is the
+  greatest major, minor, micro (absent is 0) whatever the order of the blocks; its
+  archive is the first `<archive>` with `host-os` linux or none, `host-bits` 64 or
+  none and no `host-arch`; its `<checksum>` must be 40 lower case hex digits and its
+  `<url>` letters, digits, dot, minus, underscore; the URL is the pinned URL's
+  directory and that name. A moved package gets its `pins.txt` line (only the URL and
+  the SHA-1 change; every other byte of the file is kept) and its `<name>.xml` with
+  the `<revision>` written as sdkmanager writes it and the `<display-name>` of the
+  feed, the rest of the file as it was (the package's own type details are not
+  rewritten: for a platform, the block with the same `<extension-level>` when both
+  have one). Each package prints a record, tab separated: `android-sdk`, name, old and
+  new revision, age, `moved` or `current`: the format of repository-prototype's
+  `tools/repin`, whose `kind` word is the first column. Exit 0 when every package was
+  examined; 1 when one cannot be (a checksum that is not a SHA-1, no Linux archive, no
+  stable channel, a missing `.age`, `<name>.xml` or feed), said on stderr; 2 when
+  `pins.txt` is not usable. After a 1 the files already written are the caller's to
+  discard. `tests/android-sdk-pins/repin.sh` runs it against fixtures of the feeds
+  (`tests/android-sdk-pins/repin/`: pins already the newest, newer revisions only on
+  another channel or obsolete, a platform of another extension level, a newer stable
+  one in any block order, every pin newer with another stable channel id) and the
+  unusable cases.
 * `tests/android-sdk-pins/check.sh` (the `check` job) runs the tool against small
   packages and a stand-in for Google's server: the pinned download installed
   (its first response cut short), a package already as pinned left alone with

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<sdk:sdk-repository xmlns:sdk="http://schemas.android.com/sdk/android/repo/repository2/03"
+  xmlns:generic="http://schemas.android.com/repository/android/generic/02"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <license id="android-sdk-license" type="text">A license text of the fixture.</license>
+  <channel id="channel-0">stable</channel>
+  <channel id="channel-1">beta</channel>
+  <channel id="channel-2">dev</channel>
+  <channel id="channel-3">canary</channel>
+  <remotePackage path="system-images;android-34;default;x86_64">
+    <type-details xsi:type="sdk:sysImgDetailsType">
+      <api-level>34</api-level>
+      <tag><id>default</id><display>Default Android System Image</display></tag>
+      <abi>x86_64</abi>
+    </type-details>
+    <revision>
+      <major>4</major>
+    </revision>
+    <display-name>Intel x86_64 Atom System Image</display-name>
+    <uses-license ref="android-sdk-license"/>
+    <channelRef ref="channel-0"/>
+    <archives>
+      <archive>
+        <complete>
+          <size>720747116</size>
+          <checksum>5f6a249f9bc3b1b4c459b13ce2eb646c9680bed1</checksum>
+          <url>sys-r4.zip</url>
+        </complete>
+      </archive>
+    </archives>
+  </remotePackage>
+</sdk:sdk-repository>

@@ -42,11 +42,13 @@ jobs:
 
       # The tool android.yml installs the smoke test's SDK packages with
       # (bats-lang/pwa#137), built as the android job builds it, against
-      # small packages and a stand-in for Google's download server
+      # small packages and a stand-in for Google's download server, and its
+      # `repin` against fixtures of Google's repository XML (bats-lang/pwa#184)
       - name: SDK pins tool
         run: |
           (cd tools/android-sdk-pins && bats build --repository $HOME/repository)
           tests/android-sdk-pins/check.sh tools/android-sdk-pins/dist/debug/android-sdk-pins
+          tests/android-sdk-pins/repin.sh tools/android-sdk-pins/dist/debug/android-sdk-pins
 
       - name: Upload library to local repository
         run: bats upload --repository $HOME/repository
