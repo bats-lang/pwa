@@ -30,6 +30,10 @@ action the workflow uses is pinned by a commit with its version.
   would know its own files (`github.action_path`, as e2e-setup does) but
   could not take the `id-token` permission or the job's `concurrency`; the
   caller passes its pin twice instead.
+  `pwa-ref` must be the same full SHA as the caller's `uses:` pin, never a
+  branch or a tag: a different or floating value runs a script other than
+  the pinned one. Skew between the two is the caller's choice, not an
+  escalation.
 * **Who may release is Google's side, not this workflow's.** The provider's
   attribute condition (the calling repository, the ref, the event) admits
   the runs that get the service account's token; the workflow checks

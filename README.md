@@ -206,11 +206,17 @@ exchanged for a token of a service account.
       contents: read
       id-token: write
     with:
-      pwa-ref: <sha>                  # the same commit: the script is taken from it
+      pwa-ref: <sha>                  # the same full SHA as the pin above: the script is taken from it
       package: dev.example.app
       workload-identity-provider: projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
       service-account: <name>@<project>.iam.gserviceaccount.com
 ```
+
+`pwa-ref` must be the same full 40-hex SHA as the `uses:` pin of the
+caller, never a branch or a tag: a reusable workflow cannot read the
+commit it was called at, so `pwa-ref` alone says which `scripts/` run, and
+a different or floating value runs a script other than the pinned one. A
+caller that lets the two differ has chosen that skew itself.
 
 Inputs: `artifact` (default `release-aab`), `track` (`internal`, `alpha`,
 `beta` or a custom closed track's name; `production` is refused),
