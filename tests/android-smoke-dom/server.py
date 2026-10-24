@@ -6,11 +6,14 @@
 #   ok: the document for outerHTML; for the font scale probe (pwa#154) a text
 #     line 20 px high times the scale in <scalefile> (1.0 when it is not there)
 #   silent: takes the evaluation and never answers it
+#   silent-probe: answers the document and the page's own "is the text shown"
+#     question (pwa#201), never the font scale probe
+#   hidden: the text is in the page but the page is not visible
 #   textzoom: the probe's line stays 20 px whatever the scale (a shell that
 #     set textZoom)
 #   wide: the page is wider than the window at a scale above 1
 #   outside: the text spans past the window's right edge at a scale above 1
-import base64, hashlib, json, socketserver, struct, sys, threading
+import base64, hashlib, json, re, socketserver, struct, sys, threading
 
 GUID = b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 FILLER = 'x' * 100000
@@ -91,10 +94,22 @@ class Handler(socketserver.StreamRequestHandler):
         call = json.loads(bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
         assert call['method'] == 'Runtime.evaluate', call
         expression = call['params']['expression']
+        asks_shown = 'visibilityState' in expression
         if mode == 'silent':
             return
+        if mode == 'silent-probe' and expression != 'document.documentElement.outerHTML' and not asks_shown:
+            return
+        if asks_shown:
+            # the page's answer to "visible, and this text in it" (pwa#201)
+            needle = json.loads(re.search(r'indexOf\((".*")\)', expression).group(1))
+            visible_required = 'document.visibilityState === "visible"' in expression
+            shown = (mode != 'hidden' or not visible_required) and needle in DOCUMENT
+            value = {'result': {'type': 'boolean', 'value': shown}}
+            answer = json.dumps({'id': call['id'], 'result': value}).encode()
+            self.wfile.write(frame(1, True, answer))
+            return
         if expression != 'document.documentElement.outerHTML':
-            assert '@TEXT@' not in expression and '"BATS PWA"' in expression, expression
+            assert '@TEXT@' not in expression and '})("' in expression, expression
             value = {'result': {'type': 'string', 'value': probe_answer()}}
             answer = json.dumps({'id': call['id'], 'result': value}).encode()
             self.wfile.write(frame(1, True, answer))

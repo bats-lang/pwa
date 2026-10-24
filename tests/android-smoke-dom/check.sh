@@ -16,8 +16,16 @@
 #      says why) when the text stays as high (a shell that set textZoom), when the
 #      page is wider than the window, when the text spans past the window, and
 #      when the page never answers.
+#   6. (pwa#201) "on the screen" is the page's own answer over DevTools, not the
+#      accessibility tree: a dump that never holds the text while the page has it
+#      passes (and the font scale step runs); a dump that holds the text while the
+#      page lacks it, or has it hidden, fails; the failure line says how many polls
+#      were made, when the last was and what it answered.
 # usage: tests/android-smoke-dom/check.sh <smoke-test.sh>
 set -eu
+# the wait of shown(), two minutes in a run, seconds here
+SMOKE_WAIT_S=5
+export SMOKE_WAIT_S
 HERE=$(cd "$(dirname "$0")" && pwd)
 [ $# = 1 ] || { echo "usage: $0 <smoke-test.sh>" >&2; exit 2; }
 SCRIPT=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
@@ -52,6 +60,7 @@ chmod +x "$TMP/bin/sleep" "$TMP/bin/adb"
 : > "$TMP/screen-without-text.xml"
 echo '<node text="Example App" />' > "$TMP/screen-without-text.xml"
 echo '<node text="BATS PWA" />' > "$TMP/screen-with-text.xml"
+echo '<node text="NEVER ON SCREEN" />' > "$TMP/screen-with-other-text.xml"
 UNIX_ROW='00000000: 00000002 00000000 00010000 0001 01 0 @webview_devtools_remote_'
 printf '%s4242\n' "$UNIX_ROW" > "$TMP/unix-with-socket"
 printf '%s1\n' "$UNIX_ROW" > "$TMP/unix-without-socket"
@@ -83,6 +92,9 @@ run absent ok screen-without-text.xml unix-with-socket "NEVER ON SCREEN"
   fail "the script did not fail on a text never shown" "$TMP/absent.out"
 grep -q "'NEVER ON SCREEN' was not on the screen" "$TMP/absent.out" ||
   fail "no message" "$TMP/absent.out"
+grep -Eq "after two minutes: [0-9]+ DevTools polls, the last at [0-9:]+ answered 'false'" "$TMP/absent.out" ||
+  fail "the failure line does not give the polls, the time of the last and its answer" "$TMP/absent.out"
+grep "was not on the screen" "$TMP/absent.out"
 for f in ui.xml screenshot.png logcat.txt dom.html; do
   [ -s "$TMP/absent/$f" ] || fail "$f is not in the output directory" "$TMP/absent.out"
 done
@@ -109,6 +121,25 @@ run present ok screen-with-text.xml unix-with-socket "BATS PWA"
 # no forward for the DOM, and each forward of the font scale probes removed
 [ "$(grep -c '^adb forward tcp:0' "$TMP/present.log")" = "$(grep -c '^adb forward --remove' "$TMP/present.log")" ] ||
   fail "a forward was left" "$TMP/present.log"
+
+# 2b. (pwa#201) the dump never holds the text, the page has it: shown
+run drawn ok screen-without-text.xml unix-with-socket "BATS PWA"
+[ "$(cat "$TMP/drawn.status")" = 0 ] ||
+  fail "the script failed on a page with the text whose dump never shows it" "$TMP/drawn.out"
+grep -q "^'BATS PWA' is on the screen$" "$TMP/drawn.out" || fail "not said shown" "$TMP/drawn.out"
+[ ! -e "$TMP/drawn/dom.html" ] || fail "dom.html is kept when the text shows"
+if grep -q 'uiautomator' "$TMP/drawn.log"; then fail "the accessibility tree was asked for a page that shows" "$TMP/drawn.log"; fi
+grep -q 'Font scale 2.0: ratio' "$TMP/drawn.out" || fail "the font scale step did not run" "$TMP/drawn.out"
+
+# 2c. the dump holds the text, the page lacks it: not shown; 2d. the text is in a hidden page
+run lacking ok screen-with-other-text.xml unix-with-socket "NEVER ON SCREEN"
+[ "$(cat "$TMP/lacking.status")" = 1 ] ||
+  fail "the script passed on a page that lacks the text its dump holds" "$TMP/lacking.out"
+grep -q "'NEVER ON SCREEN' was not on the screen" "$TMP/lacking.out" || fail "no message" "$TMP/lacking.out"
+[ -s "$TMP/lacking/dom.html" ] || fail "no dom.html" "$TMP/lacking.out"
+run hidden hidden screen-with-text.xml unix-with-socket "BATS PWA"
+[ "$(cat "$TMP/hidden.status")" = 1 ] ||
+  fail "the script passed on a page that is not visible" "$TMP/hidden.out"
 
 # 3. no socket
 run nosocket ok screen-without-text.xml unix-without-socket "NEVER ON SCREEN"
@@ -137,7 +168,7 @@ done
 grep -q '^Font scale 1.3: its line is 1.00 times as high as at 1.0' "$TMP/font-textzoom.out" || fail "textzoom not said" "$TMP/font-textzoom.out"
 grep -q '^Font scale 1.3: the page is 462 px wide in a window of 412 px' "$TMP/font-wide.out" || fail "wide not said" "$TMP/font-wide.out"
 grep -q '^Font scale 1.3: the text spans 8 to 442' "$TMP/font-outside.out" || fail "outside not said" "$TMP/font-outside.out"
-run font-silent silent screen-with-text.xml unix-with-socket "BATS PWA"
+run font-silent silent-probe screen-with-text.xml unix-with-socket "BATS PWA"
 [ "$(cat "$TMP/font-silent.status")" = 1 ] || fail "the script passed with a silent page" "$TMP/font-silent.out"
 grep -q '^Font scale 1.0: the text was never on the page' "$TMP/font-silent.out" || fail "silence not said" "$TMP/font-silent.out"
 echo "OK: the page's DOM is kept when the text never shows, and the font scale reaches the page"
