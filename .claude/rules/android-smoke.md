@@ -188,9 +188,23 @@ paths:
   question from its document): a dump that never holds the text while the page has
   it passes, with no `uiautomator` call; a dump that holds a text the page lacks,
   and a page that has the text but is not visible, fail.
-* The length bounds of `_smoke_head` and `build_smoke_test_script_font_scale` grew
-  (head 10400 to 11000, the font form 15000 to 16000) for the added text; the
-  script of `build_smoke_test_script` stays inside its 12000.
+* **Overlap, not an in-place change (pwa#202).** The new text does not fit the
+  published `n + 15000` of `build_smoke_test_script_font_scale` (head 10400 to about
+  10900 bytes), and a published bound is part of the type a dependent compiles
+  against. So the type and the text of the two published forms are unchanged
+  (`build_smoke_test_script`, `n + 12000`; `build_smoke_test_script_font_scale`,
+  `n + 15000`: both still poll `uiautomator dump`, byte for byte the script of main
+  before pwa#201), and the fix is the new form beside them,
+  `build_smoke_test_script_font_scale_devtools` (`n + 16000`), which `create_android`
+  writes and so which every app build's `smoke-test.sh` is. The script is built from
+  pieces (`_smoke_head_a`, `_smoke_shown_dump` or `_smoke_shown_devtools`,
+  `_smoke_head_b`, the font scale step, `_smoke_tail_a`, `_smoke_never_dump` or
+  `_smoke_never_devtools`, `_smoke_tail_b`) each with its own bound, so the old forms
+  keep their proof. `tests/dynamic/smoke-compat` calls both old forms and compares
+  their text with `expected`, so an edit cannot drop them. The old
+  `font_scale` is removed by bats-lang/pwa#203, `build_smoke_test_script` by #189.
+  `build_main_activity` is not changed (11500). No dependent calls either form
+  directly (quire's `gen-pwa` calls `create_android_locked`).
 
 # The system font scale on the emulator (pwa#154, quire#412)
 

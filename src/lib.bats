@@ -115,8 +115,8 @@ staload TR = "./test_run.sats"
    window's insets) goes to bridge's batsNative.systemBars, the latest
    once the page has it; the web view takes the insets as it would
    without the listener (bats-lang/quire#314). *)
-#pub fn build_main_activity {ni:nat | ni < 256}{n:nat | n + 11000 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 11000] $B.builder(m), app_id: string ni): void
+#pub fn build_main_activity {ni:nat | ni < 256}{n:nat | n + 11500 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 11500] $B.builder(m), app_id: string ni): void
 
 (* The intent filters build-android.sh adds to MainActivity: it opens
    (VIEW) and is shared (SEND, SEND_MULTIPLE) files of type mime *)
@@ -174,7 +174,15 @@ staload TR = "./test_run.sats"
    as at 1.0 (the shell sets no textZoom, so the scale reaches the page) and
    fits the window. The form create_android writes; build_smoke_test_script
    stays beside it, without that step (android-smoke). *)
-#pub fn build_smoke_test_script_font_scale {ni:nat | ni < 256}{n:nat | n + 16000 <= $B.BUILDER_CAP}
+(* deprecated (android-smoke): create_android writes build_smoke_test_script_font_scale_devtools, whose shown() asks the page (pwa#201); this keeps its type and its dump-polling text, removed by bats-lang/pwa#203 *)
+#pub fn build_smoke_test_script_font_scale {ni:nat | ni < 256}{n:nat | n + 15000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 15000] $B.builder(m), app_id: string ni): void
+
+(* build_smoke_test_script_font_scale with the fix of bats-lang/pwa#201 (android-smoke): shown()
+   asks the page over DevTools whether it is visible and holds the text, as uiautomator's tree
+   stays partial on a slow emulator. Its text is longer, so its bound is 16000. The form
+   create_android writes. *)
+#pub fn build_smoke_test_script_font_scale_devtools {ni:nat | ni < 256}{n:nat | n + 16000 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 16000] $B.builder(m), app_id: string ni): void
 
 (* Writes a Capacitor project in project_dir for the PWA in web_dir
@@ -848,14 +856,14 @@ implement build_intent_filters (b, mime) = let
   val () = $B.bput(b, "            </intent-filter>\n")
 in end
 
-(* the smoke test script up to the font scale, shared by the two forms (android-smoke) *)
-fn _smoke_head {ni:nat | ni < 256}{n:nat | n + 11000 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 11000] $B.builder(m), app_id: string ni): void = let
+(* the smoke test script up to its shown(), shared by every form (android-smoke) *)
+fn _smoke_head_a {ni:nat | ni < 256}{n:nat | n + 6540 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 6540] $B.builder(m), app_id: string ni): void = let
   val () = $B.bput(b, "#!/bin/sh\n")
   val () = $B.bput(b, "# usage: smoke-test.sh <apk> <text> <out-dir> [<file> <type> <text>]\n")
   val () = $B.bput(b, "# On a running emulator or device (adb): installs the APK (signed\n")
   val () = $B.bput(b, "# with a throwaway key when unsigned), launches the app, and waits\n")
-  val () = $B.bput(b, "# up to two minutes for <text> on the screen (over DevTools, pwa#201). Writes screenshot.png,\n")
+  val () = $B.bput(b, "# up to two minutes for <text> on the screen. Writes screenshot.png,\n")
   val () = $B.bput(b, "# ui.xml and logcat.txt to <out-dir>, and dom.html (the page's DOM)\n")
   val () = $B.bput(b, "# when the text does not show (android-smoke). Fails when the text never\n")
   val () = $B.bput(b, "# shows, the app crashes, or the page logs a console error. With\n")
@@ -992,6 +1000,29 @@ fn _smoke_head {ni:nat | ni < 256}{n:nat | n + 11000 <= $B.BUILDER_CAP}
   val () = $B.bput(b, "keep_dom() {\n")
   val () = $B.bput(b, "  devtools_eval 'document.documentElement.outerHTML' \"$OUT/dom.html\"\n")
   val () = $B.bput(b, "}\n")
+in end
+
+(* shown() polling uiautomator dump: the form before pwa#201, kept byte for byte for the old
+   published forms (deprecated, android-smoke, removed by bats-lang/pwa#203 and #189) *)
+fn _smoke_shown_dump {n:nat | n + 430 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 430] $B.builder(m)): void = let
+  val () = $B.bput(b, "# Waits up to two minutes for $1 on the screen: found is 1 once it shows;\n")
+  val () = $B.bput(b, "# when it gives up, the page's DOM is kept beside ui.xml (android-smoke)\n")
+  val () = $B.bput(b, "shown() {\n")
+  val () = $B.bput(b, "  found=0\n")
+  val () = $B.bput(b, "  for _ in $(seq 60); do\n")
+  val () = $B.bput(b, "    sleep 2\n")
+  val () = $B.bput(b, "    adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || continue\n")
+  val () = $B.bput(b, "    adb shell cat /sdcard/ui.xml > \"$OUT/ui.xml\" || continue\n")
+  val () = $B.bput(b, "    if grep -qF \"$1\" \"$OUT/ui.xml\"; then found=1; return 0; fi\n")
+  val () = $B.bput(b, "  done\n")
+  val () = $B.bput(b, "  keep_dom\n")
+  val () = $B.bput(b, "}\n")
+in end
+
+(* shown() asking the page over DevTools (android-smoke, pwa#201) *)
+fn _smoke_shown_devtools {n:nat | n + 920 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 920] $B.builder(m)): void = let
   val () = $B.bput(b, "# The page's own answer: visible, with the text (android-smoke, pwa#201)\n")
   val () = $B.bput(b, "SHOWN='document.visibilityState === \"visible\" && document.body !== null && document.body.innerText.indexOf(@TEXT@) >= 0'\n")
   val () = $B.bput(b, "# Waits up to two minutes (SMOKE_WAIT_S) for $1 on the screen: found is 1 once\n")
@@ -1013,6 +1044,11 @@ fn _smoke_head {ni:nat | ni < 256}{n:nat | n + 11000 <= $B.BUILDER_CAP}
   val () = $B.bput(b, "  adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 && adb shell cat /sdcard/ui.xml > \"$OUT/ui.xml\" || true\n")
   val () = $B.bput(b, "  keep_dom\n")
   val () = $B.bput(b, "}\n")
+in end
+
+(* the smoke test script from shown() to the font scale, shared by every form (android-smoke) *)
+fn _smoke_head_b {n:nat | n + 3420 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 3420] $B.builder(m)): void = let
   val () = $B.bput(b, "# How many of the activity's log lines (tag BatsFiles) hold $1\n")
   val () = $B.bput(b, "logged() {\n")
   val () = $B.bput(b, "  adb logcat -d -s BatsFiles:I | grep -cF \"$1\" || true\n")
@@ -1095,8 +1131,8 @@ fn _smoke_head {ni:nat | ni < 256}{n:nat | n + 11000 <= $B.BUILDER_CAP}
 in end
 
 (* the font scale step of the smoke test script (android-smoke, pwa#154) *)
-fn _smoke_font_scale {n:nat | n + 3500 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 3500] $B.builder(m)): void = let
+fn _smoke_font_scale {n:nat | n + 3330 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 3330] $B.builder(m)): void = let
   val () = $B.bput(b, "# The text's size and place on the page, read as the page lays it out (a\n")
   val () = $B.bput(b, "# line box of the text, the window's and the page's width), for the font\n")
   val () = $B.bput(b, "# scale check (android-smoke)\n")
@@ -1178,9 +1214,9 @@ fn _smoke_font_scale {n:nat | n + 3500 <= $B.BUILDER_CAP}
   val () = $B.bput(b, "fi\n")
 in end
 
-(* the smoke test script from its screenshot on, shared by the two forms (android-smoke) *)
-fn _smoke_tail {n:nat | n + 1000 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 1000] $B.builder(m)): void = let
+(* the smoke test script from its screenshot to the line that says the text never showed (android-smoke) *)
+fn _smoke_tail_a {n:nat | n + 650 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 650] $B.builder(m)): void = let
   val () = $B.bput(b, "adb exec-out screencap -p > \"$OUT/screenshot.png\"\n")
   val () = $B.bput(b, "adb logcat -d > \"$OUT/logcat.txt\"\n")
   val () = $B.bput(b, "status=$failed\n")
@@ -1195,7 +1231,23 @@ fn _smoke_tail {n:nat | n + 1000 <= $B.BUILDER_CAP}
   val () = $B.bput(b, "  echo \"The page logged console errors (above)\"; status=1\n")
   val () = $B.bput(b, "fi\n")
   val () = $B.bput(b, "if [ $found = 0 ]; then\n")
+in end
+
+(* the line for a text that never showed, the form before pwa#201 (deprecated, android-smoke, removed by bats-lang/pwa#203 and #189) *)
+fn _smoke_never_dump {n:nat | n + 70 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 70] $B.builder(m)): void = let
+  val () = $B.bput(b, "  echo \"'$TEXT' was not on the screen after two minutes\"; status=1\n")
+in end
+
+(* the same line with what the DevTools polls answered (android-smoke, pwa#201) *)
+fn _smoke_never_devtools {n:nat | n + 200 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 200] $B.builder(m)): void = let
   val () = $B.bput(b, "  echo \"'$TEXT' was not on the screen after two minutes: $polls DevTools polls, the last at $last_poll answered '$last_answer'\"; status=1\n")
+in end
+
+(* the smoke test script after that line, shared by every form (android-smoke) *)
+fn _smoke_tail_b {n:nat | n + 180 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 180] $B.builder(m)): void = let
   val () = $B.bput(b, "  echo \"The app's file hand-over and page console:\"\n")
   val () = $B.bput(b, "  grep -E \" (BatsFiles|Capacitor[^ ]*) *:\" \"$OUT/logcat.txt\" | tail -40\n")
   val () = $B.bput(b, "else\n")
@@ -1204,14 +1256,32 @@ fn _smoke_tail {n:nat | n + 1000 <= $B.BUILDER_CAP}
   val () = $B.bput(b, "exit $status\n")
 in end
 
+(* the old forms keep the text they had before pwa#201 (android-smoke) *)
 implement build_smoke_test_script (b, app_id) = let
-  val () = _smoke_head(b, app_id)
-in _smoke_tail(b) end
+  val () = _smoke_head_a(b, app_id)
+  val () = _smoke_shown_dump(b)
+  val () = _smoke_head_b(b)
+  val () = _smoke_tail_a(b)
+  val () = _smoke_never_dump(b)
+in _smoke_tail_b(b) end
 
 implement build_smoke_test_script_font_scale (b, app_id) = let
-  val () = _smoke_head(b, app_id)
+  val () = _smoke_head_a(b, app_id)
+  val () = _smoke_shown_dump(b)
+  val () = _smoke_head_b(b)
   val () = _smoke_font_scale(b)
-in _smoke_tail(b) end
+  val () = _smoke_tail_a(b)
+  val () = _smoke_never_dump(b)
+in _smoke_tail_b(b) end
+
+implement build_smoke_test_script_font_scale_devtools (b, app_id) = let
+  val () = _smoke_head_a(b, app_id)
+  val () = _smoke_shown_devtools(b)
+  val () = _smoke_head_b(b)
+  val () = _smoke_font_scale(b)
+  val () = _smoke_tail_a(b)
+  val () = _smoke_never_devtools(b)
+in _smoke_tail_b(b) end
 
 (* ============================================================
    Implementations -- high-level file API
@@ -1330,7 +1400,7 @@ fn _android_project_files {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 2
   val () = build_pnpm_script(pnpm_b)
   val () = _write_to(project_dir, "fetch-pnpm.sh", pnpm_b)
   var st_b = $B.create()
-  val () = build_smoke_test_script_font_scale(st_b, app_id)
+  val () = build_smoke_test_script_font_scale_devtools(st_b, app_id)
 in _write_mode(project_dir, "smoke-test.sh", st_b, 493) end
 
 implement create_android (app_name, app_id, web_dir, project_dir, mime) = let
