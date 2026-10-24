@@ -164,6 +164,7 @@ staload TR = "./test_run.sats"
    (bats-lang/quire#247). Fails when a text never shows, a file is not
    handed over once, the app crashes, or the page logs an error to the
    console. *)
+(* deprecated (android-smoke): create_android writes build_smoke_test_script_font_scale; removed by bats-lang/pwa#189 *)
 #pub fn build_smoke_test_script {ni:nat | ni < 256}{n:nat | n + 12000 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 12000] $B.builder(m), app_id: string ni): void
 
