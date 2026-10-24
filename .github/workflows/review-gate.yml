@@ -1,7 +1,7 @@
 name: review-gate
 
-# No pull request merges before an adversarial review (keyword: adversarial
-# review). This sets the commit status
+# No pull request merges before a review (keyword: adversarial review).
+# This sets the commit status
 # `adversarial-review` on each pull request's head commit. It fails
 # closed: success only for a perfectly formed approval of the current head,
 # by a trusted author, in the newest review attempt, as GitHub renders it
