@@ -244,7 +244,21 @@ Play.
    workflow's, even though the job runs in this reusable workflow
    (`job_workflow_ref` is the one that names this file), so a condition
    on the calling repository works, and it is where "main only" is
-   enforced: the caller's `if` is only a convenience. Without a
+   enforced: the caller's `if` is only a convenience. To pin releases
+   to this workflow as well, add a condition on `job_workflow_ref`
+   (the path of this file with the ref the caller's `uses:` names, for
+   example `assertion.job_workflow_ref == 'bats-lang/pwa/.github/workflows/play-release.yml@<sha>'`)
+   or on `job_workflow_sha` (the commit of this file); a caller that
+   copies the job or points at another version of the workflow then
+   gets no token, and moving the pin means changing the condition in
+   the same step. GitHub documents both claims: "the ref path to the
+   reusable workflow" and "the commit SHA for the reusable workflow
+   file"
+   (https://docs.github.com/en/actions/reference/security/oidc);
+   Google's attribute conditions can use any claim the provider
+   maps or reads from `assertion`
+   (https://cloud.google.com/iam/docs/workload-identity-federation-with-deployment-pipelines).
+   Without a
    condition, any workflow of any repository that knows the provider's
    name could ask for the account's token.
 3. **Play's user management** (Users and permissions, then Invite new
