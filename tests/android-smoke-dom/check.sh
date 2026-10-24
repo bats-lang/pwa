@@ -9,7 +9,13 @@
 #      bytes) after a line naming the page, the forward made and removed;
 #   2. a text on the screen: no dom.html;
 #   3. no DevTools socket in the app's process: dom.html says so;
-#   4. a page that never answers: dom.html says so.
+#   4. a page that never answers: dom.html says so;
+#   5. (pwa#154) a text on the screen: the system font scale is set to 1.3 and 2.0
+#      and back to 1.0, the page's text read at each, and the script passes when
+#      the text is that many times as high and fits the window; it fails (and
+#      says why) when the text stays as high (a shell that set textZoom), when the
+#      page is wider than the window, when the text spans past the window, and
+#      when the page never answers.
 # usage: tests/android-smoke-dom/check.sh <smoke-test.sh>
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -32,6 +38,7 @@ echo "adb $*" >> "$STUB_LOG"
 case "$*" in
   "shell getprop sys.boot_completed") echo 1 ;;
   "shell cat /sdcard/ui.xml") cat "$STUB_UI" ;;
+  "shell settings put system font_scale "*) echo "${6}" > "$STUB_SCALE" ;;
   "shell pidof "*) echo 4242 ;;
   "shell cat /proc/net/unix") cat "$STUB_UNIX" ;;
   "forward tcp:0 localabstract:"*) echo "$(cat "$STUB_PORTFILE")" ;;
@@ -55,14 +62,15 @@ printf '%s1\n' "$UNIX_ROW" > "$TMP/unix-without-socket"
 run() {
   name=$1; mode=$2
   rm -f "$TMP/port"
-  python3 "$HERE/server.py" "$TMP/port" "$mode" &
+  rm -f "$TMP/scale"
+  python3 "$HERE/server.py" "$TMP/port" "$mode" "$TMP/scale" &
   SERVER=$!
   for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$TMP/port" ] && break; /bin/sleep 1; done
   [ -s "$TMP/port" ] || fail "the DevTools stand-in did not start"
   : > "$TMP/$name.log"
   status=0
   PATH="$TMP/bin:$PATH" STUB_LOG="$TMP/$name.log" STUB_UI="$TMP/$3" STUB_UNIX="$TMP/$4" \
-    STUB_PORTFILE="$TMP/port" timeout 120 sh "$SCRIPT" "$TMP/apk.apk" "$5" "$TMP/$name" \
+    STUB_PORTFILE="$TMP/port" STUB_SCALE="$TMP/scale" timeout 120 sh "$SCRIPT" "$TMP/apk.apk" "$5" "$TMP/$name" \
     < /dev/null > "$TMP/$name.out" 2>&1 || status=$?
   kill "$SERVER" 2>/dev/null || true
   SERVER=
@@ -98,9 +106,9 @@ run present ok screen-with-text.xml unix-with-socket "BATS PWA"
 [ "$(cat "$TMP/present.status")" = 0 ] ||
   fail "the script failed on a text shown" "$TMP/present.out"
 [ ! -e "$TMP/present/dom.html" ] || fail "dom.html is kept when the text shows"
-if grep -q 'forward' "$TMP/present.log"; then
-  fail "a forward was made for a passing run" "$TMP/present.log"
-fi
+# no forward for the DOM, and each forward of the font scale probes removed
+[ "$(grep -c '^adb forward tcp:0' "$TMP/present.log")" = "$(grep -c '^adb forward --remove' "$TMP/present.log")" ] ||
+  fail "a forward was left" "$TMP/present.log"
 
 # 3. no socket
 run nosocket ok screen-without-text.xml unix-without-socket "NEVER ON SCREEN"
@@ -113,4 +121,23 @@ grep -q '^DevTools did not answer$' "$TMP/silent/dom.html" ||
   fail "silence not said" "$TMP/silent/dom.html"
 grep -q '^adb forward --remove tcp:' "$TMP/silent.log" ||
   fail "forward not removed after silence" "$TMP/silent.log"
-echo "OK: the page's DOM is kept when the text never shows"
+
+# 5. the system font scale
+run scaled ok screen-with-text.xml unix-with-socket "BATS PWA"
+[ "$(cat "$TMP/scaled.status")" = 0 ] || fail "the script failed at the font scales" "$TMP/scaled.out"
+grep -q '^Font scale 1.3: ratio 1.30 ' "$TMP/scaled.out" || fail "no 1.3" "$TMP/scaled.out"
+grep -q '^Font scale 2.0: ratio 2.00 ' "$TMP/scaled.out" || fail "no 2.0" "$TMP/scaled.out"
+grep 'settings put system font_scale' "$TMP/scaled.log" | tr '\n' ' ' | grep -q 'font_scale 1.0 .*font_scale 1.3 .*font_scale 2.0 .*font_scale 1.0 $' ||
+  fail "the scales were not set 1.0, 1.3, 2.0 and 1.0 again" "$TMP/scaled.log"
+for mode in textzoom wide outside; do
+  run "font-$mode" "$mode" screen-with-text.xml unix-with-socket "BATS PWA"
+  [ "$(cat "$TMP/font-$mode.status")" = 1 ] ||
+    fail "the script passed with the font scale mutant $mode" "$TMP/font-$mode.out"
+done
+grep -q '^Font scale 1.3: its line is 1.00 times as high as at 1.0' "$TMP/font-textzoom.out" || fail "textzoom not said" "$TMP/font-textzoom.out"
+grep -q '^Font scale 1.3: the page is 462 px wide in a window of 412 px' "$TMP/font-wide.out" || fail "wide not said" "$TMP/font-wide.out"
+grep -q '^Font scale 1.3: the text spans 8 to 442' "$TMP/font-outside.out" || fail "outside not said" "$TMP/font-outside.out"
+run font-silent silent screen-with-text.xml unix-with-socket "BATS PWA"
+[ "$(cat "$TMP/font-silent.status")" = 1 ] || fail "the script passed with a silent page" "$TMP/font-silent.out"
+grep -q '^Font scale 1.0: the text was never on the page' "$TMP/font-silent.out" || fail "silence not said" "$TMP/font-silent.out"
+echo "OK: the page's DOM is kept when the text never shows, and the font scale reaches the page"
