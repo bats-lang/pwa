@@ -37,6 +37,13 @@ action the workflow uses is pinned by a commit with its version.
   The token's `repository` claim is the caller's in a reusable workflow
   (`job_workflow_ref` names this file), so a condition on the calling
   repository holds.
+* **The notes are made by the script (pwa#195).** With `-` for the notes
+  file, `scripts/play-release.sh` takes `NOTES` whole when it is not empty,
+  else the first line of `COMMIT_MESSAGE`, trims it and cuts it to 500
+  characters; the workflow only passes the two as environment. So
+  `tests/play-release/run.sh` runs that logic (the first line, the cut, the
+  given notes whole) and also asserts the job's `permissions:` are `contents:
+  read` and `id-token: write`. The notes-file form stays and is tested.
 * **Inputs reach the shell as environment variables**, never spliced into a
   script, so a commit message cannot inject into the step.
 * Pins (by commit, verified with `git ls-remote` on the tag):

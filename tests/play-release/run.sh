@@ -6,8 +6,11 @@
 # deletes the edit; a refused step deletes the edit and commits nothing;
 # notes that are empty or over Play's 500 characters fail before Play is
 # asked anything; another track is released to by its name, and production
-# or a name that is no track's is refused before Play is asked; the
-# workflow that calls the script pins every action by commit. Run from
+# or a name that is no track's is refused before Play is asked; the notes
+# the workflow gives (NOTES, else the first line of COMMIT_MESSAGE, cut to
+# 500 characters) are made by the script and tested here; the workflow that
+# calls the script pins every action by commit and holds the permissions
+# contents: read and id-token: write and no other. Run from
 # anywhere.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
@@ -139,4 +142,51 @@ workflow=$here/../../.github/workflows/play-release.yml
 uses=$(sed -n 's/^[[:space:]-]*uses:[[:space:]]*//p' "$workflow")
 [ -n "$uses" ] || fail "$case: the workflow uses no action"
 echo "$uses" | grep -Ev '^[^@ ]+@[0-9a-f]{40} # v[0-9][0-9.]*$' && fail "$case: an action not pinned by commit with its version" || true
+echo "ok: $case"
+
+# notes_sent <NOTES> <COMMIT_MESSAGE>: a dry run with the notes made from
+# the environment (the workflow's way); the text the track is given is in $tmp/text
+notes_sent() {
+  stub
+  NOTES=$1 COMMIT_MESSAGE=$2 "$release" "$tmp/app.aab" - --dry-run > /dev/null || fail "$case: failed"
+  jq -r 'select(.method == "PUT") | .body' "$tmp/log" | base64 -d | jq -j '.releases[0].releaseNotes[0].text' > "$tmp/text"
+}
+want_text() { printf '%s' "$1" > "$tmp/want"; cmp "$tmp/want" "$tmp/text" || fail "$case: the notes were $(cat "$tmp/text")"; }
+characters() { python3 -c 'import sys; print(len(open(sys.argv[1], encoding="utf-8").read()))' "$1"; }
+
+case="notes: the first line of the commit message"
+notes_sent '' "$(printf '  Add the thing  \n\nA body line\nAnother')"
+want_text "Add the thing"
+echo "ok: $case"
+
+case="notes: given notes are taken whole, not cut at a line"
+notes_sent "$(printf '\n  First\nSecond  \n')" "Ignored commit"
+want_text "$(printf 'First\nSecond')"
+echo "ok: $case"
+
+case="notes: a commit's first line is cut to 500 characters"
+long=$(python3 -c 'print("é" * 501)')
+notes_sent '' "$long
+body"
+[ "$(characters "$tmp/text")" = 500 ] || fail "$case: not 500 characters"
+want_text "$(python3 -c 'print("é" * 500, end="")')"
+echo "ok: $case"
+
+case="notes: given notes are cut to 500 characters"
+notes_sent "$(python3 -c 'print("é" * 400 + "\n" + "x" * 400)')" ""
+[ "$(characters "$tmp/text")" = 500 ] || fail "$case: not 500 characters"
+echo "ok: $case"
+
+case="notes: no notes and no commit message is refused before Play is asked"
+stub
+if NOTES= COMMIT_MESSAGE= "$release" "$tmp/app.aab" - > /dev/null 2>&1; then fail "$case: succeeded"; fi
+[ ! -s "$tmp/log" ] || fail "$case: asked Play"
+echo "ok: $case"
+
+# the job's permissions are these two and no more (the job, not a
+# workflow-wide block)
+case="the workflow's permissions"
+perms=$(awk '/^    permissions:/ {p = 1; next} p && /^      / {print; next} p {p = 0}' "$workflow")
+[ "$perms" = "$(printf '      contents: read\n      id-token: write')" ] || fail "$case: the job's permissions are: $perms"
+if grep -Eq '^permissions:' "$workflow"; then fail "$case: a permissions block outside the job"; fi
 echo "ok: $case"

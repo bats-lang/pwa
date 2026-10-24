@@ -11,7 +11,14 @@
 # promotion of a tested release, in the Play Console.
 #
 # usage: scripts/play-release.sh <aab> <notes-file> [--dry-run]
-# env: PLAY_ACCESS_TOKEN, an OAuth token with the androidpublisher scope;
+#        scripts/play-release.sh <aab> - [--dry-run]
+# With "-" for the notes file the notes are made from the environment
+# (bats-lang/pwa#195; the workflow's notes input and the pushed commit's
+# message): NOTES when it is not empty, taken whole, else the first line of
+# COMMIT_MESSAGE; either way without the white space at either end and cut
+# to Play's 500 characters at a whole character.
+# env: NOTES and COMMIT_MESSAGE, only when the notes file is "-";
+#      PLAY_ACCESS_TOKEN, an OAuth token with the androidpublisher scope;
 #      PLAY_PACKAGE, the application id;
 #      PLAY_TRACK, the track: internal (the default), alpha, beta or the
 #      name of a custom closed track (lower case letters, digits, - and _);
@@ -29,6 +36,34 @@ api=${PLAY_API:-https://androidpublisher.googleapis.com}
 app="$api/androidpublisher/v3/applications/$PLAY_PACKAGE"
 upload="$api/upload/androidpublisher/v3/applications/$PLAY_PACKAGE"
 
+body=$(mktemp)
+edit=
+cleanup() {
+  status=$?
+  if [ -n "$edit" ]; then
+    curl -sS -o /dev/null -X DELETE -H "Authorization: Bearer $PLAY_ACCESS_TOKEN" "$app/edits/$edit" || true
+  fi
+  rm -f "$body" "$body.track" "$body.notes"
+  exit $status
+}
+trap cleanup EXIT
+
+# notes from the environment (see the usage); python3 is the tool that
+# counts characters and cuts at one, as for the length below
+if [ "$notes" = - ]; then
+  python3 -c '
+import os, sys
+text = os.environ.get("NOTES", "")
+if text:
+    text = text.strip()
+else:
+    text = os.environ.get("COMMIT_MESSAGE", "").strip().split("\n")[0].strip()
+with open(sys.argv[1], "w", encoding="utf-8") as out:
+    out.write(text[:500])
+' "$body.notes"
+  notes=$body.notes
+fi
+
 # Play's "What's new" holds 500 characters a language (the notes are
 # taken without the white space at either end)
 length=$(python3 -c 'import sys; print(len(open(sys.argv[1], encoding="utf-8").read().strip()))' "$notes")
@@ -41,18 +76,6 @@ if [ "$length" -gt 500 ]; then
   exit 1
 fi
 [ -s "$aab" ] || { echo "error: no AAB at $aab" >&2; exit 1; }
-
-body=$(mktemp)
-edit=
-cleanup() {
-  status=$?
-  if [ -n "$edit" ]; then
-    curl -sS -o /dev/null -X DELETE -H "Authorization: Bearer $PLAY_ACCESS_TOKEN" "$app/edits/$edit" || true
-  fi
-  rm -f "$body" "$body.track"
-  exit $status
-}
-trap cleanup EXIT
 
 # call <what> <curl arguments>: the answer in $body, a failure said with it
 call() {

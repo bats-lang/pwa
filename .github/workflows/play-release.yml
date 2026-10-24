@@ -128,19 +128,11 @@ jobs:
           set -- aab/*.aab
           [ $# -eq 1 ] && [ -f "$1" ] || { echo "::error::the artifact holds no single AAB: $*"; exit 1; }
           aab=$1
-          # given notes are taken whole; else the commit's first line; either
-          # way cut to Play's 500 characters at a whole character
-          if [ -n "$NOTES" ]; then FIRST_LINE_ONLY=; else NOTES=$COMMIT_MESSAGE; FIRST_LINE_ONLY=1; fi
-          export FIRST_LINE_ONLY
-          printf '%s' "$NOTES" | python3 -c '
-          import os, sys
-          text = sys.stdin.read().strip()
-          if os.environ.get("FIRST_LINE_ONLY"):
-              text = text.split("\n")[0].strip()
-          sys.stdout.write(text[:500])
-          ' > "$RUNNER_TEMP/notes"
+          # the notes (given whole, else the commit's first line, cut to 500
+          # characters) are made by the script, where tests/play-release/run.sh
+          # runs them (bats-lang/pwa#195)
           if [ "$DRY_RUN" = true ]; then
-            pwa/scripts/play-release.sh "$aab" "$RUNNER_TEMP/notes" --dry-run
+            pwa/scripts/play-release.sh "$aab" - --dry-run
           else
-            pwa/scripts/play-release.sh "$aab" "$RUNNER_TEMP/notes"
+            pwa/scripts/play-release.sh "$aab" -
           fi
