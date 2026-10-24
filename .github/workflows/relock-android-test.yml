@@ -1,0 +1,53 @@
+# The relock's Android SDK pins (bats-lang/pwa#185, area: android-relock): relock.sh, the
+# command relock.yml gives relock-pins.yml as repin-command, run against a fixture of Google's
+# repository XML (tests/android-relock/check.sh), and the table that workflow renders from its
+# records, built from repository-prototype at the commit relock.yml calls.
+name: relock-android test
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/relock.yml'
+      - '.github/workflows/relock-android-test.yml'
+      - 'tools/android-sdk-pins/**'
+      - 'tests/android-relock/**'
+      - 'tests/android-sdk-pins/repin/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  relock-android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # the setup action names a pull request's head, the merge's second parent (bats#283)
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Set up bats
+        id: bats
+        uses: bats-lang/bats/.github/actions/setup@8e978dfe7fac83726730361329c91b0e829beaad # bats 8e978df (#287)
+
+      - name: Build the SDK pins tool
+        run: (cd tools/android-sdk-pins && bats build --repository $HOME/repository)
+
+      # repository-prototype at the commit relock.yml calls: the very code that renders the
+      # records into the pull request's body
+      - name: Build repin's table
+        run: |
+          set -eu
+          commit=$(grep -o 'relock-pins.yml@[0-9a-f]\{40\}' .github/workflows/relock.yml | cut -d@ -f2)
+          [ ${#commit} -eq 40 ] || { echo "::error::relock.yml does not call relock-pins.yml by a commit"; exit 1; }
+          mkdir "$RUNNER_TEMP/rp"
+          cd "$RUNNER_TEMP/rp"
+          git init -q
+          git fetch -q --depth 1 https://github.com/bats-lang/repository-prototype "$commit"
+          git checkout -q FETCH_HEAD
+          (cd tools/repin && bats build --repository "$RUNNER_TEMP/rp")
+
+      - name: The relock against fixtures of Google's feeds
+        run: tests/android-relock/check.sh tools/android-sdk-pins/dist/debug/android-sdk-pins "$RUNNER_TEMP/rp/tools/repin/dist/debug/repin"
