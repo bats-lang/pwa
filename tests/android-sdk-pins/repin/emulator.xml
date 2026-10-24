@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ns2:repository xmlns:ns2="http://schemas.android.com/repository/android/common/02"
+  xmlns:ns5="http://schemas.android.com/repository/android/generic/02"
+  xmlns:ns11="http://schemas.android.com/sdk/android/repo/repository2/03"
+  xmlns:ns12="http://schemas.android.com/sdk/android/repo/sys-img2/03">
+<license id="android-sdk-license" type="text">A license text of the fixture.</license>
+<localPackage path="emulator" obsolete="false">
+<type-details
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="ns5:genericDetailsType"/>
+<revision>
+<major>37</major>
+<minor>2</minor>
+<micro>12</micro>
+</revision>
+<display-name>Android Emulator</display-name>
+<uses-license ref="android-sdk-license"/>
+</localPackage>
+</ns2:repository>

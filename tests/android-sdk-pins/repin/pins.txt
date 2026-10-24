@@ -1,0 +1,5 @@
+# Fixture pins (tests/android-sdk-pins/repin.sh): name url sha1 unzip-into package-dir
+platform-tools http://x.test/pt-r1.zip 477254aa5f903c15cf51001717bdf347fb6b53e0 . platform-tools
+platforms-android-34 http://x.test/pl-r3.zip 1f2e9478d6a7601425ceaa553311dc43191f103d platforms p/34
+emulator http://x.test/emu-r1.zip cd7362ea55dfb86a418958138dc396e74165dd01 . emulator
+system-image http://x.test/sys-r4.zip 5f6a249f9bc3b1b4c459b13ce2eb646c9680bed1 img img/x86_64
