@@ -94,6 +94,7 @@ grep -q "'NEVER ON SCREEN' was not on the screen" "$TMP/absent.out" ||
   fail "no message" "$TMP/absent.out"
 grep -Eq "after two minutes: [0-9]+ DevTools polls, the last at [0-9:]+ answered 'false'" "$TMP/absent.out" ||
   fail "the failure line does not give the polls, the time of the last and its answer" "$TMP/absent.out"
+grep "was not on the screen" "$TMP/absent.out"
 for f in ui.xml screenshot.png logcat.txt dom.html; do
   [ -s "$TMP/absent/$f" ] || fail "$f is not in the output directory" "$TMP/absent.out"
 done

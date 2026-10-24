@@ -159,6 +159,39 @@ paths:
   shown keeps none and makes no forward; no socket and a silent page are said in
   the file, and the forward is removed after silence.
 
+# "On the screen" is the page's answer, not the accessibility tree's (pwa#201)
+
+* `shown` (in `smoke-test.sh`) used to poll `uiautomator dump` for the text. Each dump
+  opens an accessibility connection for about a second, and Chromium's WebView
+  builds its tree only while one is connected; on a slow emulator all 64 dumps of
+  a run (run 40095843379, job 120880157426) came back without the text of a page
+  that had loaded and drawn it (`dom.html` and `screenshot.png` of that run had
+  it). The check was a race with the tree.
+* It now asks the page, over the DevTools socket `keep_dom` already uses
+  (`devtools_eval`), every 2 s: `document.visibilityState === "visible" &&
+  document.body !== null && document.body.innerText.indexOf(<text>) >= 0` (the
+  `SHOWN` expression). `innerText` is the text as laid out (not hidden by CSS) and
+  `visible` says the page is the one in front, which is what "on the screen" meant;
+  the screenshot, taken at the end as before, is the evidence that it was drawn.
+  Found is the answer `true`. It reads only; nothing in the page or the app changes.
+* Research (what comparable suites decide on): Appium's WebView automation switches
+  to the WEBVIEW context, which is chromedriver over the same DevTools protocol,
+  and reads the page (`getPageSource`, `execute`) rather than the native tree;
+  Playwright's Android support (`device.webView()`) drives a WebView's pages over
+  DevTools as well. Both ask the page, as here. Neither was run for this change.
+* The wait is 60 polls or `SMOKE_WAIT_S` seconds (default 120, "two minutes"; the
+  test sets it to seconds), whichever ends first: a silent page takes 15 s a poll.
+  On giving up, `ui.xml` (one dump, for evidence), `dom.html`, `shown-answer.txt` (the
+  last answer) and the screenshot are kept, and the failure line says how many polls
+  were made, when the last was and what it answered.
+* `tests/android-smoke-dom/check.sh` plays it (`server.py` answers the page's
+  question from its document): a dump that never holds the text while the page has
+  it passes, with no `uiautomator` call; a dump that holds a text the page lacks,
+  and a page that has the text but is not visible, fail.
+* The length bounds of `_smoke_head` and `build_smoke_test_script_font_scale` grew
+  (head 10400 to 11000, the font form 15000 to 16000) for the added text; the
+  script of `build_smoke_test_script` stays inside its 12000.
+
 # The system font scale on the emulator (pwa#154, quire#412)
 
 * Chromium cannot stand in for the Android WebView's text size (quire's

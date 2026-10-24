@@ -102,13 +102,14 @@ class Handler(socketserver.StreamRequestHandler):
         if asks_shown:
             # the page's answer to "visible, and this text in it" (pwa#201)
             needle = json.loads(re.search(r'indexOf\((".*")\)', expression).group(1))
-            shown = mode != 'hidden' and needle in DOCUMENT
+            visible_required = 'document.visibilityState === "visible"' in expression
+            shown = (mode != 'hidden' or not visible_required) and needle in DOCUMENT
             value = {'result': {'type': 'boolean', 'value': shown}}
             answer = json.dumps({'id': call['id'], 'result': value}).encode()
             self.wfile.write(frame(1, True, answer))
             return
         if expression != 'document.documentElement.outerHTML':
-            assert '@TEXT@' not in expression and '"BATS PWA"' in expression, expression
+            assert '@TEXT@' not in expression and '})("' in expression, expression
             value = {'result': {'type': 'string', 'value': probe_answer()}}
             answer = json.dumps({'id': call['id'], 'result': value}).encode()
             self.wfile.write(frame(1, True, answer))

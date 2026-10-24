@@ -2,7 +2,7 @@
 # usage: smoke-test.sh <apk> <text> <out-dir> [<file> <type> <text>]
 # On a running emulator or device (adb): installs the APK (signed
 # with a throwaway key when unsigned), launches the app, and waits
-# up to two minutes for <text> on the screen. Writes screenshot.png,
+# up to two minutes for <text> on the screen (over DevTools, pwa#201). Writes screenshot.png,
 # ui.xml and logcat.txt to <out-dir>, and dom.html (the page's DOM)
 # when the text does not show (android-smoke). Fails when the text never
 # shows, the app crashes, or the page logs a console error. With
@@ -137,16 +137,25 @@ DOM
 keep_dom() {
   devtools_eval 'document.documentElement.outerHTML' "$OUT/dom.html"
 }
-# Waits up to two minutes for $1 on the screen: found is 1 once it shows;
-# when it gives up, the page's DOM is kept beside ui.xml (android-smoke)
+# The page's own answer: visible, with the text (android-smoke, pwa#201)
+SHOWN='document.visibilityState === "visible" && document.body !== null && document.body.innerText.indexOf(@TEXT@) >= 0'
+# Waits up to two minutes (SMOKE_WAIT_S) for $1 on the screen: found is 1 once
+# the page says so; else ui.xml and the DOM are kept (the WebView's tree stays partial)
 shown() {
   found=0
-  for _ in $(seq 60); do
+  polls=0
+  last_poll=never
+  last_answer=
+  started=$(date +%s)
+  while [ $polls -lt 60 ] && [ $(( $(date +%s) - started )) -lt "${SMOKE_WAIT_S:-120}" ]; do
     sleep 2
-    adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || continue
-    adb shell cat /sdcard/ui.xml > "$OUT/ui.xml" || continue
-    if grep -qF "$1" "$OUT/ui.xml"; then found=1; return 0; fi
+    polls=$((polls + 1))
+    last_poll=$(date +%T)
+    devtools_eval "$SHOWN" "$OUT/shown-answer.txt" plain
+    last_answer=$(head -c 200 "$OUT/shown-answer.txt")
+    if [ "$last_answer" = true ]; then found=1; return 0; fi
   done
+  adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 && adb shell cat /sdcard/ui.xml > "$OUT/ui.xml" || true
   keep_dom
 }
 # How many of the activity's log lines (tag BatsFiles) hold $1
@@ -242,7 +251,7 @@ if grep -E " E Capacitor/Console" "$OUT/logcat.txt"; then
   echo "The page logged console errors (above)"; status=1
 fi
 if [ $found = 0 ]; then
-  echo "'$TEXT' was not on the screen after two minutes"; status=1
+  echo "'$TEXT' was not on the screen after two minutes: $polls DevTools polls, the last at $last_poll answered '$last_answer'"; status=1
   echo "The app's file hand-over and page console:"
   grep -E " (BatsFiles|Capacitor[^ ]*) *:" "$OUT/logcat.txt" | tail -40
 else
