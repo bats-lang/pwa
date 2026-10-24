@@ -115,8 +115,8 @@ staload TR = "./test_run.sats"
    window's insets) goes to bridge's batsNative.systemBars, the latest
    once the page has it; the web view takes the insets as it would
    without the listener (bats-lang/quire#314). *)
-#pub fn build_main_activity {ni:nat | ni < 256}{n:nat | n + 11500 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 11500] $B.builder(m), app_id: string ni): void
+#pub fn build_main_activity {ni:nat | ni < 256}{n:nat | n + 11000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 11000] $B.builder(m), app_id: string ni): void
 
 (* The intent filters build-android.sh adds to MainActivity: it opens
    (VIEW) and is shared (SEND, SEND_MULTIPLE) files of type mime *)
@@ -174,8 +174,8 @@ staload TR = "./test_run.sats"
    as at 1.0 (the shell sets no textZoom, so the scale reaches the page) and
    fits the window. The form create_android writes; build_smoke_test_script
    stays beside it, without that step (android-smoke). *)
-#pub fn build_smoke_test_script_font_scale {ni:nat | ni < 256}{n:nat | n + 15000 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 15000] $B.builder(m), app_id: string ni): void
+#pub fn build_smoke_test_script_font_scale {ni:nat | ni < 256}{n:nat | n + 16000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 16000] $B.builder(m), app_id: string ni): void
 
 (* Writes a Capacitor project in project_dir for the PWA in web_dir
    (relative to project_dir): capacitor.config.json, package.json,
@@ -849,13 +849,13 @@ implement build_intent_filters (b, mime) = let
 in end
 
 (* the smoke test script up to the font scale, shared by the two forms (android-smoke) *)
-fn _smoke_head {ni:nat | ni < 256}{n:nat | n + 10400 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 10400] $B.builder(m), app_id: string ni): void = let
+fn _smoke_head {ni:nat | ni < 256}{n:nat | n + 11000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 11000] $B.builder(m), app_id: string ni): void = let
   val () = $B.bput(b, "#!/bin/sh\n")
   val () = $B.bput(b, "# usage: smoke-test.sh <apk> <text> <out-dir> [<file> <type> <text>]\n")
   val () = $B.bput(b, "# On a running emulator or device (adb): installs the APK (signed\n")
   val () = $B.bput(b, "# with a throwaway key when unsigned), launches the app, and waits\n")
-  val () = $B.bput(b, "# up to two minutes for <text> on the screen. Writes screenshot.png,\n")
+  val () = $B.bput(b, "# up to two minutes for <text> on the screen (over DevTools, pwa#201). Writes screenshot.png,\n")
   val () = $B.bput(b, "# ui.xml and logcat.txt to <out-dir>, and dom.html (the page's DOM)\n")
   val () = $B.bput(b, "# when the text does not show (android-smoke). Fails when the text never\n")
   val () = $B.bput(b, "# shows, the app crashes, or the page logs a console error. With\n")
@@ -992,16 +992,25 @@ fn _smoke_head {ni:nat | ni < 256}{n:nat | n + 10400 <= $B.BUILDER_CAP}
   val () = $B.bput(b, "keep_dom() {\n")
   val () = $B.bput(b, "  devtools_eval 'document.documentElement.outerHTML' \"$OUT/dom.html\"\n")
   val () = $B.bput(b, "}\n")
-  val () = $B.bput(b, "# Waits up to two minutes for $1 on the screen: found is 1 once it shows;\n")
-  val () = $B.bput(b, "# when it gives up, the page's DOM is kept beside ui.xml (android-smoke)\n")
+  val () = $B.bput(b, "# The page's own answer: visible, with the text (android-smoke, pwa#201)\n")
+  val () = $B.bput(b, "SHOWN='document.visibilityState === \"visible\" && document.body !== null && document.body.innerText.indexOf(@TEXT@) >= 0'\n")
+  val () = $B.bput(b, "# Waits up to two minutes (SMOKE_WAIT_S) for $1 on the screen: found is 1 once\n")
+  val () = $B.bput(b, "# the page says so; else ui.xml and the DOM are kept (the WebView's tree stays partial)\n")
   val () = $B.bput(b, "shown() {\n")
   val () = $B.bput(b, "  found=0\n")
-  val () = $B.bput(b, "  for _ in $(seq 60); do\n")
+  val () = $B.bput(b, "  polls=0\n")
+  val () = $B.bput(b, "  last_poll=never\n")
+  val () = $B.bput(b, "  last_answer=\n")
+  val () = $B.bput(b, "  started=$(date +%s)\n")
+  val () = $B.bput(b, "  while [ $polls -lt 60 ] && [ $(( $(date +%s) - started )) -lt \"${SMOKE_WAIT_S:-120}\" ]; do\n")
   val () = $B.bput(b, "    sleep 2\n")
-  val () = $B.bput(b, "    adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || continue\n")
-  val () = $B.bput(b, "    adb shell cat /sdcard/ui.xml > \"$OUT/ui.xml\" || continue\n")
-  val () = $B.bput(b, "    if grep -qF \"$1\" \"$OUT/ui.xml\"; then found=1; return 0; fi\n")
+  val () = $B.bput(b, "    polls=$((polls + 1))\n")
+  val () = $B.bput(b, "    last_poll=$(date +%T)\n")
+  val () = $B.bput(b, "    devtools_eval \"$SHOWN\" \"$OUT/shown-answer.txt\" plain\n")
+  val () = $B.bput(b, "    last_answer=$(head -c 200 \"$OUT/shown-answer.txt\")\n")
+  val () = $B.bput(b, "    if [ \"$last_answer\" = true ]; then found=1; return 0; fi\n")
   val () = $B.bput(b, "  done\n")
+  val () = $B.bput(b, "  adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 && adb shell cat /sdcard/ui.xml > \"$OUT/ui.xml\" || true\n")
   val () = $B.bput(b, "  keep_dom\n")
   val () = $B.bput(b, "}\n")
   val () = $B.bput(b, "# How many of the activity's log lines (tag BatsFiles) hold $1\n")
@@ -1186,7 +1195,7 @@ fn _smoke_tail {n:nat | n + 1000 <= $B.BUILDER_CAP}
   val () = $B.bput(b, "  echo \"The page logged console errors (above)\"; status=1\n")
   val () = $B.bput(b, "fi\n")
   val () = $B.bput(b, "if [ $found = 0 ]; then\n")
-  val () = $B.bput(b, "  echo \"'$TEXT' was not on the screen after two minutes\"; status=1\n")
+  val () = $B.bput(b, "  echo \"'$TEXT' was not on the screen after two minutes: $polls DevTools polls, the last at $last_poll answered '$last_answer'\"; status=1\n")
   val () = $B.bput(b, "  echo \"The app's file hand-over and page console:\"\n")
   val () = $B.bput(b, "  grep -E \" (BatsFiles|Capacitor[^ ]*) *:\" \"$OUT/logcat.txt\" | tail -40\n")
   val () = $B.bput(b, "else\n")
