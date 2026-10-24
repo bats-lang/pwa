@@ -158,3 +158,30 @@ paths:
   `dom.html` with the `bats-root` element next to the other three files; a text
   shown keeps none and makes no forward; no socket and a silent page are said in
   the file, and the forward is removed after silence.
+
+# The system font scale on the emulator (pwa#154, quire#412)
+
+* Chromium cannot stand in for the Android WebView's text size (quire's
+  `font-scale.spec.js` plays `text-size-adjust` instead), so the real WebView is
+  played here. With the text shown, `smoke-test.sh` sets `settings put system
+  font_scale` to 1.0, 1.3 and 2.0 and back to 1.0, and at each reads the page
+  through `devtools_eval` (the DevTools reader of `keep_dom`, now taking the
+  expression): the height of the first line box of the smoke text (a `Range` over
+  its text node, as the page lays it out) and the window's and the page's width.
+  It fails unless, at 1.3 and 2.0, that line is the 1.0 line times the scale
+  within 10%, the page is no wider than the window (`scrollWidth`) and the text
+  lies inside the window. That is the claim "the shell sets no `textZoom`, so the
+  system scale reaches the page": a shell that calls `setTextZoom(100)` keeps the
+  line at its 1.0 height. The probe reads and measures only; the page, the
+  activity and the app are not changed.
+* The activity is recreated by a font scale (see the file hand-over steps), so each
+  scale is probed again until the answer is right, 15 tries 2 s apart: a page that
+  is still loading, or still at the old scale, is not a failure, the last answer is.
+* `build_smoke_test_script_font_scale` is the form `create_android` writes;
+  `build_smoke_test_script` stays beside it without the step (the head and tail
+  are shared), called by `tests/dynamic/smoke-compat`, whose `expected` is its
+  text. `tests/android-smoke-dom/check.sh` plays the step against the stand-in
+  `adb` (it records the scale set) and `server.py`, whose probe answers a line
+  20 px times the scale: passes; the line staying at 20 px (a shell with
+  `textZoom`), a page wider than the window, text past the window's edge and a
+  silent page each fail with their reason.

@@ -164,8 +164,18 @@ staload TR = "./test_run.sats"
    (bats-lang/quire#247). Fails when a text never shows, a file is not
    handed over once, the app crashes, or the page logs an error to the
    console. *)
+(* deprecated (android-smoke): create_android writes build_smoke_test_script_font_scale; removed by bats-lang/pwa#189 *)
 #pub fn build_smoke_test_script {ni:nat | ni < 256}{n:nat | n + 12000 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 12000] $B.builder(m), app_id: string ni): void
+
+(* build_smoke_test_script_font_scale (bats-lang/pwa#154): the same script,
+   and with the text shown it plays the system font scale 1.3 and 2.0 on the
+   emulator and fails unless the page's text is about that many times as high
+   as at 1.0 (the shell sets no textZoom, so the scale reaches the page) and
+   fits the window. The form create_android writes; build_smoke_test_script
+   stays beside it, without that step (android-smoke). *)
+#pub fn build_smoke_test_script_font_scale {ni:nat | ni < 256}{n:nat | n + 15000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 15000] $B.builder(m), app_id: string ni): void
 
 (* Writes a Capacitor project in project_dir for the PWA in web_dir
    (relative to project_dir): capacitor.config.json, package.json,
@@ -838,7 +848,9 @@ implement build_intent_filters (b, mime) = let
   val () = $B.bput(b, "            </intent-filter>\n")
 in end
 
-implement build_smoke_test_script (b, app_id) = let
+(* the smoke test script up to the font scale, shared by the two forms (android-smoke) *)
+fn _smoke_head {ni:nat | ni < 256}{n:nat | n + 10400 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 10400] $B.builder(m), app_id: string ni): void = let
   val () = $B.bput(b, "#!/bin/sh\n")
   val () = $B.bput(b, "# usage: smoke-test.sh <apk> <text> <out-dir> [<file> <type> <text>]\n")
   val () = $B.bput(b, "# On a running emulator or device (adb): installs the APK (signed\n")
@@ -851,6 +863,9 @@ implement build_smoke_test_script (b, app_id) = let
   val () = $B.bput(b, "# waits for that text too, and checks that each intent's file is\n")
   val () = $B.bput(b, "# handed to the page once: as the app starts, not again when it is\n")
   val () = $B.bput(b, "# turned or recreated, and once each while it is open (VIEW, SEND).\n")
+  val () = $B.bput(b, "# With the text shown, plays the system font scale 1.3 and 2.0 and\n")
+  val () = $B.bput(b, "# fails unless the text on the page is about that many times as high as\n")
+  val () = $B.bput(b, "# at 1.0 and fits the window (android-smoke, pwa#154).\n")
   val () = $B.bput(b, "set -eu\n")
   val () = $B.bput(b, "APP_ID='")
   val () = $B.bput(b, app_id)
@@ -880,12 +895,16 @@ implement build_smoke_test_script (b, app_id) = let
   val () = $B.bput(b, "timeout 300 adb shell am wait-for-broadcast-idle >/dev/null\n")
   val () = $B.bput(b, "adb install -r \"$APK\"\n")
   val () = $B.bput(b, "adb logcat -c\n")
-  val () = $B.bput(b, "# Keeps the page's DOM in $OUT/dom.html: its outerHTML, read through\n")
-  val () = $B.bput(b, "# the WebView's remote debugging socket (adb forward to the app's\n")
+  val () = $B.bput(b, "# Writes to the file $2 what the JavaScript expression $1 gives in each\n")
+  val () = $B.bput(b, "# page of the app (after a line naming the page), read through the\n")
+  val () = $B.bput(b, "# WebView's remote debugging socket (adb forward to the app's\n")
   val () = $B.bput(b, "# webview_devtools_remote_<pid>, the DevTools protocol over a WebSocket,\n")
-  val () = $B.bput(b, "# python3 on this host); nothing in the app changes (android-smoke)\n")
-  val () = $B.bput(b, "keep_dom() {\n")
-  val () = $B.bput(b, "  dom_file=\"$OUT/dom.html\"\n")
+  val () = $B.bput(b, "# python3 on this host); with $3 = plain, only the value of the first\n")
+  val () = $B.bput(b, "# page, with no line before it. @TEXT@ in the expression is the text\n")
+  val () = $B.bput(b, "# the smoke test waits for, as a JavaScript string. The expression only\n")
+  val () = $B.bput(b, "# reads; nothing in the app changes (android-smoke)\n")
+  val () = $B.bput(b, "devtools_eval() {\n")
+  val () = $B.bput(b, "  dom_file=$2\n")
   val () = $B.bput(b, "  pid=$(adb shell pidof \"$APP_ID\" | tr -d '\\r')\n")
   val () = $B.bput(b, "  unix=$(adb shell cat /proc/net/unix)\n")
   val () = $B.bput(b, "  name=\"webview_devtools_remote_${pid:-none}\"\n")
@@ -895,9 +914,10 @@ implement build_smoke_test_script (b, app_id) = let
   val () = $B.bput(b, "    return 0\n")
   val () = $B.bput(b, "  fi\n")
   val () = $B.bput(b, "  port=$(adb forward tcp:0 \"localabstract:$socket\" | tr -d '\\r')\n")
-  val () = $B.bput(b, "  timeout 60 python3 - \"$port\" \"$dom_file\" <<'DOM' || {\n")
+  val () = $B.bput(b, "  PROBE_TEXT=$TEXT timeout 60 python3 - \"$port\" \"$dom_file\" \"$1\" \"${3:-}\" <<'DOM' || {\n")
   val () = $B.bput(b, "import base64, json, os, socket, struct, sys, urllib.request\n")
-  val () = $B.bput(b, "port, out = int(sys.argv[1]), sys.argv[2]\n")
+  val () = $B.bput(b, "port, out, expression, plain = int(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4]\n")
+  val () = $B.bput(b, "expression = expression.replace('@TEXT@', json.dumps(os.environ['PROBE_TEXT']))\n")
   val () = $B.bput(b, "LIMIT = 1 << 26  # a DevTools message over 64 MiB is not read\n")
   val () = $B.bput(b, "CRLF = bytes([13, 10])\n")
   val () = $B.bput(b, "local = urllib.request.build_opener(urllib.request.ProxyHandler({}))\n")
@@ -944,7 +964,7 @@ implement build_smoke_test_script (b, app_id) = let
   val () = $B.bput(b, "    path = page['webSocketDebuggerUrl'].split(str(port), 1)[1]\n")
   val () = $B.bput(b, "    sock = socket.create_connection(('127.0.0.1', port), timeout=15)\n")
   val () = $B.bput(b, "    handshake(sock, path)\n")
-  val () = $B.bput(b, "    call = {'expression': 'document.documentElement.outerHTML',\n")
+  val () = $B.bput(b, "    call = {'expression': expression,\n")
   val () = $B.bput(b, "            'returnByValue': True}\n")
   val () = $B.bput(b, "    send(sock, json.dumps({'id': 1, 'method': 'Runtime.evaluate',\n")
   val () = $B.bput(b, "                           'params': call}))\n")
@@ -952,19 +972,25 @@ implement build_smoke_test_script (b, app_id) = let
   val () = $B.bput(b, "        answer = json.loads(receive(sock))\n")
   val () = $B.bput(b, "        if answer.get('id') == 1:\n")
   val () = $B.bput(b, "            sock.close()\n")
-  val () = $B.bput(b, "            return answer['result']['result']['value']\n")
+  val () = $B.bput(b, "            value = answer['result']['result']['value']\n")
+  val () = $B.bput(b, "            return value if isinstance(value, str) else json.dumps(value)\n")
   val () = $B.bput(b, "kept = []\n")
   val () = $B.bput(b, "for page in pages:\n")
-  val () = $B.bput(b, "    if page.get('webSocketDebuggerUrl'):\n")
+  val () = $B.bput(b, "    if page.get('webSocketDebuggerUrl') and (not plain or page.get('type') == 'page'):\n")
   val () = $B.bput(b, "        where = (page.get('type'), page.get('url'))\n")
-  val () = $B.bput(b, "        head = '<!-- page: %s %s -->' % where\n")
-  val () = $B.bput(b, "        kept.append(head + chr(10) + document(page) + chr(10))\n")
+  val () = $B.bput(b, "        head = '' if plain else '<!-- page: %s %s -->' % where + chr(10)\n")
+  val () = $B.bput(b, "        kept.append(head + document(page) + chr(10))\n")
+  val () = $B.bput(b, "        if plain: break\n")
   val () = $B.bput(b, "if not kept: raise SystemExit('DevTools lists no page')\n")
   val () = $B.bput(b, "open(out, 'w', encoding='utf-8').write(''.join(kept))\n")
   val () = $B.bput(b, "DOM\n")
   val () = $B.bput(b, "    echo \"DevTools did not answer\" > \"$dom_file\"\n")
   val () = $B.bput(b, "  }\n")
   val () = $B.bput(b, "  adb forward --remove \"tcp:$port\" || true\n")
+  val () = $B.bput(b, "}\n")
+  val () = $B.bput(b, "# Keeps the page's DOM in $OUT/dom.html: its outerHTML (android-smoke)\n")
+  val () = $B.bput(b, "keep_dom() {\n")
+  val () = $B.bput(b, "  devtools_eval 'document.documentElement.outerHTML' \"$OUT/dom.html\"\n")
   val () = $B.bput(b, "}\n")
   val () = $B.bput(b, "# Waits up to two minutes for $1 on the screen: found is 1 once it shows;\n")
   val () = $B.bput(b, "# when it gives up, the page's DOM is kept beside ui.xml (android-smoke)\n")
@@ -1057,6 +1083,95 @@ implement build_smoke_test_script (b, app_id) = let
   val () = $B.bput(b, "  adb shell am start -a android.intent.action.SEND -t \"$5\" --eu android.intent.extra.STREAM \"file://$DEST\" -n \"$APP_ID/.MainActivity\" >/dev/null\n")
   val () = $B.bput(b, "  handed 3 \"$start\" \"Shared the file while open\"\n")
   val () = $B.bput(b, "fi\n")
+in end
+
+(* the font scale step of the smoke test script (android-smoke, pwa#154) *)
+fn _smoke_font_scale {n:nat | n + 3500 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 3500] $B.builder(m)): void = let
+  val () = $B.bput(b, "# The text's size and place on the page, read as the page lays it out (a\n")
+  val () = $B.bput(b, "# line box of the text, the window's and the page's width), for the font\n")
+  val () = $B.bput(b, "# scale check (android-smoke)\n")
+  val () = $B.bput(b, "PROBE=$(cat <<'JS'\n")
+  val () = $B.bput(b, "(function (needle) {\n")
+  val () = $B.bput(b, "  var line = 0, left = 0, right = 0, node;\n")
+  val () = $B.bput(b, "  var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);\n")
+  val () = $B.bput(b, "  while ((node = walker.nextNode())) {\n")
+  val () = $B.bput(b, "    var at = node.nodeValue.indexOf(needle);\n")
+  val () = $B.bput(b, "    if (at >= 0) {\n")
+  val () = $B.bput(b, "      var range = document.createRange();\n")
+  val () = $B.bput(b, "      range.setStart(node, at);\n")
+  val () = $B.bput(b, "      range.setEnd(node, at + needle.length);\n")
+  val () = $B.bput(b, "      var rects = range.getClientRects();\n")
+  val () = $B.bput(b, "      if (rects.length > 0) {\n")
+  val () = $B.bput(b, "        line = rects[0].height;\n")
+  val () = $B.bput(b, "        left = rects[0].left;\n")
+  val () = $B.bput(b, "        right = rects[rects.length - 1].right;\n")
+  val () = $B.bput(b, "      }\n")
+  val () = $B.bput(b, "      break;\n")
+  val () = $B.bput(b, "    }\n")
+  val () = $B.bput(b, "  }\n")
+  val () = $B.bput(b, "  return JSON.stringify({line: line, left: left, right: right,\n")
+  val () = $B.bput(b, "    width: window.innerWidth, scrollWidth: document.documentElement.scrollWidth});\n")
+  val () = $B.bput(b, "})(@TEXT@)\n")
+  val () = $B.bput(b, "JS\n")
+  val () = $B.bput(b, ")\n")
+  val () = $B.bput(b, "# Whether the text of file $2 (the probe at font scale $3) is the text of\n")
+  val () = $B.bput(b, "# file $1 (at scale 1.0) as the system scale makes it: its line about $3 times\n")
+  val () = $B.bput(b, "# as high, inside the window, the page no wider than the window. Prints why not.\n")
+  val () = $B.bput(b, "font_scaled() {\n")
+  val () = $B.bput(b, "  python3 -I - \"$1\" \"$2\" \"$3\" <<'CHECK'\n")
+  val () = $B.bput(b, "import json, sys\n")
+  val () = $B.bput(b, "try:\n")
+  val () = $B.bput(b, "    base = json.load(open(sys.argv[1]))\n")
+  val () = $B.bput(b, "    now = json.load(open(sys.argv[2]))\n")
+  val () = $B.bput(b, "    scale = float(sys.argv[3])\n")
+  val () = $B.bput(b, "except (OSError, ValueError):\n")
+  val () = $B.bput(b, "    raise SystemExit('DevTools did not answer')\n")
+  val () = $B.bput(b, "if not base['line'] or not now['line']:\n")
+  val () = $B.bput(b, "    raise SystemExit('the text is not on the page')\n")
+  val () = $B.bput(b, "ratio = now['line'] / base['line']\n")
+  val () = $B.bput(b, "if not scale * 0.9 <= ratio <= scale * 1.1:\n")
+  val () = $B.bput(b, "    raise SystemExit('its line is %.2f times as high as at 1.0 (%s px, then %s px), not about %s times' % (ratio, base['line'], now['line'], scale))\n")
+  val () = $B.bput(b, "if now['scrollWidth'] > now['width'] + 1:\n")
+  val () = $B.bput(b, "    raise SystemExit('the page is %s px wide in a window of %s px' % (now['scrollWidth'], now['width']))\n")
+  val () = $B.bput(b, "if now['left'] < -1 or now['right'] > now['width'] + 1:\n")
+  val () = $B.bput(b, "    raise SystemExit('the text spans %s to %s px in a window of %s px' % (now['left'], now['right'], now['width']))\n")
+  val () = $B.bput(b, "print('ratio %.2f (line %s px, then %s px), the text spans %s to %s px of %s' % (ratio, base['line'], now['line'], now['left'], now['right'], now['width']))\n")
+  val () = $B.bput(b, "CHECK\n")
+  val () = $B.bput(b, "}\n")
+  val () = $B.bput(b, "# The system font scale (android-smoke, pwa#154): the shell sets no\n")
+  val () = $B.bput(b, "# textZoom, so the scale reaches the page. At 1.3 and 2.0 the text is\n")
+  val () = $B.bput(b, "# about that many times as high as at 1.0 and still fits the window\n")
+  val () = $B.bput(b, "if [ $found = 1 ]; then\n")
+  val () = $B.bput(b, "  adb shell settings put system font_scale 1.0\n")
+  val () = $B.bput(b, "  ok=0\n")
+  val () = $B.bput(b, "  for _ in $(seq 15); do\n")
+  val () = $B.bput(b, "    sleep 2\n")
+  val () = $B.bput(b, "    devtools_eval \"$PROBE\" \"$OUT/font-1.0.json\" plain\n")
+  val () = $B.bput(b, "    if grep -q '\"line\":[1-9]' \"$OUT/font-1.0.json\"; then ok=1; break; fi\n")
+  val () = $B.bput(b, "  done\n")
+  val () = $B.bput(b, "  if [ $ok = 0 ]; then\n")
+  val () = $B.bput(b, "    fail \"Font scale 1.0: the text was never on the page\"\n")
+  val () = $B.bput(b, "  else\n")
+  val () = $B.bput(b, "    for scale in 1.3 2.0; do\n")
+  val () = $B.bput(b, "      adb shell settings put system font_scale \"$scale\"\n")
+  val () = $B.bput(b, "      ok=0\n")
+  val () = $B.bput(b, "      reason=\"the text was never on the page\"\n")
+  val () = $B.bput(b, "      for _ in $(seq 15); do\n")
+  val () = $B.bput(b, "        sleep 2\n")
+  val () = $B.bput(b, "        devtools_eval \"$PROBE\" \"$OUT/font-$scale.json\" plain\n")
+  val () = $B.bput(b, "        if reason=$(font_scaled \"$OUT/font-1.0.json\" \"$OUT/font-$scale.json\" \"$scale\" 2>&1); then ok=1; break; fi\n")
+  val () = $B.bput(b, "      done\n")
+  val () = $B.bput(b, "      if [ $ok = 1 ]; then echo \"Font scale $scale: $reason\"; else fail \"Font scale $scale: $reason\"; fi\n")
+  val () = $B.bput(b, "    done\n")
+  val () = $B.bput(b, "  fi\n")
+  val () = $B.bput(b, "  adb shell settings put system font_scale 1.0\n")
+  val () = $B.bput(b, "fi\n")
+in end
+
+(* the smoke test script from its screenshot on, shared by the two forms (android-smoke) *)
+fn _smoke_tail {n:nat | n + 1000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 1000] $B.builder(m)): void = let
   val () = $B.bput(b, "adb exec-out screencap -p > \"$OUT/screenshot.png\"\n")
   val () = $B.bput(b, "adb logcat -d > \"$OUT/logcat.txt\"\n")
   val () = $B.bput(b, "status=$failed\n")
@@ -1079,6 +1194,15 @@ implement build_smoke_test_script (b, app_id) = let
   val () = $B.bput(b, "fi\n")
   val () = $B.bput(b, "exit $status\n")
 in end
+
+implement build_smoke_test_script (b, app_id) = let
+  val () = _smoke_head(b, app_id)
+in _smoke_tail(b) end
+
+implement build_smoke_test_script_font_scale (b, app_id) = let
+  val () = _smoke_head(b, app_id)
+  val () = _smoke_font_scale(b)
+in _smoke_tail(b) end
 
 (* ============================================================
    Implementations -- high-level file API
@@ -1197,7 +1321,7 @@ fn _android_project_files {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 2
   val () = build_pnpm_script(pnpm_b)
   val () = _write_to(project_dir, "fetch-pnpm.sh", pnpm_b)
   var st_b = $B.create()
-  val () = build_smoke_test_script(st_b, app_id)
+  val () = build_smoke_test_script_font_scale(st_b, app_id)
 in _write_mode(project_dir, "smoke-test.sh", st_b, 493) end
 
 implement create_android (app_name, app_id, web_dir, project_dir, mime) = let

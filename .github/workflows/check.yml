@@ -170,7 +170,8 @@ jobs:
         run: sh tests/android/pnpm.sh example/dist/android/fetch-pnpm.sh
 
       # android-smoke: smoke-test.sh keeps the page's DOM when its text never shows (pwa#166)
-      - name: Smoke test keeps the page's DOM
+      # and plays the system font scale (pwa#154)
+      - name: Smoke test keeps the page's DOM and plays the font scale
         run: tests/android-smoke-dom/check.sh example/dist/android/smoke-test.sh
 
       # scripts/play-release.sh (bats-lang/pwa#90) against a stub of Play's

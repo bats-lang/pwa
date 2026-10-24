@@ -1,0 +1,8 @@
+[package]
+name = "smoke-compat"
+kind = "bin"
+
+[dependencies]
+"array" = ""
+"builder" = ""
+"pwa" = ""

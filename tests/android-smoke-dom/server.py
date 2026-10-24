@@ -2,14 +2,39 @@
 # GET /json lists a page and a worker, and the page's WebSocket answers
 # Runtime.evaluate with a console event first and then the document, split
 # in two frames (the second a continuation) of more than 65535 bytes each.
-# usage: server.py <portfile> <ok|silent>
+# usage: server.py <portfile> <mode> [<scalefile>]
+#   ok: the document for outerHTML; for the font scale probe (pwa#154) a text
+#     line 20 px high times the scale in <scalefile> (1.0 when it is not there)
 #   silent: takes the evaluation and never answers it
+#   textzoom: the probe's line stays 20 px whatever the scale (a shell that
+#     set textZoom)
+#   wide: the page is wider than the window at a scale above 1
+#   outside: the text spans past the window's right edge at a scale above 1
 import base64, hashlib, json, socketserver, struct, sys, threading
 
 GUID = b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
 FILLER = 'x' * 100000
 DOCUMENT = '<html><body><div id="bats-root">BATS PWA</div><p>' + FILLER + '</p></body></html>'
 mode = sys.argv[2]
+scale_file = sys.argv[3] if len(sys.argv) > 3 else None
+WINDOW = 412
+
+
+def current_scale():
+    try:
+        return float(open(scale_file).read())
+    except (OSError, TypeError, ValueError):
+        return 1.0
+
+
+def probe_answer():
+    scale = current_scale()
+    line = 20 if mode == 'textzoom' else 20 * scale
+    right = WINDOW + 30 if mode == 'outside' and scale > 1 else 100 * scale
+    scroll = WINDOW + 50 if mode == 'wide' and scale > 1 else WINDOW
+    return json.dumps({'line': line, 'left': 8, 'right': right,
+                       'width': WINDOW, 'scrollWidth': scroll},
+                      separators=(',', ':'))  # as JSON.stringify writes it
 
 
 def read_exact(rfile, n):
@@ -65,8 +90,14 @@ class Handler(socketserver.StreamRequestHandler):
         data = read_exact(self.rfile, n)
         call = json.loads(bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
         assert call['method'] == 'Runtime.evaluate', call
-        assert call['params']['expression'] == 'document.documentElement.outerHTML', call
+        expression = call['params']['expression']
         if mode == 'silent':
+            return
+        if expression != 'document.documentElement.outerHTML':
+            assert '@TEXT@' not in expression and '"BATS PWA"' in expression, expression
+            value = {'result': {'type': 'string', 'value': probe_answer()}}
+            answer = json.dumps({'id': call['id'], 'result': value}).encode()
+            self.wfile.write(frame(1, True, answer))
             return
         event = json.dumps({'method': 'Runtime.executionContextCreated'}).encode()
         self.wfile.write(frame(1, True, event))
