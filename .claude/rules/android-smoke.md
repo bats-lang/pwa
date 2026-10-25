@@ -232,3 +232,43 @@ paths:
   20 px times the scale: passes; the line staying at 20 px (a shell with
   `textZoom`), a page wider than the window, text past the window's edge and a
   silent page each fail with their reason.
+
+# The first launch's activity is created twice, and Capacitor's `triggerEvent` runs early (pwa#207)
+
+* Evidence: quire run 40219569509, job 121251976507, artifact `android-smoke-test` 12609084687
+  (pid 2278): `E Capacitor/Console: File: https://localhost/ - Line 1 - Msg: Uncaught TypeError:
+  Cannot read properties of undefined (reading 'triggerEvent')` at 18:24:59.409, the line before
+  `Handling local request: https://localhost/bridge.js`. The smoke test classifies, ignores and
+  allows no console error: this one fails it (`tests/android-smoke-dom/check.sh`, case 7, plays
+  the lines of that run).
+* The call is Capacitor's: `MockCordovaWebViewImpl.handlePause/handleResume` evaluate
+  `window.Capacitor.triggerEvent('pause'/'resume','document')`, and `window.Capacitor` is defined by
+  `native-bridge.js` in the page. It runs early because the activity was created, resumed (58.618),
+  paused (58.628), stopped (58.647), destroyed (58.655) and created again (`BatsFiles: recreated`
+  58.686) during the load.
+* What the log shows of why: the script's only intent is one `monkey ... LAUNCHER` (START at
+  57.800; no share intent, kill or stop), the generated project sets no `configChanges` or
+  `launchMode`, no `Config changes` line is logged before 18:25:22. At 58.087 the app's process
+  fails to open SystemUI's fabricated theme overlays (`/data/resource-cache/com.android.systemui-
+  neutral-3qzX.frro`, `-accent-`, `-dynamic-`: `Zip: EOCD not found ... is not zip`, `Invalid
+  file`, i.e. being written), and Android's user-completed boot work runs at 58.99 to 59.03
+  (`ssm.onCompletedEventUser-0_{|Unlocked|}_...`). The script already waits for
+  `sys.boot_completed` and the broadcast queue. The relaunch is system_server's and the log gives
+  no reason for it.
+* `check.yml` has a `workflow_dispatch` input `emulator-options`, handed to `android.yml`'s
+  `emulator-extra-options` and added to the emulator's options (`-cores 1`).
+* The cause and the wait (pwa#207): `sys.boot_completed` is set by system_server before user 0 is
+  unlocked, and the unlock (`ssm.onCompletedEventUser-0_{|Unlocked|}_...`, the theme overlays
+  SystemUI writes, the user-completed boot work) runs after it, so the first launch of 57.8 was
+  inside it. The newest smoke form (`build_smoke_test_script_font_scale_devtools`) waits, after
+  `sys.boot_completed` and before the broadcast queue drains, until `adb shell am
+  get-started-user-state 0` prints `RUNNING_UNLOCKED` (`ActivityManagerShellCommand`
+  `get-started-user-state`, the state `UserController` reaches when the user is unlocked); the old
+  forms keep the text they had (`tests/dynamic/smoke-compat`). `check.sh` case 8 plays a user
+  locked for three answers (the install comes after the fourth) and one that stays locked (no
+  install, no launch). Comparable tools: reactivecircus/android-emulator-runner polls only
+  `sys.boot_completed` (every 2 s) and then sends `input keyevent 82`; Skia's and Flutter's
+  scripts poll `sys.boot_completed`; Jenkins' emulator plugin moved from `dev.bootcomplete` to
+  `init.svc.bootanim`, which `-no-boot-anim` makes ready too early, and on API 36 the property is
+  absent; none waits for the user's unlock, which is why this wait is the user state. Gradle
+  managed devices' wait could not be found in documentation.

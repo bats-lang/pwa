@@ -8,6 +8,12 @@ on:
   # The daily relock dispatches it on its relock/<date> branch: a pull
   # request opened with GITHUB_TOKEN starts no workflow by itself
   workflow_dispatch:
+    inputs:
+      emulator-options:
+        description: Options added to the Android emulator's (android-smoke, pwa#207), say "-cores 1" for a throttled one
+        required: false
+        type: string
+        default: ''
 
 jobs:
   check:
@@ -213,3 +219,4 @@ jobs:
       smoke-share-file: android/smoke-share.txt
       smoke-share-type: text/plain
       smoke-share-text: BATS PWA
+      emulator-extra-options: ${{ inputs.emulator-options || '' }}
