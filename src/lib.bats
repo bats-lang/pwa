@@ -857,8 +857,8 @@ implement build_intent_filters (b, mime) = let
 in end
 
 (* the smoke test script up to its shown(), shared by every form (android-smoke) *)
-fn _smoke_head_a {ni:nat | ni < 256}{n:nat | n + 6540 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 6540] $B.builder(m), app_id: string ni): void = let
+fn _smoke_head_a {ni:nat | ni < 256}{n:nat | n + 6870 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 6870] $B.builder(m), app_id: string ni): void = let
   val () = $B.bput(b, "#!/bin/sh\n")
   val () = $B.bput(b, "# usage: smoke-test.sh <apk> <text> <out-dir> [<file> <type> <text>]\n")
   val () = $B.bput(b, "# On a running emulator or device (adb): installs the APK (signed\n")
@@ -900,6 +900,10 @@ fn _smoke_head_a {ni:nat | ni < 256}{n:nat | n + 6540 <= $B.BUILDER_CAP}
   val () = $B.bput(b, "# boot, then for the broadcast queue (BOOT_COMPLETED's) to drain.\n")
   val () = $B.bput(b, "adb wait-for-device\n")
   val () = $B.bput(b, "until [ \"$(adb shell getprop sys.boot_completed | tr -d '\\r')\" = 1 ]; do sleep 2; done\n")
+  val () = $B.bput(b, "# sys.boot_completed is set while user 0 is still locked: the user's unlock\n")
+  val () = $B.bput(b, "# (SystemUI's theme overlays, the user-completed boot work) runs after it,\n")
+  val () = $B.bput(b, "# and an app launched meanwhile is relaunched (android-smoke, pwa#207).\n")
+  val () = $B.bput(b, "until [ \"$(adb shell am get-started-user-state 0 | tr -d '\\r')\" = RUNNING_UNLOCKED ]; do sleep 2; done\n")
   val () = $B.bput(b, "timeout 300 adb shell am wait-for-broadcast-idle >/dev/null\n")
   val () = $B.bput(b, "adb install -r \"$APK\"\n")
   val () = $B.bput(b, "adb logcat -c\n")
