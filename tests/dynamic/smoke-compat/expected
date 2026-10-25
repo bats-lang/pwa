@@ -580,3 +580,343 @@ else
   echo "'$TEXT' is on the screen"
 fi
 exit $status
+==========
+#!/bin/sh
+# usage: smoke-test.sh <apk> <text> <out-dir> [<file> <type> <text>]
+# On a running emulator or device (adb): installs the APK (signed
+# with a throwaway key when unsigned), launches the app, and waits
+# up to two minutes for <text> on the screen. Writes screenshot.png,
+# ui.xml and logcat.txt to <out-dir>, and dom.html (the page's DOM)
+# when the text does not show (android-smoke). Fails when the text never
+# shows, the app crashes, or the page logs a console error. With
+# <file> <type> <text>, then starts the app anew with the file (VIEW),
+# waits for that text too, and checks that each intent's file is
+# handed to the page once: as the app starts, not again when it is
+# turned or recreated, and once each while it is open (VIEW, SEND).
+# With the text shown, plays the system font scale 1.3 and 2.0 and
+# fails unless the text on the page is about that many times as high as
+# at 1.0 and fits the window (android-smoke, pwa#154).
+set -eu
+APP_ID='dev.bats.example'
+APK=$1
+TEXT=$2
+OUT=$3
+mkdir -p "$OUT"
+case "$APK" in
+  *unsigned*)
+    SIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort | tail -1)
+    keytool -genkeypair -keystore "$OUT/smoke.jks" -alias smoke -keyalg RSA \
+      -keysize 2048 -validity 1 -storepass smokepass -keypass smokepass \
+      -dname CN=smoke >/dev/null
+    "$SIGNER" sign --ks "$OUT/smoke.jks" --ks-pass pass:smokepass \
+      --out "$OUT/smoke-signed.apk" "$APK"
+    rm -f "$OUT/smoke.jks"
+    APK="$OUT/smoke-signed.apk"
+    ;;
+esac
+# The emulator reports booted before Android has unlocked the user and
+# sent BOOT_COMPLETED; an app launched then is relaunched as boot
+# finishes, and its first page is torn down while it loads. Wait for
+# boot, then for the broadcast queue (BOOT_COMPLETED's) to drain.
+adb wait-for-device
+until [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = 1 ]; do sleep 2; done
+timeout 300 adb shell am wait-for-broadcast-idle >/dev/null
+adb install -r "$APK"
+adb logcat -c
+# Writes to the file $2 what the JavaScript expression $1 gives in each
+# page of the app (after a line naming the page), read through the
+# WebView's remote debugging socket (adb forward to the app's
+# webview_devtools_remote_<pid>, the DevTools protocol over a WebSocket,
+# python3 on this host); with $3 = plain, only the value of the first
+# page, with no line before it. @TEXT@ in the expression is the text
+# the smoke test waits for, as a JavaScript string. The expression only
+# reads; nothing in the app changes (android-smoke)
+devtools_eval() {
+  dom_file=$2
+  pid=$(adb shell pidof "$APP_ID" | tr -d '\r')
+  unix=$(adb shell cat /proc/net/unix)
+  name="webview_devtools_remote_${pid:-none}"
+  socket=$(echo "$unix" | grep -o "$name" | head -1)
+  if [ -z "$socket" ]; then
+    echo "No DevTools socket (app pid ${pid:-none})" > "$dom_file"
+    return 0
+  fi
+  port=$(adb forward tcp:0 "localabstract:$socket" | tr -d '\r')
+  PROBE_TEXT=$TEXT timeout 60 python3 - "$port" "$dom_file" "$1" "${3:-}" <<'DOM' || {
+import base64, json, os, socket, struct, sys, urllib.request
+port, out, expression, plain = int(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4]
+expression = expression.replace('@TEXT@', json.dumps(os.environ['PROBE_TEXT']))
+LIMIT = 1 << 26  # a DevTools message over 64 MiB is not read
+CRLF = bytes([13, 10])
+local = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+listing = local.open('http://127.0.0.1:%d/json' % port, timeout=10)
+pages = json.load(listing)
+def read_exact(sock, n):
+    data = b''
+    while len(data) < n:
+        chunk = sock.recv(n - len(data))
+        if not chunk: raise EOFError
+        data += chunk
+    return data
+def send(sock, text):
+    data = text.encode()
+    n = len(data)
+    if n < 126: head = bytes([0x81, 0x80 | n])
+    elif n < 65536: head = bytes([0x81, 0xfe]) + struct.pack('>H', n)
+    else: head = bytes([0x81, 0xff]) + struct.pack('>Q', n)
+    mask = os.urandom(4)
+    masked = bytes(b ^ mask[i % 4] for i, b in enumerate(data))
+    sock.sendall(head + mask + masked)
+def receive(sock):
+    message = b''
+    while True:
+        first, second = read_exact(sock, 2)
+        n = second & 0x7f
+        if n == 126: n = struct.unpack('>H', read_exact(sock, 2))[0]
+        elif n == 127: n = struct.unpack('>Q', read_exact(sock, 8))[0]
+        if len(message) + n > LIMIT: raise EOFError
+        payload = read_exact(sock, n)
+        kind, last = first & 0x0f, first & 0x80
+        if kind == 8: raise EOFError
+        if kind in (0, 1, 2): message += payload
+        if last and kind != 9: return message.decode(errors='replace')
+def handshake(sock, path):
+    key = base64.b64encode(os.urandom(16)).decode()
+    lines = ['GET %s HTTP/1.1' % path, 'Host: 127.0.0.1:%d' % port,
+             'Upgrade: websocket', 'Connection: Upgrade',
+             'Sec-WebSocket-Key: ' + key, 'Sec-WebSocket-Version: 13']
+    sock.sendall(CRLF.join(l.encode() for l in lines) + CRLF + CRLF)
+    reply = b''
+    while CRLF + CRLF not in reply: reply += sock.recv(1)
+def document(page):
+    path = page['webSocketDebuggerUrl'].split(str(port), 1)[1]
+    sock = socket.create_connection(('127.0.0.1', port), timeout=15)
+    handshake(sock, path)
+    call = {'expression': expression,
+            'returnByValue': True}
+    send(sock, json.dumps({'id': 1, 'method': 'Runtime.evaluate',
+                           'params': call}))
+    while True:
+        answer = json.loads(receive(sock))
+        if answer.get('id') == 1:
+            sock.close()
+            value = answer['result']['result']['value']
+            return value if isinstance(value, str) else json.dumps(value)
+kept = []
+for page in pages:
+    if page.get('webSocketDebuggerUrl') and (not plain or page.get('type') == 'page'):
+        where = (page.get('type'), page.get('url'))
+        head = '' if plain else '<!-- page: %s %s -->' % where + chr(10)
+        kept.append(head + document(page) + chr(10))
+        if plain: break
+if not kept: raise SystemExit('DevTools lists no page')
+open(out, 'w', encoding='utf-8').write(''.join(kept))
+DOM
+    echo "DevTools did not answer" > "$dom_file"
+  }
+  adb forward --remove "tcp:$port" || true
+}
+# Keeps the page's DOM in $OUT/dom.html: its outerHTML (android-smoke)
+keep_dom() {
+  devtools_eval 'document.documentElement.outerHTML' "$OUT/dom.html"
+}
+# The page's own answer: visible, with the text (android-smoke, pwa#201)
+SHOWN='document.visibilityState === "visible" && document.body !== null && document.body.innerText.indexOf(@TEXT@) >= 0'
+# Waits up to two minutes (SMOKE_WAIT_S) for $1 on the screen: found is 1 once
+# the page says so; else ui.xml and the DOM are kept (the WebView's tree stays partial)
+shown() {
+  found=0
+  polls=0
+  last_poll=never
+  last_answer=
+  started=$(date +%s)
+  while [ $polls -lt 60 ] && [ $(( $(date +%s) - started )) -lt "${SMOKE_WAIT_S:-120}" ]; do
+    sleep 2
+    polls=$((polls + 1))
+    last_poll=$(date +%T)
+    devtools_eval "$SHOWN" "$OUT/shown-answer.txt" plain
+    last_answer=$(head -c 200 "$OUT/shown-answer.txt")
+    if [ "$last_answer" = true ]; then found=1; return 0; fi
+  done
+  adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 && adb shell cat /sdcard/ui.xml > "$OUT/ui.xml" || true
+  keep_dom
+}
+# How many of the activity's log lines (tag BatsFiles) hold $1
+logged() {
+  adb logcat -d -s BatsFiles:I | grep -cF "$1" || true
+}
+failed=0
+fail() {
+  echo "$1"; failed=1
+}
+adb shell monkey -p "$APP_ID" -c android.intent.category.LAUNCHER 1 >/dev/null
+shown "$TEXT"
+# A volume key is offered to the page first (the activity logs whether
+# the page took it); it must reach the page, and not crash the app
+if [ $found = 1 ]; then
+  adb shell input keyevent KEYCODE_VOLUME_DOWN
+  volume=0
+  for _ in $(seq 10); do
+    sleep 1
+    if [ "$(logged "volume key: the page")" -gt 0 ]; then volume=1; break; fi
+  done
+  if [ $volume = 0 ]; then fail "A volume key never reached the page"; fi
+fi
+# Waits up to two minutes until the activity has handed $1 files to the
+# page since $2 were, then five seconds for any more; fails unless $1
+# were, saying $3
+handed() {
+  for _ in $(seq 60); do
+    if [ $(( $(logged "handed to the page") - $2 )) -ge "$1" ]; then break; fi
+    sleep 2
+  done
+  sleep 5
+  n=$(( $(logged "handed to the page") - $2 ))
+  if [ "$n" != "$1" ]; then fail "$3: the activity handed $n files to the page, not $1"; fi
+}
+# The file is put in the app's cache (adb as root, on an emulator) and
+# handed to the app as another app would, each time to be handed to
+# the page once (bats-lang/quire#247)
+if [ $found = 1 ] && [ $# -ge 6 ]; then
+  TEXT=$6
+  DEST="/data/data/$APP_ID/cache/smoke-share"
+  adb root >/dev/null
+  adb wait-for-device
+  adb push "$4" /data/local/tmp/smoke-share >/dev/null
+  OWNER=$(adb shell stat -c %u "/data/data/$APP_ID" | tr -d '\r')
+  adb shell "cp /data/local/tmp/smoke-share $DEST && chown $OWNER:$OWNER $DEST && restorecon $DEST"
+  # Started anew with the file, as a file manager opens it: one
+  # hand-over, and one copy of the file in the cache
+  adb shell am force-stop "$APP_ID"
+  start=$(logged "handed to the page")
+  adb shell am start -W -a android.intent.action.VIEW -d "file://$DEST" -t "$5" -n "$APP_ID/.MainActivity" >/dev/null
+  shown "$TEXT"
+fi
+if [ $found = 1 ] && [ $# -ge 6 ]; then
+  handed 1 "$start" "Started with the file"
+  copies=$(adb shell ls "/data/data/$APP_ID/cache/incoming" | wc -l)
+  if [ "$copies" -ne 1 ]; then fail "Started with the file, the app copied it $copies times"; fi
+  # Turned, then recreated (by a font scale, which Capacitor's activity
+  # does not take itself): the file it was started with is not handed
+  # over again
+  recreated=$(logged "recreated")
+  adb shell settings put system accelerometer_rotation 0
+  adb shell settings put system user_rotation 1
+  sleep 5
+  adb shell settings put system font_scale 1.15
+  for _ in $(seq 30); do
+    sleep 1
+    if [ "$(logged "recreated")" -gt "$recreated" ]; then break; fi
+  done
+  if [ "$(logged "recreated")" -le "$recreated" ]; then fail "The activity was never recreated"; fi
+  shown "$TEXT"
+  handed 1 "$start" "Turned and recreated"
+  adb shell settings put system font_scale 1.0
+  adb shell settings put system user_rotation 0
+  shown "$TEXT"
+  # While it is open, opened with the file and shared it: each once
+  adb shell am start -a android.intent.action.VIEW -d "file://$DEST" -t "$5" -n "$APP_ID/.MainActivity" >/dev/null
+  handed 2 "$start" "Opened with the file while open"
+  adb shell am start -a android.intent.action.SEND -t "$5" --eu android.intent.extra.STREAM "file://$DEST" -n "$APP_ID/.MainActivity" >/dev/null
+  handed 3 "$start" "Shared the file while open"
+fi
+# The text's size and place on the page, read as the page lays it out (a
+# line box of the text, the window's and the page's width), for the font
+# scale check (android-smoke)
+PROBE=$(cat <<'JS'
+(function (needle) {
+  var line = 0, left = 0, right = 0, node;
+  var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  while ((node = walker.nextNode())) {
+    var at = node.nodeValue.indexOf(needle);
+    if (at >= 0) {
+      var range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + needle.length);
+      var rects = range.getClientRects();
+      if (rects.length > 0) {
+        line = rects[0].height;
+        left = rects[0].left;
+        right = rects[rects.length - 1].right;
+      }
+      break;
+    }
+  }
+  return JSON.stringify({line: line, left: left, right: right,
+    width: window.innerWidth, scrollWidth: document.documentElement.scrollWidth});
+})(@TEXT@)
+JS
+)
+# Whether the text of file $2 (the probe at font scale $3) is the text of
+# file $1 (at scale 1.0) as the system scale makes it: its line about $3 times
+# as high, inside the window, the page no wider than the window. Prints why not.
+font_scaled() {
+  python3 -I - "$1" "$2" "$3" <<'CHECK'
+import json, sys
+try:
+    base = json.load(open(sys.argv[1]))
+    now = json.load(open(sys.argv[2]))
+    scale = float(sys.argv[3])
+except (OSError, ValueError):
+    raise SystemExit('DevTools did not answer')
+if not base['line'] or not now['line']:
+    raise SystemExit('the text is not on the page')
+ratio = now['line'] / base['line']
+if not scale * 0.9 <= ratio <= scale * 1.1:
+    raise SystemExit('its line is %.2f times as high as at 1.0 (%s px, then %s px), not about %s times' % (ratio, base['line'], now['line'], scale))
+if now['scrollWidth'] > now['width'] + 1:
+    raise SystemExit('the page is %s px wide in a window of %s px' % (now['scrollWidth'], now['width']))
+if now['left'] < -1 or now['right'] > now['width'] + 1:
+    raise SystemExit('the text spans %s to %s px in a window of %s px' % (now['left'], now['right'], now['width']))
+print('ratio %.2f (line %s px, then %s px), the text spans %s to %s px of %s' % (ratio, base['line'], now['line'], now['left'], now['right'], now['width']))
+CHECK
+}
+# The system font scale (android-smoke, pwa#154): the shell sets no
+# textZoom, so the scale reaches the page. At 1.3 and 2.0 the text is
+# about that many times as high as at 1.0 and still fits the window
+if [ $found = 1 ]; then
+  adb shell settings put system font_scale 1.0
+  ok=0
+  for _ in $(seq 15); do
+    sleep 2
+    devtools_eval "$PROBE" "$OUT/font-1.0.json" plain
+    if grep -q '"line":[1-9]' "$OUT/font-1.0.json"; then ok=1; break; fi
+  done
+  if [ $ok = 0 ]; then
+    fail "Font scale 1.0: the text was never on the page"
+  else
+    for scale in 1.3 2.0; do
+      adb shell settings put system font_scale "$scale"
+      ok=0
+      reason="the text was never on the page"
+      for _ in $(seq 15); do
+        sleep 2
+        devtools_eval "$PROBE" "$OUT/font-$scale.json" plain
+        if reason=$(font_scaled "$OUT/font-1.0.json" "$OUT/font-$scale.json" "$scale" 2>&1); then ok=1; break; fi
+      done
+      if [ $ok = 1 ]; then echo "Font scale $scale: $reason"; else fail "Font scale $scale: $reason"; fi
+    done
+  fi
+  adb shell settings put system font_scale 1.0
+fi
+adb exec-out screencap -p > "$OUT/screenshot.png"
+adb logcat -d > "$OUT/logcat.txt"
+status=$failed
+# The app crashed when AndroidRuntime's FATAL EXCEPTION names its
+# process on the next line; another process's (uiautomator's own, say)
+# is not the app's
+if grep -A1 "FATAL EXCEPTION" "$OUT/logcat.txt" | grep -q "Process: $APP_ID,"; then
+  echo "The app crashed:"; grep -A20 "FATAL EXCEPTION" "$OUT/logcat.txt"; status=1
+fi
+# Capacitor logs the page's console.error with level E and tag Capacitor/Console
+if grep -E " E Capacitor/Console" "$OUT/logcat.txt"; then
+  echo "The page logged console errors (above)"; status=1
+fi
+if [ $found = 0 ]; then
+  echo "'$TEXT' was not on the screen after two minutes: $polls DevTools polls, the last at $last_poll answered '$last_answer'"; status=1
+  echo "The app's file hand-over and page console:"
+  grep -E " (BatsFiles|Capacitor[^ ]*) *:" "$OUT/logcat.txt" | tail -40
+else
+  echo "'$TEXT' is on the screen"
+fi
+exit $status
