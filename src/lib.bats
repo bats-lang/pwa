@@ -23,8 +23,8 @@ staload TR = "./test_run.sats"
 
 (* index.html: the app's name while it loads, and bridge.js, which loads
    the app; no script of its own *)
-#pub fn build_html {na:nat | na < 256}{n:nat | n + 2100 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 2100] $B.builder(m), app_name: string na): void
+#pub fn build_html {na:nat | na < 256}{n:nat | n + 2000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 2000] $B.builder(m), app_name: string na): void
 
 #pub fn build_manifest {na:nat | na < 256}{n:nat | n + 900 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 900] $B.builder(m), app_name: string na): void
@@ -59,8 +59,8 @@ staload TR = "./test_run.sats"
    dependencies otherwise pull in twice: the one bridge's plugins need
    (produce_kotlin_version, the newest any is compiled with; an older
    one crashed the app at a plugin's first call, quire#223) *)
-#pub fn build_android_gradle {n:nat | n + 2100 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 2100] $B.builder(m)): void
+#pub fn build_android_gradle {n:nat | n + 2000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 2000] $B.builder(m)): void
 
 (* build-android.sh: builds the Capacitor project it sits in into a
    release AAB and APK (pnpm install, cap add android, the app's own
@@ -174,27 +174,16 @@ staload TR = "./test_run.sats"
    as at 1.0 (the shell sets no textZoom, so the scale reaches the page) and
    fits the window. The form create_android writes; build_smoke_test_script
    stays beside it, without that step (android-smoke). *)
-(* deprecated (android-smoke): create_android writes build_smoke_test_script_font_scale_devtools_early_event, whose shown() asks the page (pwa#201); this keeps its type and its dump-polling text, removed by bats-lang/pwa#203 *)
+(* deprecated (android-smoke): create_android writes build_smoke_test_script_font_scale_devtools, whose shown() asks the page (pwa#201); this keeps its type and its dump-polling text, removed by bats-lang/pwa#203 *)
 #pub fn build_smoke_test_script_font_scale {ni:nat | ni < 256}{n:nat | n + 15000 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 15000] $B.builder(m), app_id: string ni): void
 
 (* build_smoke_test_script_font_scale with the fix of bats-lang/pwa#201 (android-smoke): shown()
    asks the page over DevTools whether it is visible and holds the text, as uiautomator's tree
-   stays partial on a slow emulator. Its text is longer, so its bound is 16000. *)
-(* deprecated (android-smoke): create_android writes build_smoke_test_script_font_scale_devtools_early_event, which classifies Capacitor's own early lifecycle event (pwa#207); this keeps its type and its text, removed by bats-lang/pwa#209 *)
+   stays partial on a slow emulator. Its text is longer, so its bound is 16000. The form
+   create_android writes. *)
 #pub fn build_smoke_test_script_font_scale_devtools {ni:nat | ni < 256}{n:nat | n + 16000 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 16000] $B.builder(m), app_id: string ni): void
-
-(* build_smoke_test_script_font_scale_devtools with the classification of bats-lang/pwa#207
-   (android-smoke): Capacitor's own pause and resume events (Cordova's webview, Bridge) are
-   evaluated in the web view as window.Capacitor.triggerEvent(...), and on a slow emulator one
-   lands in a document whose window.Capacitor does not exist yet, before bridge.js is served.
-   The page logs `Uncaught TypeError ... reading 'triggerEvent'`, line 1, with a console error.
-   That one line, logged before bridge.js is served for the page an activity loads, is said and
-   kept in early-events.txt but is not a failure; any other console error, and the same error
-   once bridge.js is served, still is. The form create_android writes. *)
-#pub fn build_smoke_test_script_font_scale_devtools_early_event {ni:nat | ni < 256}{n:nat | n + 17000 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 17000] $B.builder(m), app_id: string ni): void
 
 (* Writes a Capacitor project in project_dir for the PWA in web_dir
    (relative to project_dir): capacitor.config.json, package.json,
@@ -1244,39 +1233,6 @@ fn _smoke_tail_a {n:nat | n + 650 <= $B.BUILDER_CAP}
   val () = $B.bput(b, "if [ $found = 0 ]; then\n")
 in end
 
-(* the same, with the console errors sorted (android-smoke, pwa#207): see
-   build_smoke_test_script_font_scale_devtools_early_event. The awk keeps, for each pid, whether bridge.js was
-   served since the activity loaded its page ("Loading app at"); an error line that is Capacitor's
-   triggerEvent on undefined, logged before that, is early, any other is an error *)
-fn _smoke_tail_a_early {n:nat | n + 2100 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 2100] $B.builder(m)): void = let
-  val () = $B.bput(b, "adb exec-out screencap -p > \"$OUT/screenshot.png\"\n")
-  val () = $B.bput(b, "adb logcat -d > \"$OUT/logcat.txt\"\n")
-  val () = $B.bput(b, "status=$failed\n")
-  val () = $B.bput(b, "# The app crashed when AndroidRuntime's FATAL EXCEPTION names its\n")
-  val () = $B.bput(b, "# process on the next line; another process's (uiautomator's own, say)\n")
-  val () = $B.bput(b, "# is not the app's\n")
-  val () = $B.bput(b, "if grep -A1 \"FATAL EXCEPTION\" \"$OUT/logcat.txt\" | grep -q \"Process: $APP_ID,\"; then\n")
-  val () = $B.bput(b, "  echo \"The app crashed:\"; grep -A20 \"FATAL EXCEPTION\" \"$OUT/logcat.txt\"; status=1\n")
-  val () = $B.bput(b, "fi\n")
-  val () = $B.bput(b, "# Capacitor logs the page's console.error with level E and tag Capacitor/Console.\n")
-  val () = $B.bput(b, "# Capacitor's own pause/resume event, evaluated as window.Capacitor.triggerEvent(...)\n")
-  val () = $B.bput(b, "# before bridge.js is served for the page (area keyword android-smoke, pwa#207), is\n")
-  val () = $B.bput(b, "# kept in early-events.txt and not a failure; every other console error fails\n")
-  val () = $B.bput(b, "awk '/ D Capacitor: Loading app at / { delete served[$3] }\n")
-  val () = $B.bput(b, "  / D Capacitor: Handling local request: https:\\/\\/localhost\\/bridge\\.js$/ { served[$3] = 1 }\n")
-  val () = $B.bput(b, "  / E Capacitor\\/Console/ { if (!($3 in served) && $0 ~ /Line 1 - Msg: Uncaught TypeError: Cannot read properties of undefined \\(reading .triggerEvent.\\)$/) print \"early \" $0; else print \"error \" $0 }' \"$OUT/logcat.txt\" > \"$OUT/console-errors.txt\"\n")
-  val () = $B.bput(b, "grep '^early ' \"$OUT/console-errors.txt\" | cut -c7- > \"$OUT/early-events.txt\" || true\n")
-  val () = $B.bput(b, "if [ -s \"$OUT/early-events.txt\" ]; then\n")
-  val () = $B.bput(b, "  echo \"Not a failure, Capacitor's own lifecycle event before bridge.js was served (pwa#207):\"; cat \"$OUT/early-events.txt\"\n")
-  val () = $B.bput(b, "fi\n")
-  val () = $B.bput(b, "if grep -q '^error ' \"$OUT/console-errors.txt\"; then\n")
-  val () = $B.bput(b, "  grep '^error ' \"$OUT/console-errors.txt\" | cut -c7-\n")
-  val () = $B.bput(b, "  echo \"The page logged console errors (above)\"; status=1\n")
-  val () = $B.bput(b, "fi\n")
-  val () = $B.bput(b, "if [ $found = 0 ]; then\n")
-in end
-
 (* the line for a text that never showed, the form before pwa#201 (deprecated, android-smoke, removed by bats-lang/pwa#203 and #189) *)
 fn _smoke_never_dump {n:nat | n + 70 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 70] $B.builder(m)): void = let
@@ -1324,15 +1280,6 @@ implement build_smoke_test_script_font_scale_devtools (b, app_id) = let
   val () = _smoke_head_b(b)
   val () = _smoke_font_scale(b)
   val () = _smoke_tail_a(b)
-  val () = _smoke_never_devtools(b)
-in _smoke_tail_b(b) end
-
-implement build_smoke_test_script_font_scale_devtools_early_event (b, app_id) = let
-  val () = _smoke_head_a(b, app_id)
-  val () = _smoke_shown_devtools(b)
-  val () = _smoke_head_b(b)
-  val () = _smoke_font_scale(b)
-  val () = _smoke_tail_a_early(b)
   val () = _smoke_never_devtools(b)
 in _smoke_tail_b(b) end
 
@@ -1453,7 +1400,7 @@ fn _android_project_files {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 2
   val () = build_pnpm_script(pnpm_b)
   val () = _write_to(project_dir, "fetch-pnpm.sh", pnpm_b)
   var st_b = $B.create()
-  val () = build_smoke_test_script_font_scale_devtools_early_event(st_b, app_id)
+  val () = build_smoke_test_script_font_scale_devtools(st_b, app_id)
 in _write_mode(project_dir, "smoke-test.sh", st_b, 493) end
 
 implement create_android (app_name, app_id, web_dir, project_dir, mime) = let

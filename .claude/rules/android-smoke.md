@@ -233,56 +233,27 @@ paths:
   `textZoom`), a page wider than the window, text past the window's edge and a
   silent page each fail with their reason.
 
-# Capacitor's own early `triggerEvent` is classified, not a failure (pwa#207)
+# The first launch's activity is created twice, and Capacitor's `triggerEvent` runs early (pwa#207)
 
-* Evidence: quire run 40219569509, job 121251976507, artifact `android-smoke-test`
-  12609084687 (pid 2278). The first launch's logcat has `E Capacitor/Console: File:
-  https://localhost/ - Line 1 - Msg: Uncaught TypeError: Cannot read properties of
-  undefined (reading 'triggerEvent')` at 18:24:59.409, the line before `Handling local
-  request: https://localhost/bridge.js`. That activity had just been created, resumed,
-  paused, stopped and destroyed (18:24:58.549 to .655) and created again; the emulator
-  drew frames in seconds.
-* Why the activity was created twice (searched for before classifying): not the script's launch
-  sequence and not our manifest. The script's only intent before it is one `monkey ... LAUNCHER`
-  (`ActivityTaskManager: START ... LAUNCH_SINGLE_TASK` at 18:24:57.800, the only START of the run
-  until the file steps); no share intent, kill or stop is near it. The generated project sets no
-  `configChanges` or `launchMode`, and no `Config changes` line is logged before 18:25:22 (the
-  turn of the file step). The first instance is `BatsFiles: created` (58.050), `App resumed`
-  (58.618), `App paused` (58.628), `App stopped`/`destroyed` (58.647/.655), and `BatsFiles:
-  recreated` (58.686): system_server relaunched it 70 ms after the resume, and the log says
-  nothing about why. What the log shows at the same moment is Android finishing its boot: the
-  user-completed work (`SystemServerTimingAsync: ssm.onCompletedEventUser-0_{|Unlocked|}_...`,
-  18:24:58.99 to 59.03, `reportOnUserCompletedEvent` 58.989) and `Displayed ... +1s513ms`, all
-  after the launch at 57.8. The script already waits for `sys.boot_completed` and the broadcast
-  queue (its comment: an app launched then is relaunched as boot finishes), and that wait did not
-  cover this run, so the relaunch is Android's, on a slow emulator, and not a pwa launch
-  sequence or manifest setting to fix. No signal that says "boot finished" past those two is
-  known to exist, so none is waited for here.
-* The source is Capacitor's, not ours: no file of pwa, bridge or the generated project
-  has `triggerEvent`. In `capacitor-android`'s `MockCordovaWebViewImpl`, `handlePause` and
-  `handleResume` call `triggerDocumentEvent("pause"/"resume")`, which hands the web view
-  `window.Capacitor.triggerEvent('resume','document')` through `evaluateJavascript`
-  (`javap -c` of the 8.x class); `Bridge.triggerJSEvent` builds the same text. The call
-  runs in whatever document is current, and `window.Capacitor` is defined by
-  `native-bridge.js`, which Capacitor puts in the page it serves, so on a slow device the
-  call can run in the page before it. The page cannot guard it: the call is before any
-  script of the page, and the activity cannot delay Capacitor's lifecycle calls. Only the
-  document's `resume`/`pause` event is lost; the page's `appStateChange` and `appUrlOpen`
-  reach it through `notifyListeners`, not this call.
-* So `smoke-test.sh` sorts the console errors (`build_smoke_test_script_font_scale_devtools_early_event`,
-  `_smoke_tail_a_early`): per pid, `Loading app at` (the activity loads its page) starts a
-  page that has not been served `bridge.js`; the one line `Line 1 - Msg: Uncaught TypeError:
-  Cannot read properties of undefined (reading 'triggerEvent')` logged in that state is said
-  (`Not a failure, Capacitor's own lifecycle event before bridge.js was served (pwa#207):`)
-  and kept in `early-events.txt`; every other `E Capacitor/Console` line, and that line once
-  `bridge.js` is served, is printed and fails the run. `console-errors.txt` is the sorted log
-  (`early ` or `error ` before each line).
-* `tests/android-smoke-dom/check.sh` case 7 plays it from `tests/android-smoke-dom/logcat/`:
-  the lines of the failing run (passes, kept), a page loaded again in the same process
-  (passes), the same error after `bridge.js` (fails), another error before it (fails).
-* Overlap (pwa#209): the published `build_smoke_test_script_font_scale_devtools` keeps its type
-  (16000) and its text (every console error fails); the new form is beside it (17000) and
-  `create_android` writes it. `tests/dynamic/smoke-compat` calls all three old forms.
-* A run on a throttled emulator: `workflow_dispatch` of `check.yml` has the input
-  `emulator-options`, handed to `android.yml`'s `emulator-extra-options`, added to the
-  emulator's options (`-cores 1`: one emulated core).
+* Evidence: quire run 40219569509, job 121251976507, artifact `android-smoke-test` 12609084687
+  (pid 2278): `E Capacitor/Console: File: https://localhost/ - Line 1 - Msg: Uncaught TypeError:
+  Cannot read properties of undefined (reading 'triggerEvent')` at 18:24:59.409, the line before
+  `Handling local request: https://localhost/bridge.js`. The smoke test classifies, ignores and
+  allows no console error: this one fails it (`tests/android-smoke-dom/check.sh`, case 7, plays
+  the lines of that run).
+* The call is Capacitor's: `MockCordovaWebViewImpl.handlePause/handleResume` evaluate
+  `window.Capacitor.triggerEvent('pause'/'resume','document')`, and `window.Capacitor` is defined by
+  `native-bridge.js` in the page. It runs early because the activity was created, resumed (58.618),
+  paused (58.628), stopped (58.647), destroyed (58.655) and created again (`BatsFiles: recreated`
+  58.686) during the load.
+* What the log shows of why: the script's only intent is one `monkey ... LAUNCHER` (START at
+  57.800; no share intent, kill or stop), the generated project sets no `configChanges` or
+  `launchMode`, no `Config changes` line is logged before 18:25:22. At 58.087 the app's process
+  fails to open SystemUI's fabricated theme overlays (`/data/resource-cache/com.android.systemui-
+  neutral-3qzX.frro`, `-accent-`, `-dynamic-`: `Zip: EOCD not found ... is not zip`, `Invalid
+  file`, i.e. being written), and Android's user-completed boot work runs at 58.99 to 59.03
+  (`ssm.onCompletedEventUser-0_{|Unlocked|}_...`). The script already waits for
+  `sys.boot_completed` and the broadcast queue. The relaunch is system_server's and the log gives
+  no reason for it.
+* `check.yml` has a `workflow_dispatch` input `emulator-options`, handed to `android.yml`'s
+  `emulator-extra-options` and added to the emulator's options (`-cores 1`).

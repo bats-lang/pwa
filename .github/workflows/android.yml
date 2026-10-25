@@ -21,10 +21,8 @@
 # renders; it fails when the text never shows, the app crashes or the
 # page logs a console error, and uploads a screenshot, the UI dump, the
 # logcat and, when the text never showed, the page's DOM (dom.html; area
-# keyword android-smoke, pwa#166) as the artifact android-smoke-test. A console
-# error that is Capacitor's own pause or resume event, evaluated before bridge.js
-# is served for the page, is said and kept (early-events.txt) and is no failure
-# (pwa#207); emulator-extra-options runs the test on a throttled emulator. With smoke-share-file
+# keyword android-smoke, pwa#166) as the artifact android-smoke-test.
+# emulator-extra-options adds options to the emulator's (a throttled one, pwa#207). With smoke-share-file
 # (a path in the artifact), smoke-share-type and smoke-share-text set,
 # it then starts the app anew with that file (VIEW) and waits for that
 # text too, turns and recreates the app, and opens and shares the file
@@ -792,8 +790,6 @@ jobs:
             smoke/ui.xml
             smoke/logcat.txt
             smoke/dom.html
-            smoke/early-events.txt
-            smoke/console-errors.txt
           if-no-files-found: ignore
 
       # Only once the test passed: a failed test keeps the APK (for a
