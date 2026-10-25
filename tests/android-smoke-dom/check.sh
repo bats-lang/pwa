@@ -188,6 +188,8 @@ for case in early-event late-event recreated-event other-error; do
   errors "err-$case" "$case.txt"
   [ "$(cat "$TMP/err-$case.status")" = 1 ] || fail "the script passed with the console error of $case" "$TMP/err-$case.out"
   grep -q '^The page logged console errors (above)$' "$TMP/err-$case.out" || fail "no console errors line for $case" "$TMP/err-$case.out"
+  echo "case 7, $case: the script exited $(cat "$TMP/err-$case.status") and printed:"
+  grep -E 'Capacitor/Console|console errors' "$TMP/err-$case.out"
 done
 grep -q "reading 'triggerEvent')$" "$TMP/err-early-event.out" || fail "the early triggerEvent error is not printed" "$TMP/err-early-event.out"
 # 8. (pwa#207) the app is installed and launched only once user 0 is unlocked
@@ -207,4 +209,6 @@ PATH="$TMP/bin:$PATH" STUB_LOG="$TMP/locked.log" STUB_UI="$TMP/screen-with-text.
   timeout 3 sh "$SCRIPT" "$TMP/apk.apk" "BATS PWA" "$TMP/locked" < /dev/null > "$TMP/locked.out" 2>&1 || status=$?
 [ "$status" = 124 ] || fail "the script went on with a user that stays locked (status $status)" "$TMP/locked.out"
 if grep -q '^adb install' "$TMP/locked.log"; then fail "the app was installed for a locked user" "$TMP/locked.log"; fi
+echo "case 8: a user that stays locked: the script was ended by timeout (status $status), asked the user state $(grep -c '^adb shell am get-started-user-state 0$' "$TMP/locked.log") times, installed nothing"
+echo "case 8: a user locked for three answers: $(grep -c '^adb shell am get-started-user-state 0$' "$TMP/unlocking.log") polls, then the install"
 echo "OK: the page's DOM is kept when the text never shows, and the font scale reaches the page"
