@@ -21,6 +21,9 @@
 #      passes (and the font scale step runs); a dump that holds the text while the
 #      page lacks it, or has it hidden, fails; the failure line says how many polls
 #      were made, when the last was and what it answered.
+#   7. (pwa#207) a console error fails the script, Capacitor's early triggerEvent one
+#      (the lines of the failing run, quire run 40219569509) included, before or after
+#      bridge.js is served: nothing is classified or allowed.
 # usage: tests/android-smoke-dom/check.sh <smoke-test.sh>
 set -eu
 # the wait of shown(), two minutes in a run, seconds here
@@ -45,6 +48,11 @@ cat > "$TMP/bin/adb" <<'STUB'
 echo "adb $*" >> "$STUB_LOG"
 case "$*" in
   "shell getprop sys.boot_completed") echo 1 ;;
+  "shell am get-started-user-state 0")
+    # STUB_LOCKED_POLLS answers RUNNING_LOCKED, then RUNNING_UNLOCKED
+    polls=$(cat "$STUB_POLLS" 2>/dev/null || echo 0)
+    echo $((polls + 1)) > "$STUB_POLLS"
+    if [ "$polls" -lt "${STUB_LOCKED_POLLS:-0}" ]; then echo RUNNING_LOCKED; else echo RUNNING_UNLOCKED; fi ;;
   "shell cat /sdcard/ui.xml") cat "$STUB_UI" ;;
   "shell settings put system font_scale "*) echo "${6}" > "$STUB_SCALE" ;;
   "shell pidof "*) echo 4242 ;;
@@ -52,7 +60,7 @@ case "$*" in
   "forward tcp:0 localabstract:"*) echo "$(cat "$STUB_PORTFILE")" ;;
   "exec-out screencap -p") printf 'PNG' ;;
   "logcat -d -s BatsFiles:I") echo "I BatsFiles: volume key: the page" ;;
-  "logcat -d") echo "I something: logcat" ;;
+  "logcat -d") echo "I something: logcat"; if [ -n "${STUB_LOGCAT:-}" ]; then cat "$STUB_LOGCAT"; fi ;;
 esac
 exit 0
 STUB
@@ -79,7 +87,7 @@ run() {
   : > "$TMP/$name.log"
   status=0
   PATH="$TMP/bin:$PATH" STUB_LOG="$TMP/$name.log" STUB_UI="$TMP/$3" STUB_UNIX="$TMP/$4" \
-    STUB_PORTFILE="$TMP/port" STUB_SCALE="$TMP/scale" timeout 120 sh "$SCRIPT" "$TMP/apk.apk" "$5" "$TMP/$name" \
+    STUB_PORTFILE="$TMP/port" STUB_SCALE="$TMP/scale" STUB_POLLS="$TMP/$name.polls" timeout 120 sh "$SCRIPT" "$TMP/apk.apk" "$5" "$TMP/$name" \
     < /dev/null > "$TMP/$name.out" 2>&1 || status=$?
   kill "$SERVER" 2>/dev/null || true
   SERVER=
@@ -171,4 +179,36 @@ grep -q '^Font scale 1.3: the text spans 8 to 442' "$TMP/font-outside.out" || fa
 run font-silent silent-probe screen-with-text.xml unix-with-socket "BATS PWA"
 [ "$(cat "$TMP/font-silent.status")" = 1 ] || fail "the script passed with a silent page" "$TMP/font-silent.out"
 grep -q '^Font scale 1.0: the text was never on the page' "$TMP/font-silent.out" || fail "silence not said" "$TMP/font-silent.out"
+# 7. (pwa#207) no console error is classified, ignored or allowed: Capacitor's early
+# triggerEvent error (the lines of the failing run) fails the script, before or after
+# bridge.js is served, and so does any other
+LOGCAT_DIR="$HERE/logcat"
+errors() { STUB_LOGCAT="$LOGCAT_DIR/$2" run "$1" ok screen-with-text.xml unix-with-socket "BATS PWA"; }
+for case in early-event late-event recreated-event other-error; do
+  errors "err-$case" "$case.txt"
+  [ "$(cat "$TMP/err-$case.status")" = 1 ] || fail "the script passed with the console error of $case" "$TMP/err-$case.out"
+  grep -q '^The page logged console errors (above)$' "$TMP/err-$case.out" || fail "no console errors line for $case" "$TMP/err-$case.out"
+  echo "case 7, $case: the script exited $(cat "$TMP/err-$case.status") and printed:"
+  grep -E 'Capacitor/Console|console errors' "$TMP/err-$case.out"
+done
+grep -q "reading 'triggerEvent')$" "$TMP/err-early-event.out" || fail "the early triggerEvent error is not printed" "$TMP/err-early-event.out"
+# 8. (pwa#207) the app is installed and launched only once user 0 is unlocked
+# (am get-started-user-state 0 is RUNNING_UNLOCKED), the state after which system_server
+# no longer relaunches the first activity: locked for three answers, then unlocked
+STUB_LOCKED_POLLS=3 run unlocking ok screen-with-text.xml unix-with-socket "BATS PWA"
+[ "$(cat "$TMP/unlocking.status")" = 0 ] || fail "the script failed once the user unlocked" "$TMP/unlocking.out"
+[ "$(grep -c '^adb shell am get-started-user-state 0$' "$TMP/unlocking.log")" = 4 ] ||
+  fail "the user state was not asked until it was RUNNING_UNLOCKED (four answers)" "$TMP/unlocking.log"
+[ "$(grep -n '^adb shell am get-started-user-state 0$' "$TMP/unlocking.log" | tail -1 | cut -d: -f1)" -lt \
+  "$(grep -n '^adb install' "$TMP/unlocking.log" | head -1 | cut -d: -f1)" ] ||
+  fail "the app was installed before the user was unlocked" "$TMP/unlocking.log"
+# a user that stays locked: the script installs nothing and launches nothing
+rm -f "$TMP/port" "$TMP/locked.polls"; : > "$TMP/locked.log"; status=0
+PATH="$TMP/bin:$PATH" STUB_LOG="$TMP/locked.log" STUB_UI="$TMP/screen-with-text.xml" STUB_UNIX="$TMP/unix-with-socket" \
+  STUB_PORTFILE="$TMP/port" STUB_SCALE="$TMP/scale" STUB_POLLS="$TMP/locked.polls" STUB_LOCKED_POLLS=1000000 \
+  timeout 3 sh "$SCRIPT" "$TMP/apk.apk" "BATS PWA" "$TMP/locked" < /dev/null > "$TMP/locked.out" 2>&1 || status=$?
+[ "$status" = 124 ] || fail "the script went on with a user that stays locked (status $status)" "$TMP/locked.out"
+if grep -q '^adb install' "$TMP/locked.log"; then fail "the app was installed for a locked user" "$TMP/locked.log"; fi
+echo "case 8: a user that stays locked: the script was ended by timeout (status $status), asked the user state $(grep -c '^adb shell am get-started-user-state 0$' "$TMP/locked.log") times, installed nothing"
+echo "case 8: a user locked for three answers: $(grep -c '^adb shell am get-started-user-state 0$' "$TMP/unlocking.log") polls, then the install"
 echo "OK: the page's DOM is kept when the text never shows, and the font scale reaches the page"

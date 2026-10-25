@@ -21,7 +21,8 @@
 # renders; it fails when the text never shows, the app crashes or the
 # page logs a console error, and uploads a screenshot, the UI dump, the
 # logcat and, when the text never showed, the page's DOM (dom.html; area
-# keyword android-smoke, pwa#166) as the artifact android-smoke-test. With smoke-share-file
+# keyword android-smoke, pwa#166) as the artifact android-smoke-test.
+# emulator-extra-options adds options to the emulator's (a throttled one, pwa#207). With smoke-share-file
 # (a path in the artifact), smoke-share-type and smoke-share-text set,
 # it then starts the app anew with that file (VIEW) and waits for that
 # text too, turns and recreates the app, and opens and shares the file
@@ -120,6 +121,11 @@ on:
         required: false
         type: boolean
         default: true
+      emulator-extra-options:
+        description: Options added to the emulator's own, for a run on a throttled emulator (android-smoke, pwa#207), say "-cores 1"
+        required: false
+        type: string
+        default: ''
     secrets:
       KEYSTORE_BASE64:
         required: false
@@ -732,6 +738,7 @@ jobs:
           emulator-options: >-
             -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
             -skin 960x1920
+            ${{ inputs.emulator-extra-options }}
             -stdouterr-file ${{ runner.temp }}/emulator.log
           # The SDK pins again (android-sdk-pins, pwa#137): the action installed
           # the newest packages first, which replaced the pins if Google has

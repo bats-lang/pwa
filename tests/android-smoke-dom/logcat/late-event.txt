@@ -1,0 +1,5 @@
+10-25 18:24:58.735  2278  2278 D Capacitor: Loading app at https://localhost
+10-25 18:24:58.741  2278  2278 D Capacitor: App resumed
+10-25 18:24:58.743  2278  2321 D Capacitor: Handling local request: https://localhost/
+10-25 18:24:59.413  2278  2323 D Capacitor: Handling local request: https://localhost/bridge.js
+10-25 18:24:59.409  2278  2278 E Capacitor/Console: File: https://localhost/ - Line 1 - Msg: Uncaught TypeError: Cannot read properties of undefined (reading 'triggerEvent')
