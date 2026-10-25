@@ -242,6 +242,22 @@ paths:
   request: https://localhost/bridge.js`. That activity had just been created, resumed,
   paused, stopped and destroyed (18:24:58.549 to .655) and created again; the emulator
   drew frames in seconds.
+* Why the activity was created twice (searched for before classifying): not the script's launch
+  sequence and not our manifest. The script's only intent before it is one `monkey ... LAUNCHER`
+  (`ActivityTaskManager: START ... LAUNCH_SINGLE_TASK` at 18:24:57.800, the only START of the run
+  until the file steps); no share intent, kill or stop is near it. The generated project sets no
+  `configChanges` or `launchMode`, and no `Config changes` line is logged before 18:25:22 (the
+  turn of the file step). The first instance is `BatsFiles: created` (58.050), `App resumed`
+  (58.618), `App paused` (58.628), `App stopped`/`destroyed` (58.647/.655), and `BatsFiles:
+  recreated` (58.686): system_server relaunched it 70 ms after the resume, and the log says
+  nothing about why. What the log shows at the same moment is Android finishing its boot: the
+  user-completed work (`SystemServerTimingAsync: ssm.onCompletedEventUser-0_{|Unlocked|}_...`,
+  18:24:58.99 to 59.03, `reportOnUserCompletedEvent` 58.989) and `Displayed ... +1s513ms`, all
+  after the launch at 57.8. The script already waits for `sys.boot_completed` and the broadcast
+  queue (its comment: an app launched then is relaunched as boot finishes), and that wait did not
+  cover this run, so the relaunch is Android's, on a slow emulator, and not a pwa launch
+  sequence or manifest setting to fix. No signal that says "boot finished" past those two is
+  known to exist, so none is waited for here.
 * The source is Capacitor's, not ours: no file of pwa, bridge or the generated project
   has `triggerEvent`. In `capacitor-android`'s `MockCordovaWebViewImpl`, `handlePause` and
   `handleResume` call `triggerDocumentEvent("pause"/"resume")`, which hands the web view
