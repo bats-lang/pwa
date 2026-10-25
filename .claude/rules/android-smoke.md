@@ -257,3 +257,18 @@ paths:
   no reason for it.
 * `check.yml` has a `workflow_dispatch` input `emulator-options`, handed to `android.yml`'s
   `emulator-extra-options` and added to the emulator's options (`-cores 1`).
+* The cause and the wait (pwa#207): `sys.boot_completed` is set by system_server before user 0 is
+  unlocked, and the unlock (`ssm.onCompletedEventUser-0_{|Unlocked|}_...`, the theme overlays
+  SystemUI writes, the user-completed boot work) runs after it, so the first launch of 57.8 was
+  inside it. The newest smoke form (`build_smoke_test_script_font_scale_devtools`) waits, after
+  `sys.boot_completed` and before the broadcast queue drains, until `adb shell am
+  get-started-user-state 0` prints `RUNNING_UNLOCKED` (`ActivityManagerShellCommand`
+  `get-started-user-state`, the state `UserController` reaches when the user is unlocked); the old
+  forms keep the text they had (`tests/dynamic/smoke-compat`). `check.sh` case 8 plays a user
+  locked for three answers (the install comes after the fourth) and one that stays locked (no
+  install, no launch). Comparable tools: reactivecircus/android-emulator-runner polls only
+  `sys.boot_completed` (every 2 s) and then sends `input keyevent 82`; Skia's and Flutter's
+  scripts poll `sys.boot_completed`; Jenkins' emulator plugin moved from `dev.bootcomplete` to
+  `init.svc.bootanim`, which `-no-boot-anim` makes ready too early, and on API 36 the property is
+  absent; none waits for the user's unlock, which is why this wait is the user state. Gradle
+  managed devices' wait could not be found in documentation.
