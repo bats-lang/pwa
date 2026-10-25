@@ -232,3 +232,41 @@ paths:
   20 px times the scale: passes; the line staying at 20 px (a shell with
   `textZoom`), a page wider than the window, text past the window's edge and a
   silent page each fail with their reason.
+
+# Capacitor's own early `triggerEvent` is classified, not a failure (pwa#207)
+
+* Evidence: quire run 40219569509, job 121251976507, artifact `android-smoke-test`
+  12609084687 (pid 2278). The first launch's logcat has `E Capacitor/Console: File:
+  https://localhost/ - Line 1 - Msg: Uncaught TypeError: Cannot read properties of
+  undefined (reading 'triggerEvent')` at 18:24:59.409, the line before `Handling local
+  request: https://localhost/bridge.js`. That activity had just been created, resumed,
+  paused, stopped and destroyed (18:24:58.549 to .655) and created again; the emulator
+  drew frames in seconds.
+* The source is Capacitor's, not ours: no file of pwa, bridge or the generated project
+  has `triggerEvent`. In `capacitor-android`'s `MockCordovaWebViewImpl`, `handlePause` and
+  `handleResume` call `triggerDocumentEvent("pause"/"resume")`, which hands the web view
+  `window.Capacitor.triggerEvent('resume','document')` through `evaluateJavascript`
+  (`javap -c` of the 8.x class); `Bridge.triggerJSEvent` builds the same text. The call
+  runs in whatever document is current, and `window.Capacitor` is defined by
+  `native-bridge.js`, which Capacitor puts in the page it serves, so on a slow device the
+  call can run in the page before it. The page cannot guard it: the call is before any
+  script of the page, and the activity cannot delay Capacitor's lifecycle calls. Only the
+  document's `resume`/`pause` event is lost; the page's `appStateChange` and `appUrlOpen`
+  reach it through `notifyListeners`, not this call.
+* So `smoke-test.sh` sorts the console errors (`build_smoke_test_script_font_scale_devtools_early_event`,
+  `_smoke_tail_a_early`): per pid, `Loading app at` (the activity loads its page) starts a
+  page that has not been served `bridge.js`; the one line `Line 1 - Msg: Uncaught TypeError:
+  Cannot read properties of undefined (reading 'triggerEvent')` logged in that state is said
+  (`Not a failure, Capacitor's own lifecycle event before bridge.js was served (pwa#207):`)
+  and kept in `early-events.txt`; every other `E Capacitor/Console` line, and that line once
+  `bridge.js` is served, is printed and fails the run. `console-errors.txt` is the sorted log
+  (`early ` or `error ` before each line).
+* `tests/android-smoke-dom/check.sh` case 7 plays it from `tests/android-smoke-dom/logcat/`:
+  the lines of the failing run (passes, kept), a page loaded again in the same process
+  (passes), the same error after `bridge.js` (fails), another error before it (fails).
+* Overlap (pwa#209): the published `build_smoke_test_script_font_scale_devtools` keeps its type
+  (16000) and its text (every console error fails); the new form is beside it (17000) and
+  `create_android` writes it. `tests/dynamic/smoke-compat` calls all three old forms.
+* A run on a throttled emulator: `workflow_dispatch` of `check.yml` has the input
+  `emulator-options`, handed to `android.yml`'s `emulator-extra-options`, added to the
+  emulator's options (`-cores 1`: one emulated core).
