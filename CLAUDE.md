@@ -90,7 +90,9 @@ whose parser takes `21.0.12+8.0.LTS` from a file not named `.tool-versions`).
 `android.yml` has no checkout of its caller, so it reads them from the
 artifact it downloads, `app/<project-dir>/`, where `create_android` and
 `create_android_locked` write them (the versions are two constants in
-`src/lib.bats`); `e2e-setup` reads `.nvmrc` from its `working-directory`
+`src/lib.bats`); the caller's `upload-artifact` of the project needs
+`include-hidden-files: true`, since the action skips dotfiles by default and
+the job then fails with "node version file ... does not exist"; `e2e-setup` reads `.nvmrc` from its `working-directory`
 (input `node-version-file`), `example/.nvmrc` for the example and the app's
 own root file for quire, which moves to it with its next pin of this action.
 A literal `node-version`, `java-version` or `python-version` in `.github` is
