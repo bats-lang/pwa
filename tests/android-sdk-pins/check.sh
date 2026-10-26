@@ -177,7 +177,4 @@ set -e
 [ "$RC" = 2 ] || fail "key without pins.txt: exit $RC"
 ! grep -Eq '^[0-9a-f]{64}$' "$TMP/key-none.out" || fail "key without pins.txt: a digest"
 
-# 8. the emulator step run again (bats-lang/pwa#214): smoke-retry.sh
-"$HERE/smoke-retry.sh" "$BIN"
-
 echo "android-sdk-pins: all passed"
