@@ -16,6 +16,7 @@
 #use wasm.bats-packages.dev/bridge as BR
 
 staload TR = "./test_run.sats"
+staload SP = "./static_pages.sats"
 
 (* ============================================================
    Builder-based API (generate file contents into builders)
@@ -1533,3 +1534,22 @@ in _write_mode(project_dir, "build-android.sh", sh_b, 493) end
 implement test_wanted () = $TR.gen_test_wanted ()
 
 implement test_run () = $TR.gen_test_run ()
+
+(* ============================================================
+   gen-pwa pages (bats-lang/pwa#243, keyword: static-pages)
+   ============================================================ *)
+
+(* Whether the program's first argument is "pages": an app's generator
+   then copies a directory of its static pages instead of generating.
+   Build tooling for the app's CI: nothing of it is part of what pwa
+   generates or of what the app runs. *)
+#pub fn pages_wanted (): bool
+
+(* gen-pwa pages SOURCE NAME: copies the tree at SOURCE into dist/pwa/NAME;
+   0 when copied, 1 when refused or failed, said on stderr with the path
+   and the system's reason (src/static_pages.bats) *)
+#pub fn pages_run (): int
+
+implement pages_wanted () = $SP.pages_wanted ()
+
+implement pages_run () = $SP.pages_run ()
