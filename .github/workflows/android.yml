@@ -22,6 +22,8 @@
 # page logs a console error, and uploads a screenshot, the UI dump, the
 # logcat and, when the text never showed, the page's DOM (dom.html; area
 # keyword android-smoke, pwa#166) as the artifact android-smoke-test.
+# The emulator step runs again once when the action's SDK install failed before an
+# emulator started (attempt 2 of 2; bats-lang/pwa#214, area keyword android-smoke).
 # emulator-extra-options adds options to the emulator's (a throttled one, pwa#207). With smoke-share-file
 # (a path in the artifact), smoke-share-type and smoke-share-text set,
 # it then starts the app anew with that file (VIEW) and waits for that
@@ -703,15 +705,26 @@ jobs:
               sock.close()
           PAGE
 
-      - name: Run the app on an emulator
-        id: emulator
+      # The action installs the SDK packages itself (sdkmanager, which fetches
+      # Google's repository manifests again) and has no retry and no input to skip
+      # that install; a manifest cut short failed the job before any emulator
+      # started (bats-lang/pwa#214; area keyword android-smoke). So the step runs
+      # twice at most: attempt 2 only when attempt 1 failed before an emulator
+      # started (the marker is made by the pre-emulator-launch-script, which runs
+      # after the install; `android-sdk-pins again` decides and says "attempt 2
+      # of 2" in the log). A failure after the emulator started is the test's
+      # verdict and is not run again. Attempt 1's log stays in the job log as its
+      # own step; attempt 2 repeats its env and with by alias
+      - name: Run the app on an emulator (attempt 1 of 2)
+        id: emulator1
+        continue-on-error: true
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
-        env:
+        env: &emulator-env
           SMOKE_TEXT: ${{ inputs.smoke-test-text }}
           SMOKE_SHARE_FILE: ${{ inputs.smoke-share-file }}
           SMOKE_SHARE_TYPE: ${{ inputs.smoke-share-type }}
           SMOKE_SHARE_TEXT: ${{ inputs.smoke-share-text }}
-        with:
+        with: &emulator-with
           api-level: 34
           arch: x86_64
           # AOSP's image, without Google Play services: on a fresh boot
@@ -744,6 +757,7 @@ jobs:
           # the newest packages first, which replaced the pins if Google has
           # published newer ones
           pre-emulator-launch-script: |
+            touch "$RUNNER_TEMP/emulator-installed"
             cd "$GITHUB_WORKSPACE/pwa/tools/android-sdk-pins" && "$GITHUB_WORKSPACE/sdk-pins-bin/android-sdk-pins" install /usr/local/lib/android/sdk
             touch "$RUNNER_TEMP/emulator.log"
             config="${ANDROID_AVD_HOME:-$HOME/.android/avd}/test.avd/config.ini" && sed -i '/^hw\.lcd\.\(width\|height\|density\)=/d' "$config" && printf 'hw.lcd.width=960\nhw.lcd.height=1920\nhw.lcd.density=480\n' >> "$config" && grep -E '^(hw\.lcd|skin)\.' "$config"
@@ -763,12 +777,28 @@ jobs:
             fi
             || { timeout 600 sh "$RUNNER_TEMP/smoke-evidence.sh" "app/${{ inputs.project-dir }}/capacitor.config.json"; exit 1; }
 
+      - name: Whether the emulator step runs again
+        id: again
+        if: ${{ steps.emulator1.outcome == 'failure' }}
+        env:
+          ANDROID_SMOKE_ATTEMPT: '1'
+          ANDROID_SMOKE_ATTEMPTS: '2'
+        run: |
+          "$GITHUB_WORKSPACE/sdk-pins-bin/android-sdk-pins" again "$RUNNER_TEMP/emulator-installed"
+
+      - name: Run the app on an emulator (attempt 2 of 2)
+        id: emulator2
+        if: ${{ steps.emulator1.outcome == 'failure' }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        env: *emulator-env
+        with: *emulator-with
+
       # The emulator's own log: its graphics lines always (so a passing
       # run can be told from a failing one), all of it when the test failed
       - name: The emulator's log
         if: always()
         env:
-          OUTCOME: ${{ steps.emulator.outcome }}
+          OUTCOME: ${{ steps.emulator2.outcome != 'skipped' && steps.emulator2.outcome || steps.emulator1.outcome }}
         run: |
           LOG="$RUNNER_TEMP/emulator.log"
           [ -f "$LOG" ] || { echo "No emulator log"; exit 0; }

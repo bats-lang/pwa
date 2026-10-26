@@ -106,6 +106,27 @@ paths:
   is replaced; one that is cannot be told apart by its files, only by its
   `package.xml`, which the tool compares byte for byte.
 
+* The emulator step runs twice at most (bats-lang/pwa#214). The emulator action
+  installs SDK packages itself (`sdkmanager --install`, which fetches Google's
+  repository manifests again), has no retry and no input to skip the install
+  (its `action.yml` at v2.38.0 has none; `installAndroidSdk` always runs), and one
+  cut-short manifest (`sys-img2-3.xml`, "XML document structures must start and
+  end within the same entity", then "Failed to find package") failed the job before
+  an emulator started and removed a merge queue entry. So `android.yml` has the step
+  as "(attempt 1 of 2)" with `continue-on-error`, the step "Whether the emulator
+  step runs again" (`android-sdk-pins again <marker>`, with `ANDROID_SMOKE_ATTEMPT`
+  and `ANDROID_SMOKE_ATTEMPTS`), and "(attempt 2 of 2)" (the same env and with, by
+  YAML alias), which runs only when the decision passed. The marker
+  (`$RUNNER_TEMP/emulator-installed`) is made by the first line of the action's
+  `pre-emulator-launch-script`, which runs after the install group: a failed attempt
+  without it failed before an emulator started and is run again, the log says
+  "running attempt 2 of 2", and attempt 1's log, with its sdkmanager warnings, stays
+  as its own step; a failed attempt with it is the test's verdict and fails the job.
+  `tests/android-sdk-pins/smoke-retry.sh` (run by `check.sh`) drives a stand-in
+  sdkmanager that serves a cut-short manifest on its first call through android.yml's
+  own decision and marker lines: two attempts and a pass; the same fixture against a
+  copy of android.yml without attempt 2 fails.
+
 # The pnpm download of the Android build (pwa#158)
 
 * pnpm 12's corepack entry downloads its native binary from the registry on
