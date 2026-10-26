@@ -35,7 +35,6 @@ datatype pages_outcome =
   | PagesDestinationExists
   | PagesReadFailed
   | PagesWriteFailed
-  | PagesPathTooLong
   | PagesTooDeep
 
 (* The most levels of directories a tree may have: a symbolic link that
@@ -48,16 +47,15 @@ datatype pages_outcome =
 
 fn _say (s: string): void = prerr_string(s)
 
-(* b[0, k) to stderr *)
-fun _say_bytes {l:agz}{i:nat} .<max(524288 - i, 0)>.
-  (b: !$A.borrow(byte, l, 524288), i: int i, k: int): void =
+(* b[i, k) to stderr *)
+fun _say_bytes {l:agz}{i,k:nat | i <= k; k <= 524288} .<k - i>.
+  (b: !$A.borrow(byte, l, 524288), i: int i, k: int k): void =
   if i >= k then ()
-  else if i >= 524288 then ()
   else let
     val () = prerr_char(int2char0(byte2int0($A.read<byte>(b, i))))
   in _say_bytes(b, i + 1, k) end
 
-fn _say_path {l:agz} (b: !$A.borrow(byte, l, 524288), k: int): void = let
+fn _say_path {l:agz}{k:nat | k <= 524288} (b: !$A.borrow(byte, l, 524288), k: int k): void = let
   val () = _say("gen-pwa pages: ")
 in _say_bytes(b, 0, k) end
 
@@ -70,31 +68,26 @@ in _say("\n") end
    Paths: bytes, a length, and the zero after them
    ============================================================ *)
 
-fn _put (out: !$B.builder_v >> $B.builder_v, v: int): void =
-  if $B.length(out) < 524288 then $B.put_char(out, $AR.low_byte(v)) else ()
+fn _put {n:nat | n < 524288} (out: !$B.builder(n) >> $B.builder(n + 1), v: int): void =
+  $B.put_char(out, $AR.low_byte(v))
 
-(* b[i, k) appended to out *)
-fun _put_range {l:agz}{i:nat} .<max(524288 - i, 0)>.
-  (b: !$A.borrow(byte, l, 524288), i: int i, k: int, out: !$B.builder_v >> $B.builder_v): void =
+(* b[i, k) appended to out: the room is in the type *)
+fun _put_range {l:agz}{i,k:nat | i <= k; k <= 524288}{n:nat | n + (k - i) <= 524288} .<k - i>.
+  (b: !$A.borrow(byte, l, 524288), i: int i, k: int k,
+   out: !$B.builder(n) >> $B.builder(n + (k - i))): void =
   if i >= k then ()
-  else if i >= 524288 then ()
   else let
     val () = _put(out, byte2int0($A.read<byte>(b, i)))
   in _put_range(b, i + 1, k, out) end
 
-(* name[0, k) appended to out *)
-fun _put_name {l:agz}{i:nat} .<max(1024 - i, 0)>.
-  (name: !$A.arr(byte, l, 1024), i: int i, k: int, out: !$B.builder_v >> $B.builder_v): void =
+(* name[i, k) appended to out *)
+fun _put_name {l:agz}{i,k:nat | i <= k; k <= 1024}{n:nat | n + (k - i) <= 524288} .<k - i>.
+  (name: !$A.arr(byte, l, 1024), i: int i, k: int k,
+   out: !$B.builder(n) >> $B.builder(n + (k - i))): void =
   if i >= k then ()
-  else if i >= 1024 then ()
   else let
     val () = _put(out, byte2int0($A.get<byte>(name, i)))
   in _put_name(name, i + 1, k, out) end
-
-(* A path that fits: its length is below the builder's cap, so the byte
-   after it is a zero (to_arr zero-fills). A length at the cap means _put
-   may have dropped bytes, so it is refused, never used. *)
-fn _fits (n: int): bool = n < 524288
 
 (* ============================================================
    Operations on a path (a borrow of 524288 bytes, zero after the path)
@@ -116,7 +109,7 @@ datatype kind =
   | KindOther
   | KindUnreadable of ()
 
-fn _kind_of {l:agz} (p: !$A.borrow(byte, l, 524288), k: int): kind =
+fn _kind_of {l:agz}{k:nat | k <= 524288} (p: !$A.borrow(byte, l, 524288), k: int k): kind =
   case+ $F.dir_open(p, 524288) of
   | ~$R.ok(d) => let
       val () = $R.discard<int><$F.io_error>($F.dir_close(d))
@@ -133,8 +126,9 @@ fn _kind_of {l:agz} (p: !$A.borrow(byte, l, 524288), k: int): kind =
    ============================================================ *)
 
 (* The bytes of sp to dp, dp made with sp's permission bits *)
-fn _copy_file {ls,ld:agz} (sp: !$A.borrow(byte, ls, 524288), sk: int,
-  dp: !$A.borrow(byte, ld, 524288), dk: int): pages_outcome =
+fn _copy_file {ls,ld:agz}{sk,dk:nat | sk <= 524288; dk <= 524288}
+  (sp: !$A.borrow(byte, ls, 524288), sk: int sk,
+   dp: !$A.borrow(byte, ld, 524288), dk: int dk): pages_outcome =
   case+ $F.file_open(sp, 524288, $F.ReadOnly(), $F.OpenExisting(), 0) of
   | ~$R.err(e) => let
       val () = _say_path(sp, sk)
@@ -180,19 +174,21 @@ fn _is_dot {l:agz} (name: !$A.arr(byte, l, 1024), k: int): bool =
   else false
 
 (* The path of a child of the directory at p (length pk): p, a slash and
-   the name, as a borrow's owner; its length is returned with it *)
-fn _child {l:agz}{ln:agz} (p: !$A.borrow(byte, l, 524288), pk: int,
-  name: !$A.arr(byte, ln, 1024), nk: int): @([lc:agz] $A.arr(byte, lc, 524288), int) = let
-  var b : $B.builder_v = $B.create()
+   the name, as an array whose owner frees it; its length is in its type, and
+   the zero after it is there because the length is below the array's size *)
+fn _child {l:agz}{ln:agz}{pk,nk:nat | nk < 1024; pk + nk + 1 < 524288}
+  (p: !$A.borrow(byte, l, 524288), pk: int pk,
+   name: !$A.arr(byte, ln, 1024), nk: int nk): @([lc:agz] $A.arr(byte, lc, 524288), int(pk + 1 + nk)) = let
+  var b : $B.builder(0) = $B.create()
   val () = _put_range(p, 0, pk, b)
   val () = _put(b, 47)
   val () = _put_name(name, 0, nk, b)
   val @(a, k) = $B.to_arr(b)
 in @(a, k) end
 
-fun copy_dir {ls,ld:agz}{d:nat} .<d, 2, 0>.
-  (sp: !$A.borrow(byte, ls, 524288), sk: int,
-   dp: !$A.borrow(byte, ld, 524288), dk: int, fuel: int d): pages_outcome =
+fun copy_dir {ls,ld:agz}{sk,dk:nat}{d:nat | sk + 1024 * d + 1024 < 524288; dk + 1024 * d + 1024 < 524288} .<d, 2, 0>.
+  (sp: !$A.borrow(byte, ls, 524288), sk: int sk,
+   dp: !$A.borrow(byte, ld, 524288), dk: int dk, fuel: int d): pages_outcome =
   case+ $F.dir_read(sp, 524288) of
   | ~$R.err(e) => let
       val () = _say_path(sp, sk)
@@ -206,9 +202,9 @@ fun copy_dir {ls,ld:agz}{d:nat} .<d, 2, 0>.
       val () = $F.entries_free(es)
     in out end
 
-and copy_entries {ls,ld:agz}{ln:agz}{k:nat}{i:nat | i <= k}{d:nat} .<d, 1, k - i>.
-  (sp: !$A.borrow(byte, ls, 524288), sk: int,
-   dp: !$A.borrow(byte, ld, 524288), dk: int,
+and copy_entries {ls,ld:agz}{ln:agz}{sk,dk:nat}{k:nat}{i:nat | i <= k}{d:nat | sk + 1024 * d + 1024 < 524288; dk + 1024 * d + 1024 < 524288} .<d, 1, k - i>.
+  (sp: !$A.borrow(byte, ls, 524288), sk: int sk,
+   dp: !$A.borrow(byte, ld, 524288), dk: int dk,
    es: !$F.entries(k), name: !$A.arr(byte, ln, 1024), i: int i, n: int k, fuel: int d): pages_outcome =
   if i >= n then PagesCopied()
   else let
@@ -224,36 +220,28 @@ and copy_entries {ls,ld:agz}{ln:agz}{k:nat}{i:nat | i <= k}{d:nat} .<d, 1, k - i
     end
   end
 
-and copy_entry {ls,ld:agz}{ln:agz}{d:nat} .<d, 0, 0>.
-  (sp: !$A.borrow(byte, ls, 524288), sk: int,
-   dp: !$A.borrow(byte, ld, 524288), dk: int,
-   name: !$A.arr(byte, ln, 1024), nk: int, fuel: int d): pages_outcome = let
+and copy_entry {ls,ld:agz}{ln:agz}{sk,dk,nk:nat}{d:nat | nk < 1024; sk + 1024 * d + 1024 < 524288; dk + 1024 * d + 1024 < 524288} .<d, 0, 0>.
+  (sp: !$A.borrow(byte, ls, 524288), sk: int sk,
+   dp: !$A.borrow(byte, ld, 524288), dk: int dk,
+   name: !$A.arr(byte, ln, 1024), nk: int nk, fuel: int d): pages_outcome = let
   val @(sa, sk2) = _child(sp, sk, name, nk)
   val @(da, dk2) = _child(dp, dk, name, nk)
   val @(sfz, sbv) = $A.freeze<byte>(sa)
   val @(dfz, dbv) = $A.freeze<byte>(da)
-  val out = (if not(_fits(sk2)) then let
-      val () = _say_path(sp, sk)
-      val () = _say("/...: a path of 524288 bytes or more\n")
-    in PagesPathTooLong() end
-    else if not(_fits(dk2)) then let
-      val () = _say_path(dp, dk)
-      val () = _say("/...: a path of 524288 bytes or more\n")
-    in PagesPathTooLong() end
-    else (case+ _kind_of(sbv, sk2) of
-      | KindUnreadable() => PagesReadFailed()
-      | KindOther() => _copy_file(sbv, sk2, dbv, dk2)
-      | KindDirectory() =>
-          if fuel <= 0 then let
-            val () = _say_path(sbv, sk2)
-            val () = _say(": more than 64 levels of directories (a link that loops?)\n")
-          in PagesTooDeep() end
-          else (case+ _mkdir(dbv) of
-            | ~$R.err(e) => let
-                val () = _say_path(dbv, dk2)
-                val () = _say_reason(e)
-              in PagesWriteFailed() end
-            | ~$R.ok(_) => copy_dir(sbv, sk2, dbv, dk2, fuel - 1)))): pages_outcome
+  val out = (case+ _kind_of(sbv, sk2) of
+    | KindUnreadable() => PagesReadFailed()
+    | KindOther() => _copy_file(sbv, sk2, dbv, dk2)
+    | KindDirectory() =>
+        if fuel <= 0 then let
+          val () = _say_path(sbv, sk2)
+          val () = _say(": more than 64 levels of directories (a link that loops?)\n")
+        in PagesTooDeep() end
+        else (case+ _mkdir(dbv) of
+          | ~$R.err(e) => let
+              val () = _say_path(dbv, dk2)
+              val () = _say_reason(e)
+            in PagesWriteFailed() end
+          | ~$R.ok(_) => copy_dir(sbv, sk2, dbv, dk2, fuel - 1))): pages_outcome
   val () = $A.drop<byte>(sfz, sbv)
   val () = $A.free<byte>($A.thaw<byte>(sfz))
   val () = $A.drop<byte>(dfz, dbv)
@@ -265,116 +253,103 @@ in out end
    ============================================================ *)
 
 (* The process's arguments, NUL-separated, into buf: their length *)
-fn _args {l:agz} (buf: !$A.arr(byte, l, 4096)): int =
+fn _args {l:agz} (buf: !$A.arr(byte, l, 4096)): [k:nat | k <= 4096] int k =
   case+ $E.args_read(buf, 4096) of
   | ~$R.some(k) => k
   | ~$R.none() => 0
 
 (* Where the argument starting at i ends (its NUL), within k *)
-fun _arg_end {l:agz}{i:nat} .<max(4096 - i, 0)>.
-  (b: !$A.borrow(byte, l, 4096), i: int i, k: int): int =
-  if i >= k then k
-  else if i >= 4096 then i
+fun _arg_end {l:agz}{k:nat | k <= 4096}{i:nat | i <= k} .<k - i>.
+  (b: !$A.borrow(byte, l, 4096), i: int i, k: int k): [e:nat | i <= e; e <= k] int e =
+  if i >= k then i
   else if byte2int0($A.read<byte>(b, i)) = 0 then i
   else _arg_end(b, i + 1, k)
 
-(* The byte at i, or minus one outside the buffer *)
-fn _at {l:agz} (b: !$A.borrow(byte, l, 4096), i: int): int = let
-  val j = g1ofg0(i)
-in
-  if j < 0 then ~1
-  else if j >= 4096 then ~1
-  else byte2int0($A.read<byte>(b, j))
-end
+(* Where the next argument starts, after the NUL at e; k when there is none *)
+fn _after {e,k:nat | e <= k} (e: int e, k: int k): [s:nat | e <= s; s <= k] int s =
+  if e < k then e + 1 else k
 
 (* b[i, e) appended to out *)
-fun _put_args {l:agz}{i:nat} .<max(4096 - i, 0)>.
-  (b: !$A.borrow(byte, l, 4096), i: int i, e: int, out: !$B.builder_v >> $B.builder_v): void =
+fun _put_args {l:agz}{i,e:nat | i <= e; e <= 4096}{n:nat | n + (e - i) <= 524288} .<e - i>.
+  (b: !$A.borrow(byte, l, 4096), i: int i, e: int e,
+   out: !$B.builder(n) >> $B.builder(n + (e - i))): void =
   if i >= e then ()
-  else if i >= 4096 then ()
   else let
     val () = _put(out, byte2int0($A.read<byte>(b, i)))
   in _put_args(b, i + 1, e, out) end
 
-fn _nat (x: int): [n:nat] int n = let
-  val y = g1ofg0(x)
-in if y >= 0 then y else 0 end
-
 (* Whether b[i, e) holds no slash *)
-fun _no_slash {l:agz}{i:nat} .<max(4096 - i, 0)>.
-  (b: !$A.borrow(byte, l, 4096), i: int i, e: int): bool =
+fun _no_slash {l:agz}{i,e:nat | i <= e; e <= 4096} .<e - i>.
+  (b: !$A.borrow(byte, l, 4096), i: int i, e: int e): bool =
   if i >= e then true
-  else if i >= 4096 then false
   else if byte2int0($A.read<byte>(b, i)) = 47 then false
   else _no_slash(b, i + 1, e)
 
-(* Whether b[s, e) can be a name under dist/pwa: not empty, not . or .., no slash *)
-fn _name_ok {l:agz} (b: !$A.borrow(byte, l, 4096), s: int, e: int): bool =
-  if e <= s then false
-  else if e - s = 1 && _at(b, s) = 46 then false
-  else if e - s = 2 && _at(b, s) = 46 && _at(b, s + 1) = 46 then false
-  else _no_slash(b, _nat(s), e)
+fn _dot_at {l:agz}{s:nat | s < 4096} (b: !$A.borrow(byte, l, 4096), s: int s): bool =
+  byte2int0($A.read<byte>(b, s)) = 46
 
-(* The path in a builder (consumed) as a borrowed array, for f's call *)
-fn _run_copy {l:agz} (b: !$A.borrow(byte, l, 4096), ss: int, se: int, ns: int, ne: int): pages_outcome = let
-  var sb : $B.builder_v = $B.create()
-  val () = _put_args(b, _nat(ss), se, sb)
-  var db : $B.builder_v = $B.create()
-  val () = (let
-    val dir = "dist/pwa/"
-    fun loop {sl:nat}{j:nat | j <= sl} .<sl - j>.
-      (out: !$B.builder_v >> $B.builder_v, s: string sl, n: int sl, j: int j): void =
-      if j >= n then ()
-      else let val () = _put(out, char2int0(string_get_at(s, j))) in loop(out, s, n, j + 1) end
-  in loop(db, dir, g1u2i(string1_length(dir)), 0) end)
-  val () = _put_args(b, _nat(ns), ne, db)
+(* Whether b[s, e) can be a name under dist/pwa: not empty, not . or .., no slash *)
+fn _name_ok {l:agz}{s,e:nat | s <= e; e <= 4096} (b: !$A.borrow(byte, l, 4096), s: int s, e: int e): bool =
+  if e <= s then false
+  else if e - s = 1 then (if _dot_at(b, s) then false else _no_slash(b, s, e))
+  else if e - s = 2 then
+    (if _dot_at(b, s) then (if _dot_at(b, s + 1) then false else _no_slash(b, s, e))
+     else _no_slash(b, s, e))
+  else _no_slash(b, s, e)
+
+(* The paths made of the arguments, and the copy *)
+fn _run_copy {l:agz}{ss,se,ns,ne:nat | ss <= se; se <= 4096; ns <= ne; ne <= 4096}
+  (b: !$A.borrow(byte, l, 4096), ss: int ss, se: int se, ns: int ns, ne: int ne): pages_outcome = let
+  var sb : $B.builder(0) = $B.create()
+  val () = _put_args(b, ss, se, sb)
+  var db : $B.builder(0) = $B.create()
+  val () = $B.bput(db, "dist/pwa/")
+  val () = _put_args(b, ns, ne, db)
   val @(sa, sk) = $B.to_arr(sb)
   val @(da, dk) = $B.to_arr(db)
   val @(sfz, sbv) = $A.freeze<byte>(sa)
   val @(dfz, dbv) = $A.freeze<byte>(da)
-  val out = (if not(_fits(sk)) then let
-      val () = _say("gen-pwa pages: the source path is too long\n")
-    in PagesPathTooLong() end
-    else (case+ $F.dir_read(sbv, 524288) of
-      | ~$R.err(e) => let
-          val () = _say_path(sbv, sk)
-          val () = _say(": not a readable directory")
-          val () = _say_reason(e)
-        in PagesSourceRefused() end
-      | ~$R.ok(es) => let
-          val () = $F.entries_free(es)
-        in
-          case+ _mkdir(dbv) of
-          | ~$R.err(e) => (case+ e of
-              | $F.AlreadyExists() => let
-                  val () = _say_path(dbv, dk)
-                  val () = _say(": the destination exists, nothing was copied\n")
-                in PagesDestinationExists() end
-              | _ => let
-                  val () = _say_path(dbv, dk)
-                  val () = _say_reason(e)
-                in PagesWriteFailed() end)
-          | ~$R.ok(_) => copy_dir(sbv, sk, dbv, dk, PAGES_DEPTH)
-        end)): pages_outcome
+  val out = (case+ $F.dir_read(sbv, 524288) of
+    | ~$R.err(e) => let
+        val () = _say_path(sbv, sk)
+        val () = _say(": not a readable directory")
+        val () = _say_reason(e)
+      in PagesSourceRefused() end
+    | ~$R.ok(es) => let
+        val () = $F.entries_free(es)
+      in
+        case+ _mkdir(dbv) of
+        | ~$R.err(e) => (case+ e of
+            | $F.AlreadyExists() => let
+                val () = _say_path(dbv, dk)
+                val () = _say(": the destination exists, nothing was copied\n")
+              in PagesDestinationExists() end
+            | _ => let
+                val () = _say_path(dbv, dk)
+                val () = _say_reason(e)
+              in PagesWriteFailed() end)
+        | ~$R.ok(_) => copy_dir(sbv, sk, dbv, dk, PAGES_DEPTH)
+      end): pages_outcome
   val () = $A.drop<byte>(sfz, sbv)
   val () = $A.free<byte>($A.thaw<byte>(sfz))
   val () = $A.drop<byte>(dfz, dbv)
   val () = $A.free<byte>($A.thaw<byte>(dfz))
 in out end
 
-fn _with_args {l:agz} (b: !$A.borrow(byte, l, 4096), k: int): pages_outcome = let
+fn _with_args {l:agz}{k:nat | k <= 4096} (b: !$A.borrow(byte, l, 4096), k: int k): pages_outcome = let
   val e0 = _arg_end(b, 0, k)
-  val s1 = e0 + 1
-  val e1 = _arg_end(b, _nat(s1), k)
-  val s2 = e1 + 1
-  val e2 = _arg_end(b, _nat(s2), k)
-  val s3 = e2 + 1
-  val e3 = _arg_end(b, _nat(s3), k)
+  val s1 = _after(e0, k)
+  val e1 = _arg_end(b, s1, k)
+  val s2 = _after(e1, k)
+  val e2 = _arg_end(b, s2, k)
+  val s3 = _after(e2, k)
+  val e3 = _arg_end(b, s3, k)
+  val s4 = _after(e3, k)
 in
   if k >= 4096 then let
     val () = _say("gen-pwa pages: the arguments are too long\n")
   in PagesUsage() end
-  else if s2 >= k || s3 >= k || e3 + 1 < k then let
+  else if s2 >= k || s3 >= k || s4 < k then let
     val () = _say("usage: gen-pwa pages SOURCE NAME\n")
   in PagesUsage() end
   else if not(_name_ok(b, s3, e3)) then let
@@ -382,6 +357,12 @@ in
   in PagesNameRefused() end
   else _run_copy(b, s2, e2, s3, e3)
 end
+
+(* Whether b[s, s + 5) is "pages" *)
+fn _is_pages {l:agz}{s:nat | s + 5 <= 4096} (b: !$A.borrow(byte, l, 4096), s: int s): bool =
+  byte2int0($A.read<byte>(b, s)) = 112 && byte2int0($A.read<byte>(b, s + 1)) = 97
+    && byte2int0($A.read<byte>(b, s + 2)) = 103 && byte2int0($A.read<byte>(b, s + 3)) = 101
+    && byte2int0($A.read<byte>(b, s + 4)) = 115
 
 #pub fn pages_wanted (): bool
 
@@ -391,10 +372,10 @@ implement pages_wanted () = let
   val buf = $A.alloc<byte>(4096)
   val k = _args(buf)
   val @(fz, bv) = $A.freeze<byte>(buf)
-  val s = _arg_end(bv, 0, k) + 1
-  val e = _arg_end(bv, _nat(s), k)
-  val wanted = (e - s = 5 && _at(bv, s) = 112 && _at(bv, s + 1) = 97 && _at(bv, s + 2) = 103
-    && _at(bv, s + 3) = 101 && _at(bv, s + 4) = 115 && s < k): bool
+  val e0 = _arg_end(bv, 0, k)
+  val s = _after(e0, k)
+  val e = _arg_end(bv, s, k)
+  val wanted = (if e - s = 5 then _is_pages(bv, s) else false): bool
   val () = $A.drop<byte>(fz, bv)
   val () = $A.free<byte>($A.thaw<byte>(fz))
 in wanted end
