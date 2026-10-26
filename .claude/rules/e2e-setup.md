@@ -98,3 +98,12 @@ Shell for the reason the other scripts are. `tests/e2e-setup/check.sh` plays
 a miss, a hit, a damaged cache, a first URL that fails, a deb with another
 hash and no working URL.
 
+
+### Avenues searched before writing `japanese-font.sh` and its checks (pwa#242)
+
+Non-bats code of ours needs the avenue it exhausted. Searched, 2026-10-26:
+
+* **An apt package cache action** (awalsh128/cache-apt-pkgs-action, its README: "a composition of actions/cache and the apt utility"): on a miss it runs apt against the same throttled mirror, has no second URL and no SHA-256 of our own, is "in maintenance mode" for v1, and its README warns of packages whose install scripts or dpkg state do not restore. It would still be an action of a third party to pin, and the miss (the 18 minute case) is the case that matters. `actions/cache` of `/var/cache/apt/archives` needs root and apt on the miss for the same reason.
+* **Playwright's own install of these fonts** (`playwright install --with-deps`, `nativeDeps.js`): it runs `apt-get install` for the whole Ubuntu 24.04 list (dozens of packages, not one 3.5 MB deb) through sudo and the same mirror, and has no cache or hash of ours; the browsers it downloads from its own CDN bundle no CJK font. `e2e-setup` runs it without `--with-deps` on purpose (pwa#82's rule that nothing installs system packages).
+* **A bats test instead of `check.sh`**: the script runs in a runner step before bats is built (a composite action's steps are shell), so what it does cannot be bats; a bats test of it would spawn the same shell script with the same stand-ins and add a build of bats to a job that has none. `check.sh` is where `retry.sh`, `npm-ci.sh` and `stall-tools.sh` are already checked, run by the `check` job.
+* **The font in the repository** (3.5 MB of binary in git): rejected, a font file of third-party licence in the tree and in every clone, against a pinned hash of Ubuntu's own file.
