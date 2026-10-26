@@ -43,7 +43,7 @@ refused "three arguments" "usage" src a b
 # a write that fails: dist/pwa is read-only (skipped for root, who may write)
 if [ "$(id -u)" != 0 ]; then
   rm -rf dist; mkdir -p dist/pwa; chmod 555 dist/pwa
-  refused "write failed" "Permission denied" src home
+  refused "write failed" "dist/pwa/home: permission denied" src home
   chmod 755 dist/pwa
 fi
 # a write that fails for any user: dist/pwa is missing
