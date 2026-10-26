@@ -7,7 +7,8 @@
 # rewriting the lock. Checked with a stand-in corepack that records its
 # arguments and ends the script (status 42) at the step after the install,
 # `cap add android`, so reaching 42 means the install passed:
-#   1. no lock: refused, corepack never called;
+#   1. no lock: refused, before pnpm is fetched (fetch-pnpm.sh not sourced)
+#      and with corepack never called;
 #   2. a lock: pnpm install --frozen-lockfile, then 42;
 #   3. the real pnpm, on a project with a local dependency: the lock it
 #      made passes (42); a package.json that gained a dependency fails
@@ -42,11 +43,12 @@ STUB
 chmod +x "$TMP/bin/corepack"
 
 # fetch-pnpm.sh, which build-android.sh sources, is replaced by a stand-in
-# that only names the pnpm (its download and checksums are tested by
-# tests/android/pnpm.sh, bats-lang/pwa#158), so the log holds the install alone
+# that records that it ran and names the pnpm (its download and checksums
+# are tested by tests/android/pnpm.sh, bats-lang/pwa#158)
 project() { # <dir>: the script beside a package.json
   mkdir -p "$1"; cp "$SCRIPT" "$1/build-android.sh"
-  echo 'pnpm="corepack pnpm@12.9.1"' > "$1/fetch-pnpm.sh"
+  # it records that it ran: the refusal must come before it (bats-lang/pwa#164)
+  printf '%s\n' 'echo "fetch-pnpm.sh sourced" >> "$STUB_LOG"' 'pnpm="corepack pnpm@12.9.1"' > "$1/fetch-pnpm.sh"
 }
 run() { # <dir> -> status in $TMP/status, output in $TMP/out
   rm -f "$STUB_LOG"; : > "$STUB_LOG"
@@ -62,7 +64,7 @@ project "$TMP/p1"; echo '{"name":"p","private":true}' > "$TMP/p1/package.json"
 run "$TMP/p1"
 [ "$(cat "$TMP/status")" = 1 ] || fail "no lock: status $(cat "$TMP/status"), not 1" "$TMP/out"
 grep -q "no pnpm-lock.yaml" "$TMP/out" || fail "no lock: not said" "$TMP/out"
-[ ! -s "$STUB_LOG" ] || fail "no lock: corepack was called" "$STUB_LOG"
+[ ! -s "$STUB_LOG" ] || fail "no lock: pnpm was fetched or corepack was called before the refusal" "$STUB_LOG"
 [ ! -e "$TMP/p1/node_modules" ] || fail "no lock: something was installed"
 
 # 2. a lock: the install is frozen
