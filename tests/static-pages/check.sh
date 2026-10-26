@@ -64,6 +64,6 @@ refused "deep" "more than 64 levels" deep deeper
 # the file that cannot be read
 if [ "$(id -u)" != 0 ]; then
   mkdir -p src2; printf x > src2/secret; chmod 000 src2/secret
-  refused "read failed" "Permission denied" src2 unread
+  refused "read failed" "src2/secret: permission denied" src2 unread
 fi
 echo "gen-pwa pages: ok"
