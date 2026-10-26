@@ -1,17 +1,25 @@
 (* android-sdk-pins -- installs the Android SDK packages the smoke test
    runs on at the revisions pins.txt names, each from a download checked
    against the SHA-1 of Google's repository XML (bats-lang/pwa#137). CI
-   tooling for android.yml: nothing here is part of what pwa generates or
+   tooling for android.yml: nothing here belongs to what pwa generates or
    of what the app runs. Area keyword: android-smoke (.claude/rules/android-smoke.md).
 
    android-sdk-pins install <sdk-root>
    android-sdk-pins key
+   android-sdk-pins decide MARKER
 
-   key prints the SHA-256 of pins.txt (64 lower case hex digits and a newline,
-   from sha256sum) on stdout: the digest that android.yml's system-image cache
-   key ends with, so a pin that moves is a new key (bats-lang/pwa#138;
-   tests/android-sdk-pins/check.sh, the key cases). Exit 0, or 2 when pins.txt
-   cannot be read.
+   decide is the smoke test's whole decision whether the emulator step runs again
+   (android.yml, bats-lang/pwa#214; area keyword android-smoke). It is called after
+   an attempt of the emulator step (the attempt and the attempts there are, from
+   ANDROID_SMOKE_ATTEMPT and ANDROID_SMOKE_ATTEMPTS) with ANDROID_SMOKE_OUTCOME, the
+   step's outcome (success or failure), and the file MARKER, which the action's
+   pre-emulator-launch-script makes once the action's install group has passed. It
+   prints again=true or again=false on stdout (the workflow appends it to GITHUB_OUTPUT,
+   and the second attempt runs only when the output is true) and says why on stderr.
+   It exits 0 for an attempt that passed (again=false) and for a retry (again=true);
+   it exits 1 for a failure that is not run again (the emulator had started, which is
+   the test's verdict, or no attempt is left), which fails the job, and for an outcome
+   that is neither word.
 
    install runs in the directory that holds pins.txt and the packages' package.xml
    files. A line of pins.txt is five words separated by single spaces:
@@ -1546,6 +1554,44 @@ fn _key (): int = let
   val () = (if code <> 0 then _say_text("android-sdk-pins: sha256sum could not digest pins.txt\n") else ())
 in code end
 
+(* The smoke test's decision (android-smoke, bats-lang/pwa#214), see the header:
+   prints again=true or again=false, 0 or 1 *)
+fn _decide {l:agz}{start:nat}{stop:int | start <= stop; stop <= 4096}
+  (bytes: !$A.borrow(byte, l, 4096), start: int start, stop: int stop): int = let
+  val attempt = _number_env("ANDROID_SMOKE_ATTEMPT", 1, 1, 9)
+  val attempts = _number_env("ANDROID_SMOKE_ATTEMPTS", 2, 1, 9)
+  var outcome : $B.builder_v = $B.create()
+  val is_set = _env("ANDROID_SMOKE_OUTCOME", outcome)
+  val @(outcome_array, outcome_size) = $B.to_arr(outcome)
+  val @(outcome_frozen, outcome_view) = $A.freeze<byte>(outcome_array)
+  val passed = (is_set && _is(outcome_view, 0, outcome_size, "success", 524288)): bool
+  val failed = (is_set && _is(outcome_view, 0, outcome_size, "failure", 524288)): bool
+  val () = $A.drop<byte>(outcome_frozen, outcome_view)
+  val () = $A.free<byte>($A.thaw<byte>(outcome_frozen))
+  var marker : $B.builder_v = $B.create()
+  val () = _put_range(bytes, start, stop, 4096, marker)
+  val started = (_run_quiet("test", _arguments2(_argument_of("-e"), _argument(marker))) = 0): bool
+  var message : $B.builder_v = $B.create()
+  val () = _bput(message, "android-sdk-pins: attempt ")
+  val () = _put_int(message, attempt)
+  val () = _bput(message, " of ")
+  val () = _put_int(message, attempts)
+  val again = (failed && ~started && attempt < attempts): bool
+  val code = (if passed then 0 else if again then 0 else 1): int
+  val () = (if passed then _bput(message, " passed\n")
+    else if ~failed then _bput(message, " ended with an outcome that is neither success nor failure\n")
+    else if started then _bput(message, " failed after the emulator started: the test's verdict, not run again\n")
+    else if attempt >= attempts then _bput(message, " failed before an emulator started, and no attempt is left\n")
+    else let
+      val () = _bput(message, " failed before an emulator started: running attempt ")
+      val () = _put_int(message, attempt + 1)
+      val () = _bput(message, " of ")
+      val () = _put_int(message, attempts)
+    in _bput(message, "\n") end)
+  val () = _say(message)
+  val () = (if again then println! ("again=true") else println! ("again=false"))
+in code end
+
 fn _status (code: int): void =
   if code <> 0 then exit_void(code) else ()
 
@@ -1560,7 +1606,15 @@ implement main0 () = let
   val @(extra_start, _) = _argument_range(arguments_borrow, arguments_size, 3)
   val is_repin = (arguments_size < 4095
     && _is(arguments_borrow, command_start, command_stop, "repin", 4096)): bool
+  val is_decide = (arguments_size < 4095
+    && _is(arguments_borrow, command_start, command_stop, "decide", 4096)): bool
   val status = (if arguments_size < 4095 && _is_key(arguments_borrow, arguments_size) then _key()
+    else if is_decide then
+      (if feed_stop > feed_start && extra_start >= arguments_size
+       then _decide(arguments_borrow, feed_start, feed_stop)
+       else let
+         val () = _say_text("usage: android-sdk-pins decide MARKER\n")
+       in 2 end)
     else if is_repin then
       (if feed_stop > feed_start && extra_start >= arguments_size
        then _repin(arguments_borrow, feed_start, feed_stop)
@@ -1569,7 +1623,7 @@ implement main0 () = let
        in 2 end)
     else if ~usable then let
       val () = _say_text(
-        "usage: android-sdk-pins install <sdk-root> | repin <feed-directory> | key\n")
+        "usage: android-sdk-pins install <sdk-root> | repin <feed-directory> | key | decide <marker>\n")
     in 2 end
     else let
       val pins = $A.alloc<byte>(65536)
