@@ -1,0 +1,19 @@
+GitHub's own answers of "list workflow runs for a repository" (GET /repos/{owner}/{repo}/actions/runs),
+read from bats-lang/quire on 2026-10-26 (the runs of quire#869's queue entries, quire#879), one file for
+each case of ../check.sh. Each is the answer as GitHub gave it, with the members the decision does not read
+and that name people removed (jq -S, del(.workflow_runs[] | .repository, .head_repository, .actor,
+.triggering_actor, .head_commit, .pull_requests)), so the files are small and carry no one's details.
+
+passed.json          event=merge_group&head_sha=7fb2de0db6a22d79b672b2c75eb246400e5630d4&per_page=20
+                     the destroyed event's run (skipped), the queue's check (success), supersede.yml (success)
+failure.json         event=merge_group&head_sha=11a267677e46569ee96d598444828d7c9d1b9034&per_page=20  (failure)
+cancelled.json       event=merge_group&head_sha=5d7d990a57c0ea7c70e8f55c6bf52cbf7bbdae69&per_page=20  (cancelled)
+destroyed.json       event=merge_group&head_sha=814f201fa3e60b7d7cdb14061d4d6d0638c10bca&per_page=20
+                     the run quire#879 names (40243573211, skipped), a cancelled check, supersede.yml (success)
+running.json         event=merge_group&head_sha=e7e7a4bcb7c5339ffc2a5bcad48d39ed5c634275&per_page=20
+                     a check still in progress (no conclusion), supersede.yml (success)
+none.json            event=merge_group&head_sha=ef2543d1d71064fe2264a6770ec9c9f13e8cd6f7&per_page=20  (no run)
+pull-request-run.json head_sha=ef2543d1d71064fe2264a6770ec9c9f13e8cd6f7&per_page=20
+                     no event filter: the same workflow file and sha, event pull_request, success
+other-sha.json       event=merge_group&per_page=30  (no sha filter: the newest 30 queue runs, several passed,
+                     none of them on ef2543d1...)

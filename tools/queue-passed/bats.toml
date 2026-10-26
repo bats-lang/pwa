@@ -1,0 +1,13 @@
+[package]
+name = "queue-passed"
+kind = "bin"
+unsafe = false
+
+[dependencies]
+"array" = ""
+"arith" = ""
+"builder" = ""
+"env" = ""
+"file" = ""
+"json" = ""
+"result" = ""
