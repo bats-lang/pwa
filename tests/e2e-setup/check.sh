@@ -198,4 +198,37 @@ grep -q 'installed=no' "$TMP/out" || fail "installed=no not said" "$TMP/out"
 grep -q 'gdb and elfutils are not installed' "$TMP/out" || fail "the missing tools not said" "$TMP/out"
 [ "$(grep -c ' update -q$' "$TMP/count.args")" = 3 ] || fail "the update was not tried 3 times" "$TMP/count.args"
 
+# --- the Japanese font: a miss fetches the pinned deb, a hit fetches nothing (pwa#226)
+mkdir -p "$TMP/j/root/usr/share/fonts/opentype/ipafont-gothic" "$TMP/j/root/DEBIAN"
+printf 'font one' > "$TMP/j/root/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf"
+printf 'font two' > "$TMP/j/root/usr/share/fonts/opentype/ipafont-gothic/ipagp.ttf"
+printf 'Package: fonts-ipafont-gothic\nVersion: 00303-21ubuntu1\nArchitecture: all\nMaintainer: t <t@example.com>\nDescription: test\n' > "$TMP/j/root/DEBIAN/control"
+dpkg-deb -b "$TMP/j/root" "$TMP/j/good.deb" > /dev/null
+printf 'other' > "$TMP/j/root/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf"
+dpkg-deb -b "$TMP/j/root" "$TMP/j/bad.deb" > /dev/null
+GOOD_SHA=$(sha256sum "$TMP/j/good.deb" | cut -d' ' -f1)
+FILES_SUMS="$(printf 'font one' | sha256sum | cut -d' ' -f1)  ipag.ttf
+$(printf 'font two' | sha256sum | cut -d' ' -f1)  ipagp.ttf"
+font() { # <urls> <fonts dir> -> japanese-font.sh install with the test's pins, HOME in $TMP/j/home
+  E2E_FONT_URLS=$1 E2E_FONT_DEB_SHA256=$GOOD_SHA E2E_FONT_FILES_SHA256=$FILES_SUMS \
+    HOME="$TMP/j/home" FONT_DIR=$2 "$ACT/japanese-font.sh" install > "$TMP/out" 2>&1
+}
+rm -rf "$TMP/j/home"; mkdir -p "$TMP/j/home"
+font "file://$TMP/j/good.deb" "$TMP/j/cache" || fail "a miss with a good deb" "$TMP/out"
+grep -q '[0-9] downloaded$' "$TMP/out" || fail "a miss said it downloaded nothing" "$TMP/out"
+[ -f "$TMP/j/cache/ipag.ttf" ] && [ -f "$TMP/j/home/.local/share/fonts/pwa-e2e-japanese/ipagp.ttf" ] || fail "the fonts are not in the cache directory and the user's fonts"
+font "file://$TMP/j/missing.deb" "$TMP/j/cache" || fail "a hit asked for a download" "$TMP/out"
+grep -q 'from the cache, nothing downloaded' "$TMP/out" || fail "a hit was not said" "$TMP/out"
+printf 'damaged' > "$TMP/j/cache/ipag.ttf"
+font "file://$TMP/j/good.deb" "$TMP/j/cache" || fail "a damaged cache was not fetched again" "$TMP/out"
+grep -q '[0-9] downloaded$' "$TMP/out" || fail "a damaged cache was trusted" "$TMP/out"
+font "file://$TMP/j/missing.deb file://$TMP/j/good.deb" "$TMP/j/cache2" || fail "the second URL was not tried" "$TMP/out"
+grep -q 'missing.deb: not fetched' "$TMP/out" || fail "the first URL's failure was not said" "$TMP/out"
+font "file://$TMP/j/bad.deb" "$TMP/j/cache3" && fail "a deb with another hash passed" "$TMP/out"
+grep -q 'could not be fetched from any URL' "$TMP/out" || fail "the message of a wrong hash" "$TMP/out"
+[ ! -e "$TMP/j/cache3" ] || fail "a wrong deb left a cache directory"
+font "file://$TMP/j/missing.deb" "$TMP/j/cache4" && fail "no URL working passed" "$TMP/out"
+GITHUB_OUTPUT="$TMP/j/key" "$ACT/japanese-font.sh" key
+grep -q '^key=japanese-font-ipafont-gothic-00303-21ubuntu1-71e63f0f88cc$' "$TMP/j/key" || fail "the key" "$TMP/j/key"
+
 echo "e2e-setup: all checks passed"

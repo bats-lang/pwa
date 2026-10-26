@@ -68,3 +68,33 @@ The script is shell because a composite action's steps are shell and the
 action's other scripts already are (`retry.sh`, `npm-ci.sh`); `timeout` and
 `apt-get` are the tools it drives, and bats has no process to run in a runner
 before bats is built.
+
+## The Japanese font (`japanese-font: "true"`, pwa#226, quire#907)
+
+An app whose pages draw Japanese text needs a font with the characters, or
+the page shows empty boxes. Quire installed `fonts-noto-cjk` with apt in each
+of its 8 e2e groups: a 61.2 MB package from the runner image's mirror, which
+some runners reach at 55 kB/s (18 min 32 s in one job, 4 s in a fast one).
+Research: Playwright's dependency list for Ubuntu 24.04
+(`nativeDeps.js`, `tools`) names `fonts-ipafont-gothic` (3.5 MB) and
+`fonts-wqy-zenhei` (7.5 MB) and no Noto CJK, and Puppeteer's troubleshooting
+guide installs the same two; `e2e-setup` runs `playwright install chromium`
+without `--with-deps`, so it had none. Measured on quire main (Playwright
+1.61.0, chromium headless shell 1228, `vertical.spec.js` and
+`two-books.spec.js`, 23 tests): IPAGothic alone 23 passed, WenQuanYi alone 23
+passed, no CJK font 1 failed (the spec's own precondition, by name), 1 skipped.
+
+So the input installs IPAGothic: its deb (`fonts-ipafont-gothic`
+00303-21ubuntu1, 3 513 360 bytes, SHA-256 of Ubuntu's `Packages` index) is
+fetched by `curl` (archive.ubuntu.com, then Launchpad), checked against that
+hash, extracted with `dpkg-deb -x`, and its two fonts kept in
+`$RUNNER_TEMP/japanese-font` by `actions/cache` under
+`japanese-font-ipafont-gothic-<version>-<12 hex of the deb's hash>`. The
+key is only a locator: a restored directory is used only when both fonts
+match their pinned SHA-256 (else the deb is fetched again), and a download or
+hash that fails fails the step. The fonts go to
+`~/.local/share/fonts/pwa-e2e-japanese` with `fc-cache`: no apt, no sudo.
+Shell for the reason the other scripts are. `tests/e2e-setup/check.sh` plays
+a miss, a hit, a damaged cache, a first URL that fails, a deb with another
+hash and no working URL.
+
