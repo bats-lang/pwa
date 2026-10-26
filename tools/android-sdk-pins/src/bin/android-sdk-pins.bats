@@ -1,7 +1,7 @@
 (* android-sdk-pins -- installs the Android SDK packages the smoke test
    runs on at the revisions pins.txt names, each from a download checked
    against the SHA-1 of Google's repository XML (bats-lang/pwa#137). CI
-   tooling for android.yml: nothing here is part of what pwa generates or
+   tooling for android.yml: nothing here belongs to what pwa generates or
    of what the app runs. Area keyword: android-smoke (.claude/rules/android-smoke.md).
 
    android-sdk-pins install <sdk-root>
