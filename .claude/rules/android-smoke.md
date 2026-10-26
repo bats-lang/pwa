@@ -113,19 +113,29 @@ paths:
   cut-short manifest (`sys-img2-3.xml`, "XML document structures must start and
   end within the same entity", then "Failed to find package") failed the job before
   an emulator started and removed a merge queue entry. So `android.yml` has the step
-  as "(attempt 1 of 2)" with `continue-on-error`, the step "Whether the emulator
-  step runs again" (`android-sdk-pins again <marker>`, with `ANDROID_SMOKE_ATTEMPT`
-  and `ANDROID_SMOKE_ATTEMPTS`), and "(attempt 2 of 2)" (the same env and with, by
-  YAML alias), which runs only when the decision passed. The marker
-  (`$RUNNER_TEMP/emulator-installed`) is made by the first line of the action's
-  `pre-emulator-launch-script`, which runs after the install group: a failed attempt
-  without it failed before an emulator started and is run again, the log says
-  "running attempt 2 of 2", and attempt 1's log, with its sdkmanager warnings, stays
-  as its own step; a failed attempt with it is the test's verdict and fails the job.
-  `tests/android-sdk-pins/smoke-retry.sh` (run by `check.sh`) drives a stand-in
-  sdkmanager that serves a cut-short manifest on its first call through android.yml's
-  own decision and marker lines: two attempts and a pass; the same fixture against a
-  copy of android.yml without attempt 2 fails.
+  as "(attempt 1 of 2)" with `continue-on-error`, the step "Whether the emulator step
+  runs again" and "(attempt 2 of 2)" (the same env and with, by YAML alias), whose
+  whole condition is `steps.decide.outputs.again == 'true'`. The decision is
+  `android-sdk-pins decide <marker>` (bats): it gets attempt 1's outcome
+  (`ANDROID_SMOKE_OUTCOME`), the attempt and the attempts (`ANDROID_SMOKE_ATTEMPT`,
+  `ANDROID_SMOKE_ATTEMPTS`) and the marker file, prints `again=true` or `again=false`
+  (the step appends it to `GITHUB_OUTPUT`) and exits 1 for a failure that is not run
+  again, which fails the job. The marker (`$RUNNER_TEMP/emulator-installed`) is made by
+  the first line of the action's `pre-emulator-launch-script`, which runs after the
+  install group: a failed attempt without it failed before an emulator started and is
+  run again ("running attempt 2 of 2" in the log); with it, it is the test's verdict.
+  Attempt 1's log, with its sdkmanager warnings, stays as its own step.
+  `tools/android-sdk-pins/src/smoke_tests.bats` (`bats test`, run by `check.yml`'s
+  "SDK pins tool" step, as tools/pin-audit's tests of repository-prototype run its built
+  binary against stand-ins) tests `decide` on every input and checks android.yml's
+  wiring as exact text in order (attempt 1 with `continue-on-error` and the anchors, the
+  marker, the decision step, attempt 2 with the one condition and the aliases, the log
+  step's outcome); then, with a stand-in sdkmanager (`src/bin/sdkmanager_stand_in.bats`:
+  a cut-short manifest on its first call, then the whole one) and a stand-in action
+  (`src/bin/action_stand_in.bats`: the install, the marker, the test), it plays the steps
+  in that order: two attempts and a pass. A changed condition or wiring in android.yml
+  fails the check (the case `condition_changed` plays the injection, the cases that pass
+  fail with it).
 
 # The pnpm download of the Android build (pwa#158)
 

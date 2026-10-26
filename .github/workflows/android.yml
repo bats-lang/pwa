@@ -711,7 +711,7 @@ jobs:
       # started (bats-lang/pwa#214; area keyword android-smoke). So the step runs
       # twice at most: attempt 2 only when attempt 1 failed before an emulator
       # started (the marker is made by the pre-emulator-launch-script, which runs
-      # after the install; `android-sdk-pins again` decides and says "attempt 2
+      # after the install; `android-sdk-pins decide` decides and says "attempt 2
       # of 2" in the log). A failure after the emulator started is the test's
       # verdict and is not run again. Attempt 1's log stays in the job log as its
       # own step; attempt 2 repeats its env and with by alias
@@ -777,18 +777,21 @@ jobs:
             fi
             || { timeout 600 sh "$RUNNER_TEMP/smoke-evidence.sh" "app/${{ inputs.project-dir }}/capacitor.config.json"; exit 1; }
 
+      # The whole decision is the tool's (`android-sdk-pins decide`, which prints
+      # again=true or again=false) and attempt 2 runs on that output alone; the
+      # step fails the job when attempt 1 failed and is not run again
       - name: Whether the emulator step runs again
-        id: again
-        if: ${{ steps.emulator1.outcome == 'failure' }}
+        id: decide
         env:
+          ANDROID_SMOKE_OUTCOME: ${{ steps.emulator1.outcome }}
           ANDROID_SMOKE_ATTEMPT: '1'
           ANDROID_SMOKE_ATTEMPTS: '2'
         run: |
-          "$GITHUB_WORKSPACE/sdk-pins-bin/android-sdk-pins" again "$RUNNER_TEMP/emulator-installed"
+          "$GITHUB_WORKSPACE/sdk-pins-bin/android-sdk-pins" decide "$RUNNER_TEMP/emulator-installed" >> "$GITHUB_OUTPUT"
 
       - name: Run the app on an emulator (attempt 2 of 2)
         id: emulator2
-        if: ${{ steps.emulator1.outcome == 'failure' }}
+        if: ${{ steps.decide.outputs.again == 'true' }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         env: *emulator-env
         with: *emulator-with

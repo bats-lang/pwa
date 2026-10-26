@@ -53,6 +53,9 @@ jobs:
       - name: SDK pins tool
         run: |
           (cd tools/android-sdk-pins && bats build --repository $HOME/repository)
+          # the smoke test's retry (bats-lang/pwa#214): the tool's decision and android.yml's wiring,
+          # against stand-in programs (tools/android-sdk-pins/src/smoke_tests.bats)
+          (cd tools/android-sdk-pins && bats test --repository $HOME/repository)
           tests/android-sdk-pins/check.sh tools/android-sdk-pins/dist/debug/android-sdk-pins
           tests/android-sdk-pins/repin.sh tools/android-sdk-pins/dist/debug/android-sdk-pins
 
