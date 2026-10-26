@@ -29,6 +29,11 @@ are bug fixes (current functionality that misbehaves) or adding new
 platforms (iOS, Electron, …). A feature the app needs from the platform
 is a bridge atom and the app's own code, never pwa's.
 
+## We write bats, not shell
+
+Our own code is bats; the only non-bats code is what is impossible in bats, a dependency's own format, or a third-party tool used as it is.
+A workflow `run:` step that does more than call one bats subcommand or one third-party tool is code we wrote.
+
 ## CI is pinned
 
 Every input to CI is pinned in the source (bats-lang/repository-prototype#269),
@@ -127,6 +132,11 @@ documentation or CI, which changes nothing pwa does:
   no capability. Test tooling (gen-pwa test, which runs an app's suite)
   is process: the review confirms it changes nothing pwa generates and
   nothing the app runs.
+
+Whatever its kind, a pull request that adds non-bats code of ours (a shell
+script, any other non-bats file, or a workflow `run:` step that does more than
+call one bats subcommand or one third-party tool) gets `Verdict: changes needed`
+unless it names the avenue in bats it exhausted.
 
 A DOM write is never pwa's: it is an opcode of bridge's diff stream,
 issued by the app. App policy (which attributes, roles, defaults, when)
