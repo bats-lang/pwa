@@ -46,9 +46,21 @@ if [ "$(id -u)" != 0 ]; then
   refused "write failed" "Permission denied" src home
   chmod 755 dist/pwa
 fi
+# a write that fails for any user: dist/pwa is missing
+rm -rf dist
+refused "write failed, no dist/pwa" "dist/pwa/home: .*not found" src home
+mkdir -p dist/pwa
+# a read that fails for any user: a link to nothing inside the source
+mkdir -p dangling; ln -s nowhere dangling/gone
+refused "read failed, dangling link" "dangling/gone: .*not found" dangling dang
 # a link that loops ends
 rm -rf dist; mkdir -p dist/pwa loop; ln -s . loop/self
-refused "loop" "more than 64 levels" loop looped
+refused "loop" "too many levels of symbolic links" loop looped
+# a tree deeper than 64 levels is refused by the depth limit
+rm -rf dist deep; mkdir -p dist/pwa; d=deep; i=0
+while [ $i -lt 66 ]; do d=$d/d; i=$((i + 1)); done
+mkdir -p "$d"
+refused "deep" "more than 64 levels" deep deeper
 # the file that cannot be read
 if [ "$(id -u)" != 0 ]; then
   mkdir -p src2; printf x > src2/secret; chmod 000 src2/secret
