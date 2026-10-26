@@ -311,3 +311,28 @@ paths:
   `init.svc.bootanim`, which `-no-boot-anim` makes ready too early, and on API 36 the property is
   absent; none waits for the user's unlock, which is why this wait is the user state. Gradle
   managed devices' wait could not be found in documentation.
+
+# The app's probes: a long press and taps (pwa#205, quire#753)
+
+* Chromium cannot draw Android's floating selection menu, so quire#753's question (does a
+  system menu drawn over a toolbar button hide it) is asked of the real WebView. The newest
+  smoke form, `build_smoke_test_script_probes` (the form `create_android` writes), adds a step
+  after the font scale. It reads files next to `smoke-test.sh`, each a JavaScript expression run
+  through `devtools_eval`; an app with none of them gets the script it had, and the step makes no
+  call. The step only reads the page and sends input through adb: nothing pwa generates for the
+  app and nothing the app runs changes (`build_main_activity` is untouched).
+* `smoke-select-point.js` answers `<x> <y>` in device pixels; the script runs `adb shell input
+  swipe x y x y` for the long press. An answer that is not two such numbers (nothing, the words
+  `DevTools did not answer`) fails the run with a line starting `Long press:`.
+* `smoke-tap-points.js` answers a line `<name> <x> <y>` for each button; the script runs `adb
+  shell input tap x y` for each, in order, after the long press, and then runs
+  `smoke-tap-result.js`, which answers `true` when the page saw a click on every named button,
+  else the names it missed. Anything but `true` fails the run with a line starting `Taps:` that
+  names the missed buttons. A line that is not a name and a point, no line at all, and one of the
+  two files without the other fail it too (an app's mistake is not skipped).
+* Overlap (pwa#202's rule): `build_smoke_test_script_font_scale_devtools` keeps its type and text
+  beside the new form, and `tests/dynamic/smoke-compat` calls it (removal: pwa#218).
+* `tests/android-smoke-dom/check.sh` case 9 plays it: `server.py` answers a probe whose first
+  line is `// stand-in answer` with the lines after it. Each class has a case that fails when the
+  class occurs (a tap dropped, a result ignored, a short press, a probe that answers nothing
+  passing), shown by editing the generated script.

@@ -13,6 +13,8 @@
 #     set textZoom)
 #   wide: the page is wider than the window at a scale above 1
 #   outside: the text spans past the window's right edge at a scale above 1
+# An app's probe (pwa#205) is a file whose first line is "// stand-in answer" and
+# whose other lines are the page's answer, as a string, to any mode but silent.
 import base64, hashlib, json, re, socketserver, struct, sys, threading
 
 GUID = b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
@@ -105,6 +107,11 @@ class Handler(socketserver.StreamRequestHandler):
             visible_required = 'document.visibilityState === "visible"' in expression
             shown = (mode != 'hidden' or not visible_required) and needle in DOCUMENT
             value = {'result': {'type': 'boolean', 'value': shown}}
+            answer = json.dumps({'id': call['id'], 'result': value}).encode()
+            self.wfile.write(frame(1, True, answer))
+            return
+        if expression.startswith('// stand-in answer'):
+            value = {'result': {'type': 'string', 'value': expression.partition('\n')[2]}}
             answer = json.dumps({'id': call['id'], 'result': value}).encode()
             self.wfile.write(frame(1, True, answer))
             return
