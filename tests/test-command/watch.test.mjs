@@ -17,6 +17,7 @@ if (!WATCH) throw new Error('PWA_WATCH names the preload gen-pwa test wrote');
 
 const CORE = `
 class BrowserType { async launch() { return globalThis.__browser; } name() { return 'chromium'; } }
+if (process.env.FREEZE_PROTO) Object.freeze(BrowserType.prototype);
 exports.chromium = new BrowserType();
 `;
 const PLAYWRIGHT_TEST = `
@@ -24,6 +25,7 @@ exports.test = { info() { if (process.env.NO_INFO) throw new Error('outside a te
 `;
 // the driver launches, waits for an evidence file (or ends after WAIT_MS), and says what launch returned
 const DRIVER = `
+if (process.env.NO_CORE_NEEDED) { console.log('ran unchanged'); process.exit(0); }
 const { EventEmitter } = require('events');
 const fs = require('fs');
 const mode = process.env.MODE;
@@ -39,14 +41,23 @@ const page = Object.assign(new EventEmitter(), {
   evaluate: () => (process.env.ANSWERS ? Promise.resolve(1) : new Promise(() => {})),
   context: () => ({ newCDPSession: async () => { if (mode === 'no-session') throw new Error('no session for you'); return session; } }),
 });
+const early = process.env.EARLY === '1';
 const browser = Object.assign(new EventEmitter(), {
   browserType: () => (mode === 'bad-browser' ? null : { name: () => 'chromium' }),
-  contexts: () => [{ pages: () => [page] }],
+  contexts: () => (early ? [] : [{ pages: () => [page] }]),
 });
+if (early) browser.newContext = async () => Object.assign(new EventEmitter(), { pages: () => [] });
 globalThis.__browser = browser;
 (async () => {
   const launched = await require('playwright-core').chromium.launch();
   console.log('launched ' + (launched === browser));
+  if (early) {
+    // a page is created and writes at once, before any scan could have seen it
+    const context = await launched.newContext();
+    context.emit('page', page);
+    page.emit('console', { type: () => 'log', text: () => 'written at creation' });
+    page.emit('request', { method: () => 'GET', url: () => 'http://x/slow' });
+  }
   const dir = process.env.PWA_TEST_EVIDENCE_DIR;
   const end = Date.now() + Number(process.env.WAIT_MS);
   while (Date.now() < end) {
@@ -102,6 +113,15 @@ test('a page that does not answer: the pause frames, the history and the load, o
   r.done();
 });
 
+test('a page that writes at once is recorded from its creation', async () => {
+  const r = await play({ MODE: 'frames', EARLY: '1' });
+  const body = r.read(r.files[0]);
+  assert.equal(body.history.console[0].text, 'written at creation');
+  assert.equal(body.history.inFlight[0].url, 'http://x/slow');
+  assert.ok(body.history.inFlight[0].ageMs >= 0);
+  r.done();
+});
+
 test('a page that does not pause: a profile, most samples first', async () => {
   const r = await play({ MODE: 'profile' });
   const body = r.read(r.files[0]);
@@ -141,11 +161,20 @@ test('injected: a browser that cannot be watched is said, and launch still retur
   r.done();
 });
 
-test('no playwright-core: the preload says nothing and changes nothing', async () => {
-  const r = await play({ MODE: 'frames', WAIT_MS: '500', NO_INFO: '1' }, { withCore: false });
-  assert.notEqual(r.code, 0); // the driver itself needs playwright-core; the preload must not have failed first
-  assert.doesNotMatch(r.err, /gen-pwa test/);
-  assert.match(r.err, /Cannot find module 'playwright-core'/);
+test('no playwright-core: the preload says why it cannot arm, and the process runs as it would', async () => {
+  const r = await play({ MODE: 'frames', WAIT_MS: '500', NO_CORE_NEEDED: '1' }, { withCore: false });
+  assert.equal(r.code, 0);
+  assert.match(r.out, /^ran unchanged/);
+  assert.match(r.err, /gen-pwa test: hang evidence not available: Cannot find module 'playwright-core'/);
+  r.done();
+});
+
+test('injected: a launch that cannot be wrapped is said, and launch still returns the browser', async () => {
+  const r = await play({ MODE: 'frames', FREEZE_PROTO: '1', WAIT_MS: '500' });
+  assert.equal(r.code, 0);
+  assert.match(r.out, /launched true/);
+  assert.match(r.err, /gen-pwa test: hang evidence not available: Cannot define property __pwaEvidence/);
+  assert.equal(r.files.length, 0);
   r.done();
 });
 
