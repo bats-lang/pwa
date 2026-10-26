@@ -1,7 +1,7 @@
 (* smoke_files -- what the tests of the smoke test's retry (bats-lang/pwa#214; area
    keyword android-smoke, .claude/rules/android-smoke.md) and their stand-in
    programs share: files by a path made of text, and running a program.
-   Not part of android-sdk-pins itself. *)
+   They belong to the tests only, and android-sdk-pins itself does not use them. *)
 
 #include "share/atspre_staload.hats"
 
