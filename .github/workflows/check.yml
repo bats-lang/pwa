@@ -59,6 +59,14 @@ jobs:
           tests/android-sdk-pins/check.sh tools/android-sdk-pins/dist/debug/android-sdk-pins
           tests/android-sdk-pins/repin.sh tools/android-sdk-pins/dist/debug/android-sdk-pins
 
+      # The tool the queue-passed action decides with (bats-lang/pwa#215) against
+      # GitHub's own answers of the runs API: a passed queue run on the pushed
+      # sha skips, every other case runs everything (area: queue-passed)
+      - name: queue-passed tool
+        run: |
+          (cd tools/queue-passed && bats build --only debug --only native --repository $HOME/repository)
+          tests/queue-passed/check.sh tools/queue-passed/dist/debug/queue-passed
+
       - name: Upload library to local repository
         run: bats upload --repository $HOME/repository
 
@@ -224,3 +232,45 @@ jobs:
       smoke-share-type: text/plain
       smoke-share-text: BATS PWA
       emulator-extra-options: ${{ inputs.emulator-options || '' }}
+
+  # The queue-passed action itself (bats-lang/pwa#215), called as an app calls
+  # it, from a fixture of the API's answer in place of the API: a push of a sha
+  # the queue passed skips and names the queue run, and any other event never does
+  queue-passed-action:
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+
+      - name: A push of a commit the queue passed
+        id: passed
+        uses: ./.github/actions/queue-passed
+        with:
+          event: push
+          sha: 7fb2de0db6a22d79b672b2c75eb246400e5630d4
+          workflow-ref: bats-lang/quire/.github/workflows/check.yml@refs/heads/main
+          runs-file: tests/queue-passed/answers/passed.json
+
+      - name: It skips and names the queue run
+        env:
+          SKIP: ${{ steps.passed.outputs.skip }}
+          RUN_URL: ${{ steps.passed.outputs.run-url }}
+        run: test "$SKIP" = true && test "$RUN_URL" = https://github.com/bats-lang/quire/actions/runs/40229598535
+
+      - name: The same answer asked by a nightly run
+        id: nightly
+        uses: ./.github/actions/queue-passed
+        with:
+          event: schedule
+          sha: 7fb2de0db6a22d79b672b2c75eb246400e5630d4
+          workflow-ref: bats-lang/quire/.github/workflows/check.yml@refs/heads/main
+          runs-file: tests/queue-passed/answers/passed.json
+
+      - name: It never skips
+        env:
+          SKIP: ${{ steps.nightly.outputs.skip }}
+        run: test "$SKIP" = false
