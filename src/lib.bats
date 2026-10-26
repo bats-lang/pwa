@@ -484,7 +484,7 @@ implement build_android_gradle (b) = let
   val () = $B.bput(b, "}\n")
 in end
 
-(* the script's text up to its install, shared by the two forms *)
+(* the script's text up to its pnpm, shared by the two forms *)
 fn _android_script_head
   {n:nat | n + 1100 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 1100] $B.builder(m)): void = let
@@ -507,6 +507,12 @@ fn _android_script_head
   val () = $B.bput(b, "# the plugins (pnpm reads nodeLinker from pnpm-workspace.yaml, not\n")
   val () = $B.bput(b, "# from .npmrc)\n")
   val () = $B.bput(b, "export COREPACK_ENABLE_DOWNLOAD_PROMPT=0\n")
+in end
+
+(* the script's pnpm: fetched at its pinned version, and the flat node_modules, shared by the two forms *)
+fn _android_script_pnpm
+  {n:nat | n + 300 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 300] $B.builder(m)): void = let
   val () = $B.bput(b, "# at its pinned version, fetched with a retry (bats-lang/pwa#158)\n")
   val () = $B.bput(b, ". ./fetch-pnpm.sh\n")
   val () = $B.bput(b, "printf 'nodeLinker: hoisted\\n' > pnpm-workspace.yaml\n")
@@ -552,12 +558,15 @@ in end
 
 implement build_android_script (b, web_dir) = let
   val () = _android_script_head(b)
+  val () = _android_script_pnpm(b)
   val () = $B.bput(b, "$pnpm install\n")
 in _android_script_tail(b, web_dir) end
 
 implement build_android_script_locked (b, web_dir) = let
   val () = _android_script_head(b)
-  val () = $B.bput(b, "# installed from the lock the app commits (pnpm-lock.yaml, next to this\n")
+  val () = $B.bput(b, "# The lock is checked before pnpm is fetched, so an app without one is told\n")
+  val () = $B.bput(b, "# so at once, with nothing downloaded (bats-lang/pwa#164). The install is\n")
+  val () = $B.bput(b, "# from the lock the app commits (pnpm-lock.yaml, next to this\n")
   val () = $B.bput(b, "# script), exactly and nothing else: --frozen-lockfile fails when the\n")
   val () = $B.bput(b, "# lock does not match package.json and never rewrites it, so what pnpm\n")
   val () = $B.bput(b, "# resolves for the plugins' own dependencies cannot move under a commit\n")
@@ -569,6 +578,7 @@ implement build_android_script_locked (b, web_dir) = let
   val () = $B.bput(b, "  echo \"error: no pnpm-lock.yaml next to $0: the plugins are installed from a committed lock, never resolved afresh (see the comment above this check)\" >&2\n")
   val () = $B.bput(b, "  exit 1\n")
   val () = $B.bput(b, "}\n")
+  val () = _android_script_pnpm(b)
   val () = $B.bput(b, "$pnpm install --frozen-lockfile\n")
 in _android_script_tail(b, web_dir) end
 
