@@ -520,7 +520,7 @@ implement main0 () = let
   val usable = (size < 4095 && _is(view, command_start, command_stop, "decide")
     && file_stop > file_start && extra_start >= size): bool
   val status = (if ~usable then let
-      val () = _say_text("usage: queue-passed decide <event> <sha> <workflow-ref> <runs-file>\n")
+      val () = _say_text("usage: queue-passed decide EVENT SHA WORKFLOW-REF RUNS-FILE\n")
     in 2 end
     else let
       val @(path_start, path_stop) = _workflow_path(view, ref_start, ref_stop)
