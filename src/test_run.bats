@@ -919,7 +919,7 @@ fn _watch_source (out: !$B.builder_v >> $B.builder_v): void = let
   val () = _bput(out, "      return browser;\n")
   val () = _bput(out, "    };\n")
   val () = _bput(out, "  }\n")
-  val () = _bput(out, "} catch (e) { /* no playwright-core here: nothing to watch */ }\n")
+  val () = _bput(out, "} catch (e) { say('hang evidence not available: ' + why(e)); }\n")
 in () end
 
 (* PWA_TEST_EVIDENCE_DIR=<the --evidence directory>, else pwa-evidence
