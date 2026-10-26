@@ -111,6 +111,10 @@ run() {
   echo "$status" > "$TMP/$name.status"
 }
 
+# SMOKE_CASE=<name> runs one of the probe cases of 9 alone (a few seconds), for the injections
+# of the script that show each fails when its class occurs (pwa#205)
+want() { [ -z "${SMOKE_CASE:-}" ] || [ "$SMOKE_CASE" = "$1" ]; }
+if [ -z "${SMOKE_CASE:-}" ]; then
 # 1. a text never on the screen
 run absent ok screen-without-text.xml unix-with-socket "NEVER ON SCREEN"
 [ "$(cat "$TMP/absent.status")" = 1 ] ||
@@ -228,19 +232,25 @@ PATH="$TMP/bin:$PATH" STUB_LOG="$TMP/locked.log" STUB_UI="$TMP/screen-with-text.
 if grep -q '^adb install' "$TMP/locked.log"; then fail "the app was installed for a locked user" "$TMP/locked.log"; fi
 echo "case 8: a user that stays locked: the script was ended by timeout (status $status), asked the user state $(grep -c '^adb shell am get-started-user-state 0$' "$TMP/locked.log") times, installed nothing"
 echo "case 8: a user locked for three answers: $(grep -c '^adb shell am get-started-user-state 0$' "$TMP/unlocking.log") polls, then the install"
+fi
 # 9. (pwa#205) the app's probes: files next to the script that the page answers over DevTools
 INPUTS="^adb shell input (swipe|tap) "
 probe select smoke-select-point.js "540 1200"
+if want longpress; then
 run longpress ok screen-with-text.xml unix-with-socket "BATS PWA" select
 [ "$(cat "$TMP/longpress.status")" = 0 ] || fail "the script failed with a probe that answers a point" "$TMP/longpress.out"
 [ "$(grep -c -E "$INPUTS" "$TMP/longpress.log")" = 1 ] || fail "not one input call for one point" "$TMP/longpress.log"
 grep -qx 'adb shell input swipe 540 1200 540 1200 1000' "$TMP/longpress.log" ||
   fail "no long press of 1000 ms at the point" "$TMP/longpress.log"
 echo "case 9, a probe answering '540 1200': $(grep -E "$INPUTS" "$TMP/longpress.log")"
+fi
+if want noprobe; then
 run noprobe ok screen-with-text.xml unix-with-socket "BATS PWA"
 [ "$(cat "$TMP/noprobe.status")" = 0 ] || fail "the script failed with no probe file" "$TMP/noprobe.out"
 if grep -q -E "$INPUTS" "$TMP/noprobe.log"; then fail "an input call with no probe file" "$TMP/noprobe.log"; fi
 echo "case 9, no probe file: $(grep -c -E "$INPUTS" "$TMP/noprobe.log") input calls"
+fi
+if want pressnothing; then
 probe nothing smoke-select-point.js ""
 run pressnothing ok screen-with-text.xml unix-with-socket "BATS PWA" nothing
 [ "$(cat "$TMP/pressnothing.status")" = 1 ] || fail "the script passed with a probe that answers nothing" "$TMP/pressnothing.out"
@@ -248,14 +258,20 @@ grep -q "^Long press: smoke-select-point.js answered '', not x and y in device p
   fail "the failure does not name the step" "$TMP/pressnothing.out"
 if grep -q -E "$INPUTS" "$TMP/pressnothing.log"; then fail "a long press with no point" "$TMP/pressnothing.log"; fi
 echo "case 9, a probe answering nothing: $(grep '^Long press' "$TMP/pressnothing.out")"
+fi
+if want presswords; then
 probe notpoint smoke-select-point.js "left 10"
 run presswords ok screen-with-text.xml unix-with-socket "BATS PWA" notpoint
 [ "$(cat "$TMP/presswords.status")" = 1 ] || fail "the script passed with a probe that answers words" "$TMP/presswords.out"
 grep -q "^Long press: smoke-select-point.js answered 'left 10'" "$TMP/presswords.out" || fail "words not said" "$TMP/presswords.out"
+fi
+if want presssilent; then
 run presssilent silent-probe screen-with-text.xml unix-with-socket "BATS PWA" select
 [ "$(cat "$TMP/presssilent.status")" = 1 ] || fail "the script passed with a silent page" "$TMP/presssilent.out"
 grep -q "^Long press: smoke-select-point.js answered 'DevTools did not answer'" "$TMP/presssilent.out" ||
   fail "a silent page is not said at the long press" "$TMP/presssilent.out"
+fi
+if want tapped; then
 probe taps smoke-select-point.js "540 1200"
 probe taps smoke-tap-points.js "back 100 200
 save 300.5 400
@@ -270,6 +286,8 @@ printf '%s\n' 'adb shell input swipe 540 1200 540 1200 1000' 'adb shell input ta
 cmp -s "$TMP/tapped.inputs" "$TMP/tapped.want" || fail "the long press and the taps are not in order, at the points" "$TMP/tapped.inputs" "$TMP/tapped.want"
 echo "case 9, three points and a result of true: the script exited 0 and called"
 cat "$TMP/tapped.inputs"
+fi
+if want tapmissed; then
 probe missed smoke-select-point.js "540 1200"
 probe missed smoke-tap-points.js "back 100 200
 save 300 400
@@ -280,6 +298,8 @@ run tapmissed ok screen-with-text.xml unix-with-socket "BATS PWA" missed
 [ "$(cat "$TMP/tapmissed.status")" = 1 ] || fail "the script passed with buttons the page did not see clicked" "$TMP/tapmissed.out"
 grep -q '^Taps: the page saw no click on: save share $' "$TMP/tapmissed.out" || fail "the missed buttons are not named" "$TMP/tapmissed.out"
 echo "case 9, a result naming missed buttons: $(grep '^Taps' "$TMP/tapmissed.out")"
+fi
+if want tapsonly; then
 probe tapsonly smoke-tap-points.js "back 100 200"
 probe tapsonly smoke-tap-result.js "true"
 run tapsonly ok screen-with-text.xml unix-with-socket "BATS PWA" tapsonly
@@ -289,19 +309,26 @@ if grep -q 'input swipe' "$TMP/tapsonly.log"; then fail "a long press with no se
 run notaps ok screen-with-text.xml unix-with-socket "BATS PWA" select
 if grep -q 'input tap' "$TMP/notaps.log"; then fail "a tap with no tap probe files" "$TMP/notaps.log"; fi
 echo "case 9, no tap probe files: $(grep -c 'input tap' "$TMP/notaps.log") taps"
+fi
+if want tapsnothing; then
 probe nopoints smoke-tap-points.js ""
 probe nopoints smoke-tap-result.js "true"
 run tapsnothing ok screen-with-text.xml unix-with-socket "BATS PWA" nopoints
 [ "$(cat "$TMP/tapsnothing.status")" = 1 ] || fail "the script passed with a tap probe that names no button" "$TMP/tapsnothing.out"
 grep -q "^Taps: smoke-tap-points.js named no button" "$TMP/tapsnothing.out" || fail "no button not said" "$TMP/tapsnothing.out"
+fi
+if want tapbad; then
 probe badline smoke-tap-points.js "back 100 200
 save left top"
 probe badline smoke-tap-result.js "true"
 run tapbad ok screen-with-text.xml unix-with-socket "BATS PWA" badline
 [ "$(cat "$TMP/tapbad.status")" = 1 ] || fail "the script passed with a tap line that is not a point" "$TMP/tapbad.out"
 grep -q "^Taps: smoke-tap-points.js answered the line 'save left top '" "$TMP/tapbad.out" || fail "bad line not said" "$TMP/tapbad.out"
+fi
+if want tapspair; then
 probe pointsonly smoke-tap-points.js "back 100 200"
 run tapspair ok screen-with-text.xml unix-with-socket "BATS PWA" pointsonly
 [ "$(cat "$TMP/tapspair.status")" = 1 ] || fail "the script passed with one of the two tap probes" "$TMP/tapspair.out"
 grep -q '^Taps: smoke-tap-points.js and smoke-tap-result.js go together, and one is missing$' "$TMP/tapspair.out" || fail "the pair not said" "$TMP/tapspair.out"
-echo "OK: the page's DOM is kept when the text never shows, and the font scale reaches the page"
+fi
+if [ -z "${SMOKE_CASE:-}" ]; then echo "OK: the page's DOM is kept when the text never shows, and the font scale reaches the page"; else echo "OK: case $SMOKE_CASE"; fi

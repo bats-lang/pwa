@@ -186,11 +186,7 @@ staload TR = "./test_run.sats"
 #pub fn build_smoke_test_script_font_scale_devtools {ni:nat | ni < 256}{n:nat | n + 16000 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 16000] $B.builder(m), app_id: string ni): void
 
-(* build_smoke_test_script_font_scale_devtools with the probes of bats-lang/pwa#205 (android-smoke):
-   after the font scale, when files next to the script name them, a long press (adb input swipe)
-   at the point smoke-select-point.js answers and a tap at each centre smoke-tap-points.js
-   answers, failing unless smoke-tap-result.js answers true. An app with no such file gets the
-   script it had. Its bound is longer than the form it follows. The form create_android writes. *)
+(* the newest form: a long press and taps at the points the app's probe files name (android-smoke, pwa#205) *)
 #pub fn build_smoke_test_script_probes {ni:nat | ni < 256}{n:nat | n + 18560 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 18560] $B.builder(m), app_id: string ni): void
 
