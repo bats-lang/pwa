@@ -63,7 +63,8 @@ case ${1:-} in
     cp -f "$dir"/*.ttf "$target/"
     if command -v fc-cache >/dev/null; then
       fc-cache -f "$target"
-      fc-list :lang=ja family | grep -q IPAGothic \
+      # judged by the file: a font the machine had already must not pass for ours
+      fc-list -f '%{file}\n' :lang=ja | grep -qF "$target/" \
         || { echo "::error::fontconfig lists no Japanese font after the install"; exit 1; }
     fi
     ;;

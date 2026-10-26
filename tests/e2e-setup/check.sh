@@ -213,7 +213,15 @@ font() { # <urls> <fonts dir> -> japanese-font.sh install with the test's pins, 
   E2E_FONT_URLS=$1 E2E_FONT_DEB_SHA256=$GOOD_SHA E2E_FONT_FILES_SHA256=$FILES_SUMS \
     HOME="$TMP/j/home" FONT_DIR=$2 "$ACT/japanese-font.sh" install > "$TMP/out" 2>&1
 }
+# fontconfig stand-ins: the test fonts are not fonts, so fc-list names the files of the
+# user's fonts directory as a real fontconfig names a real font, and a machine that
+# already has IPAGothic cannot make the check pass (CI failed on a runner without it)
+mkdir -p "$TMP/j/bin"
+printf '#!/bin/sh\nexit 0\n' > "$TMP/j/bin/fc-cache"
+printf '#!/bin/sh\nls "$HOME"/.local/share/fonts/pwa-e2e-japanese/*.ttf 2>/dev/null\n' > "$TMP/j/bin/fc-list"
+chmod +x "$TMP/j/bin/fc-cache" "$TMP/j/bin/fc-list"
 rm -rf "$TMP/j/home"; mkdir -p "$TMP/j/home"
+OLDPATH=$PATH; PATH="$TMP/j/bin:$PATH"
 font "file://$TMP/j/good.deb" "$TMP/j/cache" || fail "a miss with a good deb" "$TMP/out"
 grep -q '[0-9] downloaded$' "$TMP/out" || fail "a miss said it downloaded nothing" "$TMP/out"
 [ -f "$TMP/j/cache/ipag.ttf" ] && [ -f "$TMP/j/home/.local/share/fonts/pwa-e2e-japanese/ipagp.ttf" ] || fail "the fonts are not in the cache directory and the user's fonts"
@@ -230,5 +238,11 @@ grep -q 'could not be fetched from any URL' "$TMP/out" || fail "the message of a
 font "file://$TMP/j/missing.deb" "$TMP/j/cache4" && fail "no URL working passed" "$TMP/out"
 GITHUB_OUTPUT="$TMP/j/key" "$ACT/japanese-font.sh" key
 grep -q '^key=japanese-font-ipafont-gothic-00303-21ubuntu1-71e63f0f88cc$' "$TMP/j/key" || fail "the key" "$TMP/j/key"
+
+# fontconfig listing none of our files fails the step, though another IPAGothic is installed
+printf '#!/bin/sh\necho /usr/share/fonts/opentype/ipafont-gothic/ipag.ttf\n' > "$TMP/j/bin/fc-list"
+font "file://$TMP/j/good.deb" "$TMP/j/cache5" && fail "a font fontconfig does not list from our directory passed" "$TMP/out"
+grep -q 'fontconfig lists no Japanese font after the install' "$TMP/out" || fail "the message of an unlisted font" "$TMP/out"
+PATH=$OLDPATH
 
 echo "e2e-setup: all checks passed"
