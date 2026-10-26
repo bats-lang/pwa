@@ -34,3 +34,36 @@ is the same check in CI). `bats test` tests the read
 checks the command with a stand-in Playwright (`PWA_TEST_PLAYWRIGHT`) and
 stand-in versions. The design and what was
 searched are on bats-lang/pwa#82.
+
+## The page watch (pwa#132, pwa#230)
+
+Every run also supplies a preload to Playwright's processes, so a hung page
+leaves evidence with no import in a spec and no change of the app's config.
+`_watch_source` (`src/test_run.bats`) is its text, passed to the keeper in
+`PWA_TEST_WATCH_SOURCE`; the keeper writes it to a temporary `watch.cjs`, adds
+`--require="<file>"` to the child's `NODE_OPTIONS` (the caller's kept before it)
+and removes the file when it exits. The preload wraps `launch` of the project's
+own `playwright-core` (resolved from the working directory; on any surprise the
+launch is left as it was), so each browser a test gets is watched: pages are
+armed with a DevTools session (debugger on, breakpoints off), asked to evaluate
+`1` every 2 s, and captured when one does not answer in 5 s or when the running
+test (`test.info()`) is within 15 s (a third of a shorter timeout) of its
+timeout. A capture is the pause frames, else a 2 s CPU profile, the page's last
+100 console messages, errors and failed requests with the requests in flight,
+and the runner's load and pressure, in `<--evidence dir>/<project>-<test>-<n>.json`
+(default `pwa-evidence`, `PWA_TEST_EVIDENCE_DIR`; Playwright clears `outputDir`,
+which is why it is not under it), with one line on stderr naming the file. A
+part that cannot be taken is `not available: <why>`; nothing fails a test.
+
+Why a preload: the measured alternatives are on pwa#132 (comment 6424242835): a
+reporter or `globalSetup` runs in the runner process and has no page; an auto
+fixture needs the spec to import `test` from the file; an npm package is code
+of the app's own. The text has no double quote and no backslash because it is
+written as Bats strings; it is JavaScript because it runs in the workers with
+the page's DevTools session (the keeper and the browser check are the others).
+`tests/test-command/watch.test.mjs` (`node --test`, run by `check.sh` on the
+preload the stand-in run wrote) plays a stand-in `playwright-core` through the
+frozen page, the profile, the timeout and each part failing. Native stacks, the
+flight recorder, the reporter and the prerequisites check are pwa#231 to #233.
+Do not make a directory under `/proc` in a test: node's recursive `mkdir` never
+returns there.

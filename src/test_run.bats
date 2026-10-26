@@ -2,7 +2,7 @@
    built PWA (bats-lang/pwa#82). Tooling for the app's tests: nothing
    here is part of what pwa generates or of what the app runs.
 
-   gen-pwa test [--timings <dir>] [-- <playwright args>]
+   gen-pwa test [--timings <dir>] [--evidence <dir>] [-- <playwright args>]
 
    1. A slot of the machine's lock: flock on one of PWA_TEST_SLOTS
       (default 1) files in PWA_TEST_LOCK_DIR (default ~/.cache/pwa-test),
@@ -662,7 +662,7 @@ datatype run_end =
    server stops the run the same way); 71: argv[2] could not be
    started. A path with a NUL is refused (400) before the file system
    sees it. *)
-#define KEEPER "const http=require('http'),fs=require('fs'),path=require('path'),{spawn}=require('child_process');const [root,cmd,...args]=process.argv.slice(1);const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.webmanifest':'application/manifest+json','.wasm':'application/wasm','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif','.webp':'image/webp','.svg':'image/svg+xml','.ico':'image/x-icon','.woff2':'font/woff2','.woff':'font/woff','.ttf':'font/ttf','.txt':'text/plain; charset=utf-8','.xml':'application/xml','.epub':'application/epub+zip','.map':'application/json'};const base=path.resolve(root);let child=null,stopping=false,code=143;const server=http.createServer((q,r)=>{try{let p;try{p=decodeURIComponent(new URL(q.url,'http://h').pathname)}catch(e){r.writeHead(400);r.end();return}if(p.includes('\\0')){r.writeHead(400);r.end();return}let f=path.join(base,p);if(f!==base&&!f.startsWith(base+path.sep)){r.writeHead(403);r.end();return}fs.stat(f,(e,s)=>{if(!e&&s.isDirectory())f=path.join(f,'index.html');fs.readFile(f,(e2,d)=>{if(e2){r.writeHead(404,{'content-type':'text/plain; charset=utf-8'});r.end('not found');return}r.writeHead(200,{'content-type':types[path.extname(f).toLowerCase()]||'application/octet-stream','cache-control':'no-store'});r.end(q.method==='HEAD'?undefined:d)})})}catch(e){try{r.writeHead(500);r.end()}catch(e2){}}});const stop=()=>{if(stopping)return;stopping=true;if(!child)process.exit(code);try{process.kill(-child.pid,'SIGTERM')}catch(e){}setTimeout(()=>{try{process.kill(-child.pid,'SIGKILL')}catch(e){}process.exit(code)},5000).unref()};process.on('uncaughtException',e=>{console.error('gen-pwa test: the server failed: '+e.message);code=70;stop()});for(const s of ['SIGINT','SIGTERM','SIGHUP'])process.on(s,stop);process.stdin.on('end',stop);process.stdin.on('error',stop);process.stdin.resume();server.on('error',e=>{console.error('gen-pwa test: cannot serve '+root+': '+e.message);process.exit(70)});fs.stat(path.join(base,'index.html'),e=>{if(e){console.error('gen-pwa test: '+root+'/index.html not found: build the app first');process.exit(70)}server.listen(0,'127.0.0.1',()=>{const port=server.address().port;child=spawn(cmd,args,{stdio:['ignore','inherit','inherit'],detached:true,env:{...process.env,PWA_TEST_BASE_URL:'http://127.0.0.1:'+port,PWA_TEST_PORT:String(port)}});child.on('error',e=>{console.error('gen-pwa test: cannot run '+cmd+': '+e.message);process.exit(71)});child.on('exit',(status)=>{try{process.kill(-child.pid,'SIGKILL')}catch(e){}process.exit(stopping?code:(status===0?0:1))})})})"
+#define KEEPER "const http=require('http'),fs=require('fs'),path=require('path'),{spawn}=require('child_process');const [root,cmd,...args]=process.argv.slice(1);const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.webmanifest':'application/manifest+json','.wasm':'application/wasm','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif','.webp':'image/webp','.svg':'image/svg+xml','.ico':'image/x-icon','.woff2':'font/woff2','.woff':'font/woff','.ttf':'font/ttf','.txt':'text/plain; charset=utf-8','.xml':'application/xml','.epub':'application/epub+zip','.map':'application/json'};const base=path.resolve(root);let child=null,stopping=false,code=143;const server=http.createServer((q,r)=>{try{let p;try{p=decodeURIComponent(new URL(q.url,'http://h').pathname)}catch(e){r.writeHead(400);r.end();return}if(p.includes('\\0')){r.writeHead(400);r.end();return}let f=path.join(base,p);if(f!==base&&!f.startsWith(base+path.sep)){r.writeHead(403);r.end();return}fs.stat(f,(e,s)=>{if(!e&&s.isDirectory())f=path.join(f,'index.html');fs.readFile(f,(e2,d)=>{if(e2){r.writeHead(404,{'content-type':'text/plain; charset=utf-8'});r.end('not found');return}r.writeHead(200,{'content-type':types[path.extname(f).toLowerCase()]||'application/octet-stream','cache-control':'no-store'});r.end(q.method==='HEAD'?undefined:d)})})}catch(e){try{r.writeHead(500);r.end()}catch(e2){}}});const stop=()=>{if(stopping)return;stopping=true;if(!child)process.exit(code);try{process.kill(-child.pid,'SIGTERM')}catch(e){}setTimeout(()=>{try{process.kill(-child.pid,'SIGKILL')}catch(e){}process.exit(code)},5000).unref()};process.on('uncaughtException',e=>{console.error('gen-pwa test: the server failed: '+e.message);code=70;stop()});for(const s of ['SIGINT','SIGTERM','SIGHUP'])process.on(s,stop);process.stdin.on('end',stop);process.stdin.on('error',stop);process.stdin.resume();server.on('error',e=>{console.error('gen-pwa test: cannot serve '+root+': '+e.message);process.exit(70)});fs.stat(path.join(base,'index.html'),e=>{if(e){console.error('gen-pwa test: '+root+'/index.html not found: build the app first');process.exit(70)}server.listen(0,'127.0.0.1',()=>{const port=server.address().port;const env={...process.env,PWA_TEST_BASE_URL:'http://127.0.0.1:'+port,PWA_TEST_PORT:String(port)};const watch=env.PWA_TEST_WATCH_SOURCE;delete env.PWA_TEST_WATCH_SOURCE;if(watch){try{const wd=fs.mkdtempSync(path.join(require('os').tmpdir(),'pwa-test-'));const wf=path.join(wd,'watch.cjs');fs.writeFileSync(wf,watch);process.on('exit',()=>{try{fs.rmSync(wd,{recursive:true,force:true})}catch(e){}});env.NODE_OPTIONS=(env.NODE_OPTIONS?env.NODE_OPTIONS+' ':'')+'--require=\"'+wf+'\"'}catch(e){console.error('gen-pwa test: hang evidence not available: '+e.message)}}child=spawn(cmd,args,{stdio:['ignore','inherit','inherit'],detached:true,env});child.on('error',e=>{console.error('gen-pwa test: cannot run '+cmd+': '+e.message);process.exit(71)});child.on('exit',(status)=>{try{process.kill(-child.pid,'SIGKILL')}catch(e){}process.exit(stopping?code:(status===0?0:1))})})})"
 
 fn _end_of (status: int): run_end =
   if status = 0 then RunPassed()
@@ -709,10 +709,11 @@ fun _after_dashes {l:agz}{i:nat} .<max(4096 - i, 0)>.
     else _after_dashes(b, next, k)
   end
 
-(* The value after --timings among gen-pwa's own options (argv[2] on,
-   before "--"), appended to out: whether it was given *)
-fun _timings_from {l:agz}{i:nat} .<max(4096 - i, 0)>.
-  (b: !$A.borrow(byte, l, 4096), i: int i, k: int, out: !$B.builder_v >> $B.builder_v): bool =
+(* The value after the option named (--timings, --evidence) among
+   gen-pwa's own options (argv[2] on, before "--"), appended to out:
+   whether it was given *)
+fun _option_from {sn:nat}{l:agz}{i:nat} .<max(4096 - i, 0)>.
+  (name: string sn, b: !$A.borrow(byte, l, 4096), i: int i, k: int, out: !$B.builder_v >> $B.builder_v): bool =
   if i >= k then false
   else if i >= 4096 then false
   else let
@@ -720,13 +721,13 @@ fun _timings_from {l:agz}{i:nat} .<max(4096 - i, 0)>.
     val next = g1ofg0(e + 1)
   in
     if _is(b, i, e, "--", true) then false
-    else if _is(b, i, e, "--timings", true) then let
+    else if _is(b, i, e, name, true) then let
         val v = _nat(e + 1)
         val ve = _arg_end(b, v, k)
         val () = _put_range(b, v, ve, 4096, out)
       in ve > v end
     else if next <= i then false
-    else _timings_from(b, next, k, out)
+    else _option_from(name, b, next, k, out)
   end
 
 (* Where argv[2] (after the program and "test") starts *)
@@ -765,6 +766,178 @@ fn _json_entries (timed: bool, kind: run_kind, timings: $B.builder_v): $L.listv(
       | AsGiven() => _bput(jn, "/run.json"))
   in $L.list_vt_cons(_arg(jn), $L.list_vt_nil()) end
 
+(* The page watch (bats-lang/pwa#132, #230): the preload every Playwright
+   process of a run loads (NODE_OPTIONS --require, written by the keeper).
+   It wraps the launch of the project's own playwright-core, so every
+   browser a test gets is watched with no import in a spec: each page is
+   armed (a DevTools session with the debugger on and every breakpoint
+   off), asked to evaluate 1 every 2 s, and captured when it does not
+   answer in 5 s or when its test is near its timeout: the V8 pause frames
+   (else a 2 s CPU profile), the page's recent console, errors and
+   requests, and the runner's load, in <evidence dir>/<project>-<test>-<n>.json.
+   JavaScript because it runs in Playwright's workers, with the page's
+   DevTools session; the text has no double quote and no backslash, so it
+   is written here as it runs. Search .claude/rules/gen-pwa-test.md for
+   "page watch". *)
+fn _watch_source (out: !$B.builder_v >> $B.builder_v): void = let
+  val () = _bput(out, "'use strict';\n")
+  val () = _bput(out, "const fs = require('fs'), os = require('os'), path = require('path');\n")
+  val () = _bput(out, "const DIR = process.env.PWA_TEST_EVIDENCE_DIR;\n")
+  val () = _bput(out, "const ANSWER_MS = 5000, PROBE_MS = 2000, SCAN_MS = 500, CMD_MS = 2000, PAUSE_MS = 3000, PROFILE_MS = 2000, MARGIN_MS = 15000;\n")
+  val () = _bput(out, "const say = (text) => { try { console.error('gen-pwa test: ' + text); } catch (e) { /* stderr gone */ } };\n")
+  val () = _bput(out, "const why = (e) => String((e && e.message) || e).slice(0, 300);\n")
+  val () = _bput(out, "const pause = (ms) => new Promise((resolve) => { setTimeout(resolve, ms).unref(); });\n")
+  val () = _bput(out, "const within = async (promise, ms) => {\n")
+  val () = _bput(out, "  let timer; const started = Date.now();\n")
+  val () = _bput(out, "  const silent = new Promise((resolve) => { timer = setTimeout(() => resolve({ answered: false, ms }), ms); });\n")
+  val () = _bput(out, "  const outcome = Promise.resolve(promise).then((value) => ({ answered: true, ms: Date.now() - started, value }), (e) => ({ answered: true, ms: Date.now() - started, error: why(e) }));\n")
+  val () = _bput(out, "  try { return await Promise.race([outcome, silent]); } finally { clearTimeout(timer); }\n")
+  val () = _bput(out, "};\n")
+  val () = _bput(out, "const cut = (text) => JSON.parse(JSON.stringify(String(text == null ? '' : text).slice(0, 300)));\n")
+  val () = _bput(out, "const ring = (most) => { const list = []; return { push(entry) { list.push(entry); if (list.length > most) list.shift(); }, list: () => list.map((entry) => ({ ...entry })) }; };\n")
+  val () = _bput(out, "const keepHistory = (page) => {\n")
+  val () = _bput(out, "  const kept = { console: ring(100), pageerror: ring(100), requestfailed: ring(100) };\n")
+  val () = _bput(out, "  const inFlight = new Map();\n")
+  val () = _bput(out, "  const listen = (event, listener) => { try { page.on(event, (...args) => { try { listener(...args); } catch (e) { /* evidence only */ } }); } catch (e) { /* no history */ } };\n")
+  val () = _bput(out, "  listen('console', (m) => kept.console.push({ at: Date.now(), type: m.type(), text: cut(m.text()) }));\n")
+  val () = _bput(out, "  listen('pageerror', (e) => kept.pageerror.push({ at: Date.now(), message: cut(e && e.message) }));\n")
+  val () = _bput(out, "  listen('request', (r) => { inFlight.set(r, { at: Date.now(), method: r.method(), url: cut(r.url()) }); if (inFlight.size > 100) inFlight.delete(inFlight.keys().next().value); });\n")
+  val () = _bput(out, "  listen('requestfinished', (r) => { inFlight.delete(r); });\n")
+  val () = _bput(out, "  listen('requestfailed', (r) => { const began = inFlight.get(r); inFlight.delete(r); const f = r.failure(); kept.requestfailed.push({ at: Date.now(), url: cut(r.url()), ms: began ? Date.now() - began.at : null, failure: cut(f && f.errorText) }); });\n")
+  val () = _bput(out, "  return { snapshot: () => ({ note: 'the last 100 of each kind, oldest first; at is epoch ms; inFlight holds the requests begun and not finished or failed', console: kept.console.list(), pageerror: kept.pageerror.list(), requestfailed: kept.requestfailed.list(), inFlight: [...inFlight.values()].map((e) => ({ ...e, ageMs: Date.now() - e.at })) }) };\n")
+  val () = _bput(out, "};\n")
+  val () = _bput(out, "const small = (file) => { try { return fs.readFileSync(file, 'utf8').slice(0, 2000); } catch (e) { return 'not available: ' + String((e && e.code) || e); } };\n")
+  val () = _bput(out, "const loadNow = () => ({ at: Date.now(), loadavg: os.loadavg(), cpus: os.cpus().length, freeMemory: os.freemem(), pressure: { cpu: small('/proc/pressure/cpu'), memory: small('/proc/pressure/memory'), io: small('/proc/pressure/io') } });\n")
+  val () = _bput(out, "const arm = async (page, chromium) => {\n")
+  val () = _bput(out, "  const armed = { session: null, scripts: new Map(), error: null, pausing: false };\n")
+  val () = _bput(out, "  if (!chromium) { armed.error = 'not available: the browser is not Chromium (no DevTools session)'; return armed; }\n")
+  val () = _bput(out, "  try {\n")
+  val () = _bput(out, "    const session = await page.context().newCDPSession(page);\n")
+  val () = _bput(out, "    armed.session = session;\n")
+  val () = _bput(out, "    session.on('Debugger.scriptParsed', (e) => { if (e.url) armed.scripts.set(e.scriptId, e.url); });\n")
+  val () = _bput(out, "    session.on('Debugger.paused', () => { if (!armed.pausing) session.send('Debugger.resume').catch(() => {}); });\n")
+  val () = _bput(out, "    await session.send('Debugger.enable');\n")
+  val () = _bput(out, "    await session.send('Debugger.setBreakpointsActive', { active: false });\n")
+  val () = _bput(out, "  } catch (e) { armed.session = null; armed.error = 'not available: ' + why(e); }\n")
+  val () = _bput(out, "  return armed;\n")
+  val () = _bput(out, "};\n")
+  val () = _bput(out, "const profile = async (s) => {\n")
+  val () = _bput(out, "  const first = [await within(s.send('Profiler.enable'), CMD_MS), await within(s.send('Profiler.start'), CMD_MS)];\n")
+  val () = _bput(out, "  const bad = first.find((r) => !r.answered || r.error);\n")
+  val () = _bput(out, "  if (bad) return 'not available: the profiler ' + (bad.error || 'did not answer');\n")
+  val () = _bput(out, "  await pause(PROFILE_MS);\n")
+  val () = _bput(out, "  const stopped = await within(s.send('Profiler.stop'), CMD_MS);\n")
+  val () = _bput(out, "  if (!stopped.answered || stopped.error || !stopped.value) return 'not available: the profile ' + (stopped.error || 'was not returned');\n")
+  val () = _bput(out, "  const rows = new Map();\n")
+  val () = _bput(out, "  for (const node of stopped.value.profile.nodes) {\n")
+  val () = _bput(out, "    const f = node.callFrame; const key = (f.functionName || '(anonymous)') + ' ' + f.url + ':' + (f.lineNumber + 1) + ':' + (f.columnNumber + 1);\n")
+  val () = _bput(out, "    rows.set(key, (rows.get(key) || 0) + (node.hitCount || 0));\n")
+  val () = _bput(out, "  }\n")
+  val () = _bput(out, "  return { note: 'samples of the 2 s profile by function, most first', top: [...rows].sort((a, b) => b[1] - a[1]).slice(0, 15).map(([where, samples]) => ({ where, samples })) };\n")
+  val () = _bput(out, "};\n")
+  val () = _bput(out, "const stacks = async (armed) => {\n")
+  val () = _bput(out, "  if (!armed.session) return { pause: armed.error || 'not available: the page was not armed' };\n")
+  val () = _bput(out, "  const s = armed.session; armed.pausing = true;\n")
+  val () = _bput(out, "  try {\n")
+  val () = _bput(out, "    const paused = new Promise((resolve) => s.once('Debugger.paused', resolve));\n")
+  val () = _bput(out, "    const sent = await within(s.send('Debugger.pause'), CMD_MS);\n")
+  val () = _bput(out, "    const event = await within(paused, PAUSE_MS);\n")
+  val () = _bput(out, "    if (event.answered) {\n")
+  val () = _bput(out, "      const frames = event.value.callFrames.slice(0, 40).map((f) => ({ function: f.functionName || '(anonymous)', url: f.url || armed.scripts.get(f.location.scriptId) || '', line: f.location.lineNumber + 1, column: f.location.columnNumber + 1 }));\n")
+  val () = _bput(out, "      await within(s.send('Debugger.resume'), CMD_MS);\n")
+  val () = _bput(out, "      return { pause: { reason: event.value.reason, frames } };\n")
+  val () = _bput(out, "    }\n")
+  val () = _bput(out, "    return { pause: 'not available: no pause within ' + PAUSE_MS + ' ms (the command ' + (sent.answered ? 'was answered' : 'was not answered') + ')', profile: await profile(s) };\n")
+  val () = _bput(out, "  } catch (e) { return { pause: 'not available: ' + why(e) }; } finally { armed.pausing = false; }\n")
+  val () = _bput(out, "};\n")
+  val () = _bput(out, "const running = () => {\n")
+  val () = _bput(out, "  try {\n")
+  val () = _bput(out, "    const i = require(require.resolve('@playwright/test', { paths: [process.cwd()] })).test.info();\n")
+  val () = _bput(out, "    return { id: i.testId, title: i.titlePath.join(' '), project: (i.project && i.project.name) || 'test', timeout: i.timeout };\n")
+  val () = _bput(out, "  } catch (e) { return null; }\n")
+  val () = _bput(out, "};\n")
+  val () = _bput(out, "const numbers = new Map();\n")
+  val () = _bput(out, "const write = (info, body, reason) => {\n")
+  val () = _bput(out, "  const name = ((info ? info.project + '-' + info.title : 'outside-a-test').replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 100)) || 'test';\n")
+  val () = _bput(out, "  const n = (numbers.get(name) || 0) + 1; numbers.set(name, n);\n")
+  val () = _bput(out, "  const file = path.resolve(DIR, name + '-' + n + '.json');\n")
+  val () = _bput(out, "  try { fs.mkdirSync(DIR, { recursive: true }); fs.writeFileSync(file, JSON.stringify(body, null, 2)); say('hang evidence: ' + file + ' (' + reason + ')'); } catch (e) { say('hang evidence not available: cannot write ' + file + ': ' + why(e)); }\n")
+  val () = _bput(out, "};\n")
+  val () = _bput(out, "const watch = (browser) => {\n")
+  val () = _bput(out, "  const chromium = browser.browserType().name() === 'chromium';\n")
+  val () = _bput(out, "  const pages = new Map(); const started = new Map(); const samples = [];\n")
+  val () = _bput(out, "  let stopped = false;\n")
+  val () = _bput(out, "  browser.on('disconnected', () => { stopped = true; });\n")
+  val () = _bput(out, "  const capture = async (page, entry, kind, reason) => {\n")
+  val () = _bput(out, "    if (entry.kinds.has(kind)) return;\n")
+  val () = _bput(out, "    entry.kinds.add(kind);\n")
+  val () = _bput(out, "    const info = running();\n")
+  val () = _bput(out, "    const armed = (await within(entry.armed, CMD_MS)).value || { session: null, scripts: new Map(), error: 'not available: the page stopped answering before its debugger was enabled' };\n")
+  val () = _bput(out, "    let url = ''; try { url = page.url(); } catch (e) { url = 'not available: ' + why(e); }\n")
+  val () = _bput(out, "    const found = await stacks(armed);\n")
+  val () = _bput(out, "    write(info, { reason, at: new Date().toISOString(), test: info && info.title, project: info && info.project, url, pageAgeMs: Date.now() - entry.seenAt, ...found, history: entry.history.snapshot(), runnerLoad: { now: loadNow(), last: samples.slice() } }, reason);\n")
+  val () = _bput(out, "  };\n")
+  val () = _bput(out, "  const probe = async (page, entry) => {\n")
+  val () = _bput(out, "    while (!stopped && !page.isClosed()) {\n")
+  val () = _bput(out, "      const answer = await within(page.evaluate(() => 1), ANSWER_MS);\n")
+  val () = _bput(out, "      if (stopped || page.isClosed()) return;\n")
+  val () = _bput(out, "      if (!answer.answered) { await capture(page, entry, 'answer', 'page did not answer an evaluate within ' + ANSWER_MS / 1000 + ' s'); return; }\n")
+  val () = _bput(out, "      await pause(PROBE_MS);\n")
+  val () = _bput(out, "    }\n")
+  val () = _bput(out, "  };\n")
+  val () = _bput(out, "  const scan = () => {\n")
+  val () = _bput(out, "    for (const context of browser.contexts()) for (const page of context.pages()) {\n")
+  val () = _bput(out, "      if (pages.has(page)) continue;\n")
+  val () = _bput(out, "      const entry = { seenAt: Date.now(), history: keepHistory(page), kinds: new Set() };\n")
+  val () = _bput(out, "      entry.armed = arm(page, chromium); pages.set(page, entry);\n")
+  val () = _bput(out, "      probe(page, entry).catch((e) => say('hang evidence not available: ' + why(e)));\n")
+  val () = _bput(out, "    }\n")
+  val () = _bput(out, "  };\n")
+  val () = _bput(out, "  const nearTimeout = () => {\n")
+  val () = _bput(out, "    const info = running(); if (!info || !(info.timeout > 0)) return;\n")
+  val () = _bput(out, "    if (!started.has(info.id)) started.set(info.id, Date.now());\n")
+  val () = _bput(out, "    const left = info.timeout - (Date.now() - started.get(info.id));\n")
+  val () = _bput(out, "    if (left > Math.min(MARGIN_MS, info.timeout / 3)) return;\n")
+  val () = _bput(out, "    for (const [page, entry] of pages) if (!page.isClosed()) capture(page, entry, 'timeout', 'test is within ' + Math.max(0, Math.round(left / 1000)) + ' s of its timeout').catch((e) => say('hang evidence not available: ' + why(e)));\n")
+  val () = _bput(out, "  };\n")
+  val () = _bput(out, "  (async () => {\n")
+  val () = _bput(out, "    while (!stopped) {\n")
+  val () = _bput(out, "      try { scan(); samples.push(loadNow()); if (samples.length > 30) samples.shift(); nearTimeout(); } catch (e) { say('hang evidence not available: ' + why(e)); }\n")
+  val () = _bput(out, "      await pause(SCAN_MS);\n")
+  val () = _bput(out, "    }\n")
+  val () = _bput(out, "  })();\n")
+  val () = _bput(out, "};\n")
+  val () = _bput(out, "try {\n")
+  val () = _bput(out, "  const core = require(require.resolve('playwright-core', { paths: [process.cwd()] }));\n")
+  val () = _bput(out, "  const proto = Object.getPrototypeOf(core.chromium);\n")
+  val () = _bput(out, "  if (DIR && !proto.__pwaEvidence) {\n")
+  val () = _bput(out, "    Object.defineProperty(proto, '__pwaEvidence', { value: true });\n")
+  val () = _bput(out, "    const launch = proto.launch;\n")
+  val () = _bput(out, "    proto.launch = async function (...args) {\n")
+  val () = _bput(out, "      const browser = await launch.apply(this, args);\n")
+  val () = _bput(out, "      try { watch(browser); } catch (e) { say('hang evidence not available: ' + why(e)); }\n")
+  val () = _bput(out, "      return browser;\n")
+  val () = _bput(out, "    };\n")
+  val () = _bput(out, "  }\n")
+  val () = _bput(out, "} catch (e) { /* no playwright-core here: nothing to watch */ }\n")
+in () end
+
+(* PWA_TEST_EVIDENCE_DIR=<the --evidence directory>, else pwa-evidence
+   (bats-lang/pwa#230). evidence consumed. *)
+fn _evidence_entry (given: bool, evidence: $B.builder_v): $P.arg_entry =
+  if ~given then let
+    val () = $B.builder_free(evidence)
+  in _arg_s("PWA_TEST_EVIDENCE_DIR=pwa-evidence") end
+  else let
+    var dir : $B.builder_v = $B.create()
+    val () = _bput(dir, "PWA_TEST_EVIDENCE_DIR=")
+    val @(ea, ek) = $B.to_arr(evidence)
+    val @(fz_e, bv_e) = $A.freeze<byte>(ea)
+    val () = _put_range(bv_e, 0, ek, 524288, dir)
+    val () = $A.drop<byte>(fz_e, bv_e)
+    val () = $A.free<byte>($A.thaw<byte>(fz_e))
+  in _arg(dir) end
+
 (* Runs the keeper for one run of Playwright: its end *)
 fn _run (kind: run_kind, workers: int): run_end = let
   val buf = $A.alloc<byte>(4096)
@@ -772,7 +945,9 @@ fn _run (kind: run_kind, workers: int): run_end = let
   val @(fz_b, bv_b) = $A.freeze<byte>(buf)
   val opts = _nat(_options_start(bv_b, k))
   var timings : $B.builder_v = $B.create()
-  val timed = _timings_from(bv_b, opts, k, timings)
+  val timed = _option_from("--timings", bv_b, opts, k, timings)
+  var evidence : $B.builder_v = $B.create()
+  val evidenced = _option_from("--evidence", bv_b, opts, k, evidence)
   val user = _nat(_after_dashes(bv_b, opts, k))
   (* node -e KEEPER dist/pwa <playwright> test <ours...> <the user's...>, reversed *)
   var pw : $B.builder_v = $B.create()
@@ -794,7 +969,10 @@ fn _run (kind: run_kind, workers: int): run_end = let
   var bp : $B.builder_v = $B.create()
   val () = _bput(bp, "PLAYWRIGHT_BROWSERS_PATH=")
   val () = _browsers_dir(bp)
-  val env = $L.list_vt_cons(_arg(bp), _json_entries(timed, kind, timings))
+  var source : $B.builder_v = $B.create()
+  val () = _bput(source, "PWA_TEST_WATCH_SOURCE=")
+  val () = _watch_source(source)
+  val env = $L.list_vt_cons(_arg(bp), $L.list_vt_cons(_evidence_entry(evidenced, evidence), $L.list_vt_cons(_arg(source), _json_entries(timed, kind, timings))))
   val @(nul_x | x) = $P.path_of_string_proved("node")
   val @(fz_x, bv_x) = $A.barr_freeze(x)
   val ended = (case+ $P.spawn_inherit_env_with_proved(nul_x | bv_x, _rev(acc, $L.list_vt_nil()), env,
@@ -891,7 +1069,8 @@ fn _user_chooses (): bool = let
 in chooses end
 
 (* Where gen-pwa's own options (argv[2] on, before "--") hold one that
-   is not --timings <dir>: its start, or ~1 when they are all known *)
+   is not --timings <dir> or --evidence <dir>: its start, or ~1 when they are
+   all known *)
 fun _unknown_option {l:agz}{i:nat} .<max(4096 - i, 0)>.
   (b: !$A.borrow(byte, l, 4096), i: int i, k: int): int =
   if i >= k then ~1
@@ -901,7 +1080,7 @@ fun _unknown_option {l:agz}{i:nat} .<max(4096 - i, 0)>.
     val next = _nat(e + 1)
   in
     if _is(b, i, e, "--", true) then ~1
-    else if _is(b, i, e, "--timings", true) then
+    else if _is(b, i, e, "--timings", true) || _is(b, i, e, "--evidence", true) then
       (* a "--" for the directory is the end of gen-pwa's options, not a directory *)
       (if _is(b, next, _arg_end(b, next, k), "--", true) then ~1 else let
         val after = _nat(_arg_end(b, next, k) + 1)
@@ -909,10 +1088,11 @@ fun _unknown_option {l:agz}{i:nat} .<max(4096 - i, 0)>.
     else i
   end
 
-(* Whether a --timings among gen-pwa's own options (argv[2] on, before
-   "--") has no directory: it is the last argument, empty, or "--" *)
-fun _timings_bare {l:agz}{i:nat} .<max(4096 - i, 0)>.
-  (b: !$A.borrow(byte, l, 4096), i: int i, k: int): bool =
+(* Whether the option named (--timings, --evidence) among gen-pwa's own
+   options (argv[2] on, before "--") has no directory: it is the last
+   argument, empty, or "--" *)
+fun _option_bare {sn:nat}{l:agz}{i:nat} .<max(4096 - i, 0)>.
+  (name: string sn, b: !$A.borrow(byte, l, 4096), i: int i, k: int): bool =
   if i >= k then false
   else if i >= 4096 then false
   else let
@@ -920,17 +1100,17 @@ fun _timings_bare {l:agz}{i:nat} .<max(4096 - i, 0)>.
     val next = g1ofg0(e + 1)
   in
     if _is(b, i, e, "--", true) then false
-    else if _is(b, i, e, "--timings", true) then let
+    else if _is(b, i, e, name, true) then let
         val v = _nat(e + 1)
         val ve = _arg_end(b, v, k)
       in
         if ve <= v || _is(b, v, ve, "--", true) then true
         else let
           val after = g1ofg0(ve + 1)
-        in if after <= i then false else _timings_bare(b, after, k) end
+        in if after <= i then false else _option_bare(name, b, after, k) end
       end
     else if next <= i then false
-    else _timings_bare(b, next, k)
+    else _option_bare(name, b, next, k)
   end
 
 (* Says an option gen-pwa test does not know, or a --timings with no
@@ -939,18 +1119,20 @@ fn _options_refused (): bool = let
   val buf = $A.alloc<byte>(4096)
   val k = _args(buf)
   val @(fz_b, bv_b) = $A.freeze<byte>(buf)
-  val bare = _timings_bare(bv_b, _nat(_options_start(bv_b, k)), k)
-  val () = (if bare then _say_s("gen-pwa test: --timings needs a directory: gen-pwa test [--timings <dir>] [-- <playwright args>]\n") else ())
+  val bare = _option_bare("--timings", bv_b, _nat(_options_start(bv_b, k)), k)
+  val () = (if bare then _say_s("gen-pwa test: --timings needs a directory: gen-pwa test [--timings <dir>] [--evidence <dir>] [-- <playwright args>]\n") else ())
+  val bare_evidence = _option_bare("--evidence", bv_b, _nat(_options_start(bv_b, k)), k)
+  val () = (if bare_evidence then _say_s("gen-pwa test: --evidence needs a directory: gen-pwa test [--timings <dir>] [--evidence <dir>] [-- <playwright args>]\n") else ())
   val bad = _unknown_option(bv_b, _nat(_options_start(bv_b, k)), k)
   val () = (if bad >= 0 then let
       var m : $B.builder_v = $B.create()
       val () = _bput(m, "gen-pwa test: unknown option '")
       val () = _put_range(bv_b, _nat(bad), _arg_end(bv_b, _nat(bad), k), 4096, m)
-      val () = _bput(m, "': gen-pwa test [--timings <dir>] [-- <playwright args>]\n")
+      val () = _bput(m, "': gen-pwa test [--timings <dir>] [--evidence <dir>] [-- <playwright args>]\n")
     in _say(m) end else ())
   val () = $A.drop<byte>(fz_b, bv_b)
   val () = $A.free<byte>($A.thaw<byte>(fz_b))
-in bare || bad >= 0 end
+in bare || bare_evidence || bad >= 0 end
 
 (* Says why a refused run is refused; a held slot says nothing *)
 fn _lock_said (s: !slot): void =

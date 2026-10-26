@@ -37,7 +37,7 @@ implement main0 () =
   else generate ()
 ```
 
-`gen-pwa test [--timings <dir>] [-- <playwright args>]`:
+`gen-pwa test [--timings <dir>] [--evidence <dir>] [-- <playwright args>]`:
 
 - serves `dist/pwa` on 127.0.0.1 at a port it chooses and gives
   Playwright its address in `PWA_TEST_BASE_URL` (a config reads its
@@ -55,6 +55,14 @@ implement main0 () =
   then. The floor is the same for every app; an app that needs a newer
   Playwright says so in its `package.json`, as npm enforces it. A
   version it cannot read is refused too;
+- watches every page of the tests for a hang (bats-lang/pwa#132, #230),
+  with nothing in a spec or a config: a page that does not answer in 5 s,
+  or a test within 15 s of its timeout, leaves `<dir>/<project>-<test>-<n>.json`
+  (default `pwa-evidence`; the V8 pause frames or a CPU profile, the page's
+  recent console, errors and requests, the runner's load) and a line
+  `gen-pwa test: hang evidence: <file> (<reason>)`. Upload the directory
+  as you upload `--timings`'. What it could not take reads `not available: <why>`;
+  it never fails a test;
 - runs the tests tagged `@serial` (`test('...', { tag: '@serial' }, ...)`)
   alone on one worker, then the others on half the cores divided by the
   slots; a `--grep` or `--workers` of yours makes it one run, as given;
