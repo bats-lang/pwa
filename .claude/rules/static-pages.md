@@ -25,11 +25,27 @@ only for `PagesCopied`); the outcome type has a constructor for each, no data, m
 * `PagesDestinationExists`: `mkdir dist/pwa/NAME` answered EEXIST (the system's own answer, so
   there is no check-then-make gap), nothing was touched.
 * `PagesReadFailed`, `PagesWriteFailed`: a directory, file, open, copy or close that failed.
-* `PagesPathTooLong`: a path of 524288 bytes or more.
 * `PagesTooDeep`: more than 64 levels (`PAGES_DEPTH`), so a symbolic link that loops ends. The
   recursion's termination is the metric of the depth, a type, not a runtime guard.
 
-A symbolic link is followed (a link to a directory is copied as a directory). The file package
-has no lstat; the avenue for non-bats code in the test is `tests/static-pages/check.sh`
-(driving the built binary and comparing trees with `diff -r`, a third-party tool used as it is,
-as `tests/test-command/check.sh` does).
+A symbolic link is followed (a link to a directory is copied as a directory).
+
+Types, not checks: the arguments are read from a 4096-byte buffer by indices proved `<= k <= 4096`
+(`_arg_end`, `_after`, `_name_ok`; no `g1ofg0`, no clamp), every path is a `builder(n)` whose put
+is typed `n < 524288`, and the copy carries `sk + 1024 * d + 1024 < 524288` (and the same for the
+destination) with the depth `d` left, so a path of a copy (at most 4096 bytes of argument plus 64
+levels of names under 1024 bytes) always fits and the zero after it exists. No byte is dropped
+and no length is tested at run time.
+
+Tests: `tests/static-pages` is a bats project (`bats test`, run by check.yml after the example is
+built; `src/lib.bats`). It runs the built binary in a case directory `build/pages-tests/NAME` with
+`env -C`, reads its exit status and its whole standard error, and checks the words (the path and
+the system's reason) of every outcome: a copy, a destination that exists, a missing source and a
+file as source, each bad name, the three usage errors, a read-only `dist/pwa` and a missing one, a
+dangling link, a looping link, an unreadable file and a tree of 66 levels. The modes are read with
+the file package. The trees are compared by `diff -r`, a third-party tool used as it is (the file
+package has no lstat and no symbolic link, nor a tree comparison; `mkdir -p`, `rm -rf` and `ln -s`
+make the cases for the same reason), with a control that makes `diff -r` fail on a changed file, a
+missing file and a missing directory. The two cases that need an unprivileged user (a read-only
+dist/pwa, a file with mode 0) pass without their words as root, who can write and read; CI runs as
+the runner user.
