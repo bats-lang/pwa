@@ -22,6 +22,10 @@ day, so a commit that built once could build differently later.
   `pnpm-lock.yaml` and puts it next to `build-android.sh`, as the example
   does (`example/pnpm-lock.yaml`, copied by check.yml). pwa generates no
   lock and adds no input to `create_android_locked`.
+* **The refusal comes first (pwa#164).** The check for `pnpm-lock.yaml` is
+  before `. ./fetch-pnpm.sh`: it needs nothing from pnpm, so an app without a
+  lock is told so before pnpm is downloaded and checksummed. The locked form
+  is the only user of `_android_script_head` and `_android_script_pnpm`.
 * **The install is frozen.** The script stops with a message when there is
   no `pnpm-lock.yaml`, then runs `pnpm install --frozen-lockfile`: it
   fails when the lock does not match `package.json` (pnpm's
@@ -48,7 +52,8 @@ day, so a commit that built once could build differently later.
   `install --frozen-lockfile` once; with the real pnpm, a lock it made
   passes and a `package.json` that gained a dependency fails with the lock
   byte for byte as it was. It replaces `fetch-pnpm.sh` (sourced by
-  `build-android.sh`, pwa#158) with a stand-in that only names the pnpm,
+  `build-android.sh`, pwa#158) with a stand-in that records that it ran and
+  names the pnpm (the no-lock case fails if it ran),
   whose download `tests/android/pnpm.sh` tests. Every blocking call of the test has a hang guard
   (`timeout`, stdin closed), and the step has `timeout-minutes`: a run once sat
   3 h 53 min because the stand-in corepack ran `exec corepack ...` by name
