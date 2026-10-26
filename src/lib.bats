@@ -194,7 +194,8 @@ staload TR = "./test_run.sats"
    (relative to project_dir): capacitor.config.json, package.json,
    android-release.gradle, MainActivity.java, intent-filters.xml,
    backup-rules.xml and data-extraction-rules.xml (Auto Backup keeps
-   bridge's backed-up files only), build-android.sh and smoke-test.sh. Running build-android.sh (Node,
+   bridge's backed-up files only), .nvmrc and .java-version (the Node and
+   Java versions the build reads), build-android.sh and smoke-test.sh. Running build-android.sh (Node,
    a JDK and the Android SDK needed) builds the Android app, which opens
    and is shared files of type mime. No secret is written: signing
    reads the keystore and its passwords when the build runs. *)
@@ -1490,6 +1491,13 @@ fn _android_project_files {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 2
   var pnpm_b = $B.create()
   val () = build_pnpm_script(pnpm_b)
   val () = _write_to(project_dir, "fetch-pnpm.sh", pnpm_b)
+  (* the versions android.yml reads with setup-node and setup-java (version files, keyword: version-file, .claude/rules/android-lock.md) *)
+  var nvm_b = $B.create()
+  val () = $B.bput(nvm_b, "22.23.3\n")
+  val () = _write_to(project_dir, ".nvmrc", nvm_b)
+  var jv_b = $B.create()
+  val () = $B.bput(jv_b, "21.0.12+8.0.LTS\n")
+  val () = _write_to(project_dir, ".java-version", jv_b)
   var st_b = $B.create()
   val () = build_smoke_test_script_probes(st_b, app_id)
 in _write_mode(project_dir, "smoke-test.sh", st_b, 493) end
