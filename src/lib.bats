@@ -190,7 +190,7 @@ staload TR = "./test_run.sats"
    after the font scale, when files next to the script name them, a long press (adb input swipe)
    at the point smoke-select-point.js answers and a tap at each centre smoke-tap-points.js
    answers, failing unless smoke-tap-result.js answers true. An app with no such file gets the
-   script it had. Its bound is 18560. The form create_android writes. *)
+   script it had. Its bound is longer than the form it follows. The form create_android writes. *)
 #pub fn build_smoke_test_script_probes {ni:nat | ni < 256}{n:nat | n + 18560 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 18560] $B.builder(m), app_id: string ni): void
 
