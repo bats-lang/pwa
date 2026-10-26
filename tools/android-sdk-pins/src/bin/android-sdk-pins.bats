@@ -6,19 +6,20 @@
 
    android-sdk-pins install <sdk-root>
    android-sdk-pins key
-   android-sdk-pins decide <marker>
+   android-sdk-pins decide MARKER
 
    decide is the smoke test's whole decision whether the emulator step runs again
    (android.yml, bats-lang/pwa#214; area keyword android-smoke). It is called after
-   attempt ANDROID_SMOKE_ATTEMPT (default 1) of ANDROID_SMOKE_ATTEMPTS (default 2)
-   with ANDROID_SMOKE_OUTCOME (the step's outcome: success or failure) and the marker
-   file <marker>, which the action's pre-emulator-launch-script makes once the action's
-   install group has passed. It prints "again=true" or "again=false" on stdout (the
-   workflow appends it to GITHUB_OUTPUT, and attempt 2 runs only when the output is
-   true) and says why on stderr. Exit 0 for an attempt that passed (again=false) and
-   for a retry (again=true, "running attempt N of M"); exit 1 for a failure that is
-   not run again (the emulator had started: the test's verdict; or no attempt is
-   left), which fails the job; exit 1 for an outcome that is neither word.
+   an attempt of the emulator step (the attempt and the attempts there are, from
+   ANDROID_SMOKE_ATTEMPT and ANDROID_SMOKE_ATTEMPTS) with ANDROID_SMOKE_OUTCOME, the
+   step's outcome (success or failure), and the file MARKER, which the action's
+   pre-emulator-launch-script makes once the action's install group has passed. It
+   prints again=true or again=false on stdout (the workflow appends it to GITHUB_OUTPUT,
+   and the second attempt runs only when the output is true) and says why on stderr.
+   It exits 0 for an attempt that passed (again=false) and for a retry (again=true);
+   it exits 1 for a failure that is not run again (the emulator had started, which is
+   the test's verdict, or no attempt is left), which fails the job, and for an outcome
+   that is neither word.
 
    install runs in the directory that holds pins.txt and the packages' package.xml
    files. A line of pins.txt is five words separated by single spaces:
@@ -1612,7 +1613,7 @@ implement main0 () = let
       (if feed_stop > feed_start && extra_start >= arguments_size
        then _decide(arguments_borrow, feed_start, feed_stop)
        else let
-         val () = _say_text("usage: android-sdk-pins decide <marker>\n")
+         val () = _say_text("usage: android-sdk-pins decide MARKER\n")
        in 2 end)
     else if is_repin then
       (if feed_stop > feed_start && extra_start >= arguments_size

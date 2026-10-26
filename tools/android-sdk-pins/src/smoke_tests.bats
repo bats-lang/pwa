@@ -3,16 +3,31 @@
    tools/android-sdk-pins after `bats build`, as tools/pin-audit's tests are (they run
    its built binary against stand-ins in a directory of each case under build/).
 
-   What decides is the built android-sdk-pins `decide` (the decision, tested on every
-   input below) and android.yml's wiring, checked as exact text: attempt 1 with
-   continue-on-error and the anchors of its env and with, the pre-emulator-launch-script's
-   marker, the step "Whether the emulator step runs again" with the outcome of attempt 1
-   in its env, and attempt 2 with the one condition `steps.decide.outputs.again == 'true'`
-   and the aliases, in this order. A case then plays the steps in that order with a
-   stand-in sdkmanager (it serves a cut-short manifest on its first call, then the whole
-   one) and a stand-in action (the install, the marker, the test): the stand-ins and the
-   tool are built binaries, copied to the case's directory and run there with `env -C`.
-   A change of android.yml's wiring or condition fails the check, so no case runs. *)
+   Three kinds of case.
+
+   The decision: the built android-sdk-pins `decide`, on every input.
+
+   The wiring of android.yml: the block of lines from attempt 1's name line through the
+   line before the upload step's name line is compared with tests/wiring.txt as one exact
+   text. Each of the two bounding lines occurs exactly once, the first before the second.
+   On the two lines that name the emulator action everything up to and including the at
+   sign is compared byte for byte, and the two texts after the at sign (the pin and its
+   comment) must be equal on the two lines; the form of a pin is the claim of bats
+   check-pins and is not restated here. The claim is exactly this: each line of the block
+   is read, so deleting it, changing it, inserting a line after it and swapping it with a
+   differing neighbour are each refused; the block is not cut when a bounding line is
+   absent, repeated or out of order; the two texts after the at sign must be equal. The
+   cases are generated from the lines of the real android.yml and played on every run:
+   for each line of the block one edit of each kind (deleted, last compared byte changed,
+   a line of continue-on-error added after it, swapped with the next line), five cut cases,
+   two mask cases, and three controls that are accepted. A case that is accepted fails the
+   run and names its class and the index of its line; no case prints a line of the block.
+
+   The flow: the steps played in android.yml's order with a stand-in sdkmanager (a
+   cut-short manifest on its first call, then the whole one) and a stand-in action (the
+   install, the marker, the test). The flow fails, and is not skipped, when the wiring
+   check refuses the real android.yml. The stand-ins and the tool are built binaries,
+   copied to the case's directory and run there with `env -C`. *)
 
 #include "share/atspre_staload.hats"
 
@@ -92,79 +107,370 @@ fn _decide {n:nat | n < 100}{o,l:nat | o < 100; l < 100}
 in run_says("env", argv, extra, line) end
 
 (* ============================================================
-   android.yml's wiring, as exact text in this order
+   The wiring of android.yml: one comparison of a block with tests/wiring.txt
    ============================================================ *)
 
-fn _next {l:agz}{size:nat | size <= 131072}{from:int | from <= size}{literal_size:nat}
-  (view: !$A.borrow(byte, l, 131072), size: int size, from: int from, literal: string literal_size)
-  : [place:int | ~1 <= place; place <= size] int place =
-  if from < 0 then ~1 else find_from(view, size, from, literal)
+(* the byte at i, ~1 outside the buffer *)
+fn _at {l:agz}{i:int} (view: !$A.borrow(byte, l, 131072), i: int i): int =
+  if i >= 0 then (if i < 131072 then byte2int0($A.read<byte>(view, i)) else ~1) else ~1
 
-(* Whether the file at the path (consumed) holds the wiring, in order: attempt 1 (continue-on-error, anchors),
-   the marker, the decision step, attempt 2 with its one condition and the aliases, the log step's outcome *)
-fn _wired (path: $B.builder_v): bool = let
-  val buffer = $A.alloc<byte>(131072)
-  val count = read_into(path, buffer)
-  val @(frozen, view) = $A.freeze<byte>(buffer)
-  val ok = (if count < 0 then false else let
-      val attempt_1 = _next(view, count, 0, "      - name: Run the app on an emulator (attempt 1 of 2)\n        id: emulator1\n        continue-on-error: true\n        uses: reactivecircus/android-emulator-runner@")
-      val env_anchor = _next(view, count, attempt_1, "        env: &emulator-env\n")
-      val with_anchor = _next(view, count, env_anchor, "        with: &emulator-with\n")
-      val marker = _next(view, count, with_anchor, "          pre-emulator-launch-script: |\n            touch \"$RUNNER_TEMP/emulator-installed\"\n")
-      val decision = _next(view, count, marker, "      - name: Whether the emulator step runs again\n        id: decide\n        env:\n          ANDROID_SMOKE_OUTCOME: ${{ steps.emulator1.outcome }}\n          ANDROID_SMOKE_ATTEMPT: '1'\n          ANDROID_SMOKE_ATTEMPTS: '2'\n        run: |\n          \"$GITHUB_WORKSPACE/sdk-pins-bin/android-sdk-pins\" decide \"$RUNNER_TEMP/emulator-installed\" >> \"$GITHUB_OUTPUT\"\n")
-      val attempt_2 = _next(view, count, decision, "      - name: Run the app on an emulator (attempt 2 of 2)\n        id: emulator2\n        if: ${{ steps.decide.outputs.again == 'true' }}\n        uses: reactivecircus/android-emulator-runner@")
-      val aliases = _next(view, count, attempt_2, "        env: *emulator-env\n        with: *emulator-with\n")
-      val outcome = _next(view, count, aliases, "OUTCOME: ${{ steps.emulator2.outcome != 'skipped' && steps.emulator2.outcome || steps.emulator1.outcome }}")
-    in attempt_1 >= 0 && env_anchor >= 0 && with_anchor >= 0 && marker >= 0 && decision >= 0
-       && attempt_2 >= 0 && aliases >= 0 && outcome >= 0 end): bool
-  val () = $A.drop<byte>(frozen, view)
-  val () = $A.free<byte>($A.thaw<byte>(frozen))
+(* the place after the line that starts at i (after its newline, else the end) *)
+fun _eol {l:agz}{count:nat | count <= 131072}{i:nat | i <= count} .<count - i>.
+  (view: !$A.borrow(byte, l, 131072), count: int count, i: int i): [r:int | i <= r; r <= count] int r =
+  if i >= count then i
+  else if byte2int0($A.read<byte>(view, i)) = 10 then i + 1
+  else _eol(view, count, i + 1)
+
+(* whether the len bytes of a at ai are those of b at bi *)
+fun _same_loop {al,bl:agz}{ai,bi:nat}{len:nat | ai + len <= 131072; bi + len <= 131072}{j:nat | j <= len} .<len - j>.
+  (av: !$A.borrow(byte, al, 131072), bv: !$A.borrow(byte, bl, 131072), ai: int ai, bi: int bi, len: int len, j: int j): bool =
+  if j >= len then true
+  else if byte2int0($A.read<byte>(av, ai + j)) <> byte2int0($A.read<byte>(bv, bi + j)) then false
+  else _same_loop(av, bv, ai, bi, len, j + 1)
+
+fn _same {al,bl:agz}{ac,bc:nat | ac <= 131072; bc <= 131072}{ai,bi,len:int}
+  (av: !$A.borrow(byte, al, 131072), ac: int ac, ai: int ai, bv: !$A.borrow(byte, bl, 131072), bc: int bc, bi: int bi, len: int len): bool =
+  if ai < 0 then false
+  else if bi < 0 then false
+  else if len < 0 then false
+  else if ai + len > ac then false
+  else if bi + len > bc then false
+  else _same_loop(av, bv, ai, bi, len, 0)
+
+(* whether the len bytes at ai are those at bi, in one buffer (false when a range leaves the buffer) *)
+fun _same_in_loop {l:agz}{ai,bi:nat}{len:nat | ai + len <= 131072; bi + len <= 131072}{j:nat | j <= len} .<len - j>.
+  (v: !$A.borrow(byte, l, 131072), ai: int ai, bi: int bi, len: int len, j: int j): bool =
+  if j >= len then true
+  else if byte2int0($A.read<byte>(v, ai + j)) <> byte2int0($A.read<byte>(v, bi + j)) then false
+  else _same_in_loop(v, ai, bi, len, j + 1)
+
+fn _same_in {l:agz}{c:nat | c <= 131072}{ai,bi,len:int}
+  (v: !$A.borrow(byte, l, 131072), c: int c, ai: int ai, bi: int bi, len: int len): bool =
+  if ai < 0 then false
+  else if bi < 0 then false
+  else if len < 0 then false
+  else if ai + len > c then false
+  else if bi + len > c then false
+  else _same_in_loop(v, ai, bi, len, 0)
+
+(* the place of the literal when it occurs exactly once, else ~1 *)
+fn _once {l:agz}{count:nat | count <= 131072}{literal_size:nat}
+  (view: !$A.borrow(byte, l, 131072), count: int count, literal: string literal_size): [p:int | ~1 <= p; p <= count] int p = let
+  val first = find_from(view, count, 0, literal)
+in
+  if first < 0 then ~1
+  else if first + 1 > count then first
+  else if find_from(view, count, first + 1, literal) < 0 then first
+  else ~1
+end
+
+(* the block's start and its end (the start of the upload step's name line), ~1 and ~1
+   when a bounding line is absent, repeated or out of order *)
+fn _cut {l:agz}{count:nat | count <= 131072}
+  (view: !$A.borrow(byte, l, 131072), count: int count): [s,e:int | ~1 <= s; s <= e; e <= count] @(int s, int e) = let
+  val s = _once(view, count, "      - name: Run the app on an emulator (attempt 1 of 2)\n")
+  val e = _once(view, count, "      - name: Upload screenshot, UI dump and logcat\n")
+in
+  if s < 0 then @(~1, ~1) else if e < 0 then @(~1, ~1) else if s >= e then @(~1, ~1) else @(s, e)
+end
+
+(* the lines of the block against the lines of the golden text, in lockstep: a golden line
+   that ends in @PIN stands for a line that has the same bytes up to and including the at sign
+   and any text after it, the two such texts equal; the other lines are equal byte for byte *)
+fun _walk {yl,gl:agz}{yc,gc:nat | yc <= 131072; gc <= 131072}{ye:nat | ye <= yc}{yp:nat | yp <= yc}{gp:nat | gp <= gc}{fuel:nat | fuel <= 131072}{masks:int}{ms,ml:int} .<fuel>.
+  (yv: !$A.borrow(byte, yl, 131072), yc: int yc, ye: int ye, gv: !$A.borrow(byte, gl, 131072), gc: int gc,
+   yp: int yp, gp: int gp, fuel: int fuel, masks: int masks, m_start: int ms, m_len: int ml): bool =
+  if yp >= ye then (if gp >= gc then masks = 2 else false)
+  else if gp >= gc then false
+  else if fuel <= 0 then false
+  else let
+    val y_end = _eol(yv, yc, yp)
+    val g_end = _eol(gv, gc, gp)
+  in
+    if y_end > ye then false
+    else if g_end - gp >= 5 && matches_at(gv, gc, g_end - 5, "@PIN\n") then let
+      val lead = g_end - 4 - gp
+      val m = yp + lead
+    in
+      if y_end - yp < lead + 1 then false
+      else if ~_same(yv, yc, yp, gv, gc, gp, lead) then false
+      else if masks = 0 then _walk(yv, yc, ye, gv, gc, y_end, g_end, fuel - 1, 1, m, y_end - 1 - m)
+      else if masks = 1 then
+        (if y_end - 1 - m = m_len && m_len >= 0 && _same_in(yv, yc, m_start, m, m_len)
+         then _walk(yv, yc, ye, gv, gc, y_end, g_end, fuel - 1, 2, m_start, m_len) else false)
+      else false
+    end
+    else if y_end - yp = g_end - gp && _same(yv, yc, yp, gv, gc, gp, y_end - yp)
+    then _walk(yv, yc, ye, gv, gc, y_end, g_end, fuel - 1, masks, m_start, m_len)
+    else false
+  end
+
+(* whether android.yml (the bytes yv) holds the block that the golden text (gv) is *)
+fn _wired {yl,gl:agz}{yc,gc:nat | yc <= 131072; gc <= 131072}
+  (yv: !$A.borrow(byte, yl, 131072), yc: int yc, gv: !$A.borrow(byte, gl, 131072), gc: int gc): bool = let
+  val @(s, e) = _cut(yv, yc)
+in
+  if s < 0 then false else _walk(yv, yc, e, gv, gc, s, 0, 131072, 0, 0, 0)
+end
+
+(* The two files, read: the real android.yml and tests/wiring.txt; their sizes (~1 when one cannot be read) *)
+fn _load {yl,gl:agz} (yml: !$A.arr(byte, yl, 131072), gold: !$A.arr(byte, gl, 131072))
+  : @([y:int | ~1 <= y; y <= 131072] int y, [g:int | ~1 <= g; g <= 131072] int g) = let
+  val y = read_into(text_of("../../.github/workflows/android.yml"), yml)
+  val g = read_into(text_of("tests/wiring.txt"), gold)
+in @(y, g) end
+
+(* whether the real android.yml holds the block of tests/wiring.txt *)
+fn _real_wired (): bool = let
+  val yml = $A.alloc<byte>(131072)
+  val gold = $A.alloc<byte>(131072)
+  val @(yc, gc) = _load(yml, gold)
+  val @(yf, yv) = $A.freeze<byte>(yml)
+  val @(gf, gv) = $A.freeze<byte>(gold)
+  val ok = (if yc < 0 then false else if gc < 0 then false else _wired(yv, yc, gv, gc)): bool
+  val () = $A.drop<byte>(yf, yv)
+  val () = $A.free<byte>($A.thaw<byte>(yf))
+  val () = $A.drop<byte>(gf, gv)
+  val () = $A.free<byte>($A.thaw<byte>(gf))
 in ok end
 
-(* bytes[start, stop) of view appended to out *)
-fun _copy_range {l:agz}{size:nat | size <= 131072}{start:nat}{stop:int | start <= stop; stop <= size} .<stop - start>.
-  (view: !$A.borrow(byte, l, 131072), start: int start, stop: int stop, size: int size,
-   out: !$B.builder_v >> $B.builder_v): void =
-  if start >= stop then ()
-  else if $B.length(out) >= 524288 then ()
-  else let
-    val () = $B.put_char(out, $AR.low_byte(byte2int0($A.read<byte>(view, start))))
-  in _copy_range(view, start + 1, stop, size, out) end
+(* ============================================================
+   The generated cases
+   ============================================================ *)
 
-(* The file at yml with attempt 2's condition changed (`'true'` to `'maybe'`), written to the
-   case's android.yml: whether it was made *)
-fn _injected {n:nat | n < 100} (name: string n, yml: $B.builder_v): bool = let
-  val buffer = $A.alloc<byte>(131072)
-  val count = read_into(yml, buffer)
-  val @(frozen, view) = $A.freeze<byte>(buffer)
-  val condition = "        if: ${{ steps.decide.outputs.again == "
-  val made = (if count < 0 then false else let
-      val at = find_from(view, count, 0, condition)
+(* src[from, to) appended to out at pos: the new pos (nothing is written past the buffer) *)
+fun _copy_loop {l,k:agz}{start:nat}{stop:int | start <= stop; stop <= 131072}{pos:nat | pos <= 131072} .<stop - start>.
+  (src: !$A.borrow(byte, l, 131072), out: !$A.arr(byte, k, 131072), start: int start, stop: int stop, pos: int pos)
+  : [r:nat | r <= 131072] int r =
+  if start >= stop then pos
+  else if pos >= 131072 then pos
+  else let
+    val () = $A.set<byte>(out, pos, $A.read<byte>(src, start))
+  in _copy_loop(src, out, start + 1, stop, pos + 1) end
+
+(* src[start, stop) appended to out at pos: the new pos (nothing is written past the buffer; a range that
+   leaves the buffer writes nothing) *)
+fn _copy {l,k:agz}{start,stop:int}{pos:nat | pos <= 131072}
+  (src: !$A.borrow(byte, l, 131072), out: !$A.arr(byte, k, 131072), start: int start, stop: int stop, pos: int pos)
+  : [r:nat | r <= 131072] int r =
+  if start < 0 then pos
+  else if stop > 131072 then pos
+  else if start > stop then pos
+  else _copy_loop(src, out, start, stop, pos)
+
+fn _put_byte {k:agz}{pos:nat | pos <= 131072} (out: !$A.arr(byte, k, 131072), pos: int pos, value: int): [r:nat | r <= 131072] int r =
+  if pos >= 131072 then pos
+  else let
+    val () = $A.set<byte>(out, pos, int2byte0(value))
+  in pos + 1 end
+
+fun _put_spaces {k:agz}{pos:nat | pos <= 131072}{n:nat} .<n>.
+  (out: !$A.arr(byte, k, 131072), pos: int pos, n: int n): [r:nat | r <= 131072] int r =
+  if n <= 0 then pos else _put_spaces(out, _put_byte(out, pos, 32), n - 1)
+
+fn _put_text {k:agz}{pos:nat | pos <= 131072}{n:nat} (out: !$A.arr(byte, k, 131072), pos: int pos, text: string n): [r:nat | r <= 131072] int r = let
+  fun loop {k:agz}{n:nat}{i:nat | i <= n}{pos:nat | pos <= 131072} .<n - i>.
+    (out: !$A.arr(byte, k, 131072), text: string n, size: int n, i: int i, pos: int pos): [r:nat | r <= 131072] int r =
+    if i >= size then pos
+    else loop(out, text, size, i + 1, _put_byte(out, pos, char2int0(string_get_at(text, i))))
+in loop(out, text, g1u2i(string1_length(text)), 0, pos) end
+
+(* the place after the leading spaces of the line that starts at a *)
+fun _indent_end {l:agz}{count:nat | count <= 131072}{a:nat | a <= count} .<count - a>.
+  (view: !$A.borrow(byte, l, 131072), count: int count, a: int a): [r:int | a <= r; r <= count] int r =
+  if a >= count then a
+  else if byte2int0($A.read<byte>(view, a)) = 32 then _indent_end(view, count, a + 1)
+  else a
+
+(* a byte other than the one at p, as a byte value that is not a newline *)
+fn _other {l:agz}{p:int} (view: !$A.borrow(byte, l, 131072), p: int p): int =
+  if _at(view, p) = 120 then 121 else 120
+
+(* the place of the first at sign in [a, b), ~1 if none *)
+fun _at_sign {l:agz}{count:nat | count <= 131072}{a:nat | a <= count}{b:int | a <= b; b <= count} .<b - a>.
+  (view: !$A.borrow(byte, l, 131072), count: int count, a: int a, b: int b): [r:int | ~1 <= r; r <= count] int r =
+  if a >= b then ~1
+  else if byte2int0($A.read<byte>(view, a)) = 64 then a
+  else _at_sign(view, count, a + 1, b)
+
+(* the kinds of edit: D deleted, C last compared byte changed, I a line added after, S swapped with the next *)
+(* the file with the edit of the line [a, b) of kind (c is the end of the next line), written to out: its size *)
+fn _edit {l,k:agz}{count:nat | count <= 131072}{a:nat | a <= count}{b:int | a <= b; b <= count}{c:int}
+  (view: !$A.borrow(byte, l, 131072), count: int count, out: !$A.arr(byte, k, 131072), kind: int, a: int a, b: int b, c: int c)
+  : [r:nat | r <= 131072] int r =
+  if kind = 0 then _copy(view, out, b, count, _copy(view, out, 0, a, 0))
+  else if kind = 1 then let
+    val sign = (if b - a > 22 then _at_sign(view, count, a, b) else ~1): [r:int | ~1 <= r; r <= count] int r
+    val uses = (sign >= 0 && matches_at(view, count, _indent_end(view, count, a), "uses: reactivecircus/android-emulator-runner@")): bool
+  in
+    if uses then let
+      val p = sign - 1
     in
-      if at < 0 then false
+      if p >= 0 then _copy(view, out, p + 1, count, _put_byte(out, _copy(view, out, 0, p, 0), _other(view, p)))
+      else 0
+    end
+    else if b - a <= 1 then _copy(view, out, a, count, _put_byte(out, _copy(view, out, 0, a, 0), 120))
+    else let
+      val p = b - 2
+    in _copy(view, out, p + 1, count, _put_byte(out, _copy(view, out, 0, p, 0), _other(view, p))) end
+  end
+  else if kind = 2 then let
+    val head = _copy(view, out, 0, b, 0)
+    val spaced = _put_spaces(out, head, _indent_end(view, count, a) - a)
+  in _copy(view, out, b, count, _put_text(out, spaced, "continue-on-error: true\n")) end
+  else _copy(view, out, c, count, _copy(view, out, a, b, _copy(view, out, b, c, _copy(view, out, 0, a, 0))))
+
+(* one class over the block [s, e) of the file: the edit of every line (kind), each of which must be refused;
+   the number of mutants played, or a negative number when one is accepted (~1 minus its line index) *)
+fun _class_loop {yl,gl:agz}{yc,gc:nat | yc <= 131072; gc <= 131072}{e:int | e <= yc}{a:nat | a <= yc}{fuel:nat | fuel <= 131072} .<fuel>.
+  (yv: !$A.borrow(byte, yl, 131072), yc: int yc, gv: !$A.borrow(byte, gl, 131072), gc: int gc, kind: int,
+   e: int e, a: int a, index: int, played: int, fuel: int fuel): int =
+  if a >= e then played
+  else if fuel <= 0 then played
+  else let
+    val b = _eol(yv, yc, a)
+    val c = _eol(yv, yc, b)
+    val differ = (if kind = 3 then (if b - a <> c - b then true else ~_same_in(yv, yc, a, b, b - a)) else true): bool
+  in
+    if b > e then played
+    else if ~differ then _class_loop(yv, yc, gv, gc, kind, e, b, index + 1, played, fuel - 1)
+    else if kind = 3 && c > e then played
+    else let
+      val out = $A.alloc<byte>(131072)
+      val size = _edit(yv, yc, out, kind, a, b, c)
+      val @(oz, ov) = $A.freeze<byte>(out)
+      val accepted = _wired(ov, size, gv, gc)
+      val () = $A.drop<byte>(oz, ov)
+      val () = $A.free<byte>($A.thaw<byte>(oz))
+    in
+      if accepted then ~1 - index
+      else _class_loop(yv, yc, gv, gc, kind, e, b, index + 1, played + 1, fuel - 1)
+    end
+  end
+
+(* as _eol, for a place that may be outside the buffer (then the end) *)
+fn _eol_safe {l:agz}{count:nat | count <= 131072}{i:int} (view: !$A.borrow(byte, l, 131072), count: int count, i: int i): [r:int | r <= count] int r =
+  if i < 0 then count else if i > count then count else _eol(view, count, i)
+
+(* the number of lines of [a, e) *)
+fun _lines {l:agz}{count:nat | count <= 131072}{a:nat | a <= count}{e:int | e <= count}{fuel:nat | fuel <= 131072} .<fuel>.
+  (view: !$A.borrow(byte, l, 131072), count: int count, a: int a, e: int e, fuel: int fuel, n: int): int =
+  if a >= e then n
+  else if fuel <= 0 then n
+  else _lines(view, count, _eol(view, count, a), e, fuel - 1, n + 1)
+
+(* every edit of one kind over the block of the real android.yml is refused; says so *)
+fn _class {n:nat} (label: string n, kind: int): bool = let
+  val yml = $A.alloc<byte>(131072)
+  val gold = $A.alloc<byte>(131072)
+  val @(yc, gc) = _load(yml, gold)
+  val @(yf, yv) = $A.freeze<byte>(yml)
+  val @(gf, gv) = $A.freeze<byte>(gold)
+  val ok = (if yc < 0 then false else if gc < 0 then false else let
+      val @(s, e) = _cut(yv, yc)
+    in
+      if s < 0 then false
       else let
-        val after = at + 46 + 6
-        var out : $B.builder_v = $B.create()
-        val () = (if after <= count then let
-            val () = _copy_range(view, 0, at + 46, count, out)
-            val () = (if $B.length(out) < 524000 then $B.bput(out, "'maybe'") else ())
-          in _copy_range(view, after, count, count, out) end
-          else ())
-      in write_text(_case_path(name, "android.yml"), out) end
+        val played = _class_loop(yv, yc, gv, gc, kind, e, s, 0, 0, 131072)
+        val lines = _lines(yv, yc, s, e, 131072, 0)
+        val () = (if played >= 0 then println! ("class ", label, ": ", played, " mutants over ", lines, " lines of the block, each refused")
+          else println! ("class ", label, ": the edit of the line with index ", ~1 - played, " was accepted"))
+      in played > 0 end
     end): bool
-  val () = $A.drop<byte>(frozen, view)
-  val () = $A.free<byte>($A.thaw<byte>(frozen))
-in made end
+  val () = $A.drop<byte>(yf, yv)
+  val () = $A.free<byte>($A.thaw<byte>(yf))
+  val () = $A.drop<byte>(gf, gv)
+  val () = $A.free<byte>($A.thaw<byte>(gf))
+in ok end
+
+(* whether the file written to out (size bytes) is refused *)
+fn _refused {k,gl:agz}{gc:nat | gc <= 131072}{sz:int} (out: $A.arr(byte, k, 131072), size: int sz, gv: !$A.borrow(byte, gl, 131072), gc: int gc): bool = let
+  val @(oz, ov) = $A.freeze<byte>(out)
+  val clipped = (if size < 0 then 0 else if size > 131072 then 131072 else size): [z:nat | z <= 131072] int z
+  val accepted = _wired(ov, clipped, gv, gc)
+  val () = $A.drop<byte>(oz, ov)
+  val () = $A.free<byte>($A.thaw<byte>(oz))
+in ~accepted end
+
+(* the five cut cases, the two mask cases and the three controls, on the real android.yml *)
+fn _cut_mask_controls (): bool = let
+  val yml = $A.alloc<byte>(131072)
+  val gold = $A.alloc<byte>(131072)
+  val @(yc, gc) = _load(yml, gold)
+  val @(yf, yv) = $A.freeze<byte>(yml)
+  val @(gf, gv) = $A.freeze<byte>(gold)
+  val ok = (if yc < 0 then false else if gc < 0 then false else let
+      val @(s, e) = _cut(yv, yc)
+    in
+      if s < 0 then false
+      else let
+        val s2 = _eol(yv, yc, s)
+        val e2 = _eol(yv, yc, e)
+        val cut_1 = _refused($A.alloc<byte>(131072), 0, gv, gc)
+        val o1 = $A.alloc<byte>(131072)
+        val n1 = _copy(yv, o1, s2, yc, _copy(yv, o1, 0, s, 0))
+        val r1 = _refused(o1, n1, gv, gc)
+        val o2 = $A.alloc<byte>(131072)
+        val n2 = _copy(yv, o2, e2, yc, _copy(yv, o2, 0, e, 0))
+        val r2 = _refused(o2, n2, gv, gc)
+        val o3 = $A.alloc<byte>(131072)
+        val n3 = _copy(yv, o3, s2, yc, _copy(yv, o3, s, s2, _copy(yv, o3, 0, s2, 0)))
+        val r3 = _refused(o3, n3, gv, gc)
+        val o4 = $A.alloc<byte>(131072)
+        val n4 = _copy(yv, o4, e2, yc, _copy(yv, o4, e, e2, _copy(yv, o4, 0, e2, 0)))
+        val r4 = _refused(o4, n4, gv, gc)
+        val o5 = $A.alloc<byte>(131072)
+        val n5 = _copy(yv, o5, e2, yc, _copy(yv, o5, s, s2, _copy(yv, o5, s2, e, _copy(yv, o5, e, e2, _copy(yv, o5, 0, s, 0)))))
+        val r5 = _refused(o5, n5, gv, gc)
+        val () = let val verdict = (if r1 && r2 && r3 && r4 && r5 then "each refused" else "one was accepted"): string in println! ("cut cases: first bounding line absent, second absent, first twice, second twice, the two in the other order: ", verdict) end
+        (* the masked texts: the first byte after the at sign of each line that names the action *)
+        val literal = "android-emulator-runner@"
+        val f1 = find_from(yv, yc, s, literal)
+        val q1 = (if f1 < 0 then ~1 else f1 + 24): [q:int | ~1 <= q; q <= 131072 + 24] int q
+        val f2 = (if f1 < 0 then ~1 else if f1 + 1 > yc then ~1 else find_from(yv, yc, f1 + 1, literal)): [f:int | ~1 <= f; f <= 131072] int f
+        val q2 = (if f2 < 0 then ~1 else f2 + 24): [q:int | ~1 <= q; q <= 131072 + 24] int q
+        val have = (q1 >= 0 && q1 <= yc && q2 >= 0 && q2 <= yc && q1 < q2): bool
+      in
+        if ~have then false
+        else let
+          val m1 = $A.alloc<byte>(131072)
+          val k1 = _copy(yv, m1, q1 + 1, yc, _put_byte(m1, _copy(yv, m1, 0, q1, 0), _other(yv, q1)))
+          val mr1 = _refused(m1, k1, gv, gc)
+          val m2 = $A.alloc<byte>(131072)
+          val k2 = _copy(yv, m2, q2 + 1, yc, _put_byte(m2, _copy(yv, m2, 0, q2, 0), _other(yv, q2)))
+          val mr2 = _refused(m2, k2, gv, gc)
+          val () = let val verdict = (if mr1 && mr2 then "each refused" else "one was accepted"): string in println! ("mask cases: the text after the at sign changed on the first line alone, on the second line alone: ", verdict) end
+          val l1 = _eol_safe(yv, yc, q1) - 1
+          val l2 = _eol_safe(yv, yc, q2) - 1
+          val same_file = _wired(yv, yc, gv, gc)
+          (* controls: the two texts replaced by one text, in the two spellings *)
+          val c1 = $A.alloc<byte>(131072)
+          val t1 = "0123456789012345678901234567890123456789 # v9.9.9"
+          val z1 = _copy(yv, c1, l2, yc, _put_text(c1, _copy(yv, c1, l1, q2, _put_text(c1, _copy(yv, c1, 0, q1, 0), t1)), t1))
+          val c1_accepted = ~_refused(c1, z1, gv, gc)
+          val c2 = $A.alloc<byte>(131072)
+          val t2 = "abcdefabcdefabcdefabcdefabcdefabcdefabcd # repository main 0123abc"
+          val z2 = _copy(yv, c2, l2, yc, _put_text(c2, _copy(yv, c2, l1, q2, _put_text(c2, _copy(yv, c2, 0, q1, 0), t2)), t2))
+          val c2_accepted = ~_refused(c2, z2, gv, gc)
+          val () = let val verdict = (if same_file && c1_accepted && c2_accepted then "each accepted" else "one was refused"): string in println! ("controls: the unedited file, both texts replaced in the Dependabot spelling, both in the relock spelling: ", verdict) end
+        in cut_1 && r1 && r2 && r3 && r4 && r5 && mr1 && mr2 && same_file && c1_accepted && c2_accepted end
+      end
+    end): bool
+  val () = $A.drop<byte>(yf, yv)
+  val () = $A.free<byte>($A.thaw<byte>(yf))
+  val () = $A.drop<byte>(gf, gv)
+  val () = $A.free<byte>($A.thaw<byte>(gf))
+in ok end
 
 (* ============================================================
    The flow of android.yml's steps
    ============================================================ *)
 
-(* The steps in android.yml's order, when its wiring is the checked one (else 99): attempt 1, the
-   decision with attempt 1's outcome, attempt 2 when the decision printed again=true. The status
-   of the job: the decision's when it failed, else the last attempt's *)
-fn _flow {n:nat | n < 100} (name: string n, yml: $B.builder_v): int =
-  if ~_wired(yml) then 99
+(* The steps in android.yml's order: attempt 1, the decision with attempt 1's outcome, the second attempt
+   when the decision printed again=true. The status of the job: the decision's when it failed, else the last
+   attempt's. It is 99, and the case fails, when the wiring check refuses the real android.yml *)
+fn _flow {n:nat | n < 100} (name: string n): int =
+  if ~_real_wired() then 99
   else let
     val first = _in_case(name, "bin/action", _no_arguments(), _no_arguments())
     val result = (if first = 0 then _decide(name, "success", "1", "2", "again=true", true)
@@ -181,27 +487,26 @@ $UNITTEST.run begin
 (* a cut-short manifest on the first call: two attempts, a pass *)
 fn test_cut_then_whole (): bool = let
   val () = _fresh("cut-then-whole", 1, false)
-  val status = _flow("cut-then-whole", text_of("../../.github/workflows/android.yml"))
+  val status = _flow("cut-then-whole")
 in status = 0 && size_of(_case_path("cut-then-whole", "calls")) = 2 end
 
-(* the same fixture against android.yml with attempt 2's condition changed: the
-   wiring check fails and nothing runs (the injection) *)
-fn test_condition_changed_fails (): bool = let
-  val () = _fresh("condition-changed", 1, false)
-  val made = _injected("condition-changed", text_of("../../.github/workflows/android.yml"))
-  val status = _flow("condition-changed", _case_path("condition-changed", "android.yml"))
-in made && status = 99 && size_of(_case_path("condition-changed", "calls")) = 0 end
+(* the generated cases: every edit of every line of the block, by kind *)
+fn test_edit_deleted_line_refused (): bool = _class("D", 0)
+fn test_edit_changed_line_refused (): bool = _class("C", 1)
+fn test_edit_added_line_refused (): bool = _class("I", 2)
+fn test_edit_swapped_lines_refused (): bool = _class("S", 3)
+fn test_cut_mask_and_controls (): bool = _cut_mask_controls()
 
 (* a failure of the test after the emulator started is the job's failure and not run again *)
 fn test_test_failure_not_run_again (): bool = let
   val () = _fresh("test-fails", 0, true)
-  val status = _flow("test-fails", text_of("../../.github/workflows/android.yml"))
+  val status = _flow("test-fails")
 in status = 1 && size_of(_case_path("test-fails", "calls")) = 1 end
 
 (* the install fails on both attempts: two attempts, a failure *)
 fn test_always_cut_fails (): bool = let
   val () = _fresh("always-cut", 2, false)
-  val status = _flow("always-cut", text_of("../../.github/workflows/android.yml"))
+  val status = _flow("always-cut")
 in status = 1 && size_of(_case_path("always-cut", "calls")) = 2 end
 
 (* the decision on every input: the outcome (success, failure, another, none), the marker

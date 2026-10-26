@@ -106,36 +106,44 @@ paths:
   is replaced; one that is cannot be told apart by its files, only by its
   `package.xml`, which the tool compares byte for byte.
 
-* The emulator step runs twice at most (bats-lang/pwa#214). The emulator action
-  installs SDK packages itself (`sdkmanager --install`, which fetches Google's
-  repository manifests again), has no retry and no input to skip the install
-  (its `action.yml` at v2.38.0 has none; `installAndroidSdk` always runs), and one
-  cut-short manifest (`sys-img2-3.xml`, "XML document structures must start and
-  end within the same entity", then "Failed to find package") failed the job before
-  an emulator started and removed a merge queue entry. So `android.yml` has the step
-  as "(attempt 1 of 2)" with `continue-on-error`, the step "Whether the emulator step
-  runs again" and "(attempt 2 of 2)" (the same env and with, by YAML alias), whose
-  whole condition is `steps.decide.outputs.again == 'true'`. The decision is
-  `android-sdk-pins decide <marker>` (bats): it gets attempt 1's outcome
+* The emulator step is run again when the action's SDK install fails before an emulator
+  started (bats-lang/pwa#214). The emulator action installs SDK packages itself
+  (`sdkmanager --install`, which fetches Google's repository manifests again), has no
+  retry and no input to skip the install (`installAndroidSdk` in its source always runs),
+  and a cut-short manifest (`sys-img2-3.xml`, "XML document structures must start and end
+  within the same entity", then "Failed to find package") failed the job before an
+  emulator started and removed a merge queue entry. So `android.yml` has the step as
+  "(attempt 1 of 2)" with `continue-on-error`, the step "Whether the emulator step runs
+  again" and "(attempt 2 of 2)" (the same env and with, by YAML alias), whose whole
+  condition is `steps.decide.outputs.again == 'true'`. The decision is
+  `android-sdk-pins decide MARKER` (bats): it gets the outcome of the first attempt
   (`ANDROID_SMOKE_OUTCOME`), the attempt and the attempts (`ANDROID_SMOKE_ATTEMPT`,
   `ANDROID_SMOKE_ATTEMPTS`) and the marker file, prints `again=true` or `again=false`
-  (the step appends it to `GITHUB_OUTPUT`) and exits 1 for a failure that is not run
+  (the step appends it to `GITHUB_OUTPUT`), and exits 1 for a failure that is not run
   again, which fails the job. The marker (`$RUNNER_TEMP/emulator-installed`) is made by
   the first line of the action's `pre-emulator-launch-script`, which runs after the
   install group: a failed attempt without it failed before an emulator started and is
-  run again ("running attempt 2 of 2" in the log); with it, it is the test's verdict.
-  Attempt 1's log, with its sdkmanager warnings, stays as its own step.
-  `tools/android-sdk-pins/src/smoke_tests.bats` (`bats test`, run by `check.yml`'s
-  "SDK pins tool" step, as tools/pin-audit's tests of repository-prototype run its built
-  binary against stand-ins) tests `decide` on every input and checks android.yml's
-  wiring as exact text in order (attempt 1 with `continue-on-error` and the anchors, the
-  marker, the decision step, attempt 2 with the one condition and the aliases, the log
-  step's outcome); then, with a stand-in sdkmanager (`src/bin/sdkmanager_stand_in.bats`:
-  a cut-short manifest on its first call, then the whole one) and a stand-in action
-  (`src/bin/action_stand_in.bats`: the install, the marker, the test), it plays the steps
-  in that order: two attempts and a pass. A changed condition or wiring in android.yml
-  fails the check (the case `condition_changed` plays the injection, the cases that pass
-  fail with it).
+  run again (the log says which attempt runs); with it, it is the test's verdict. The
+  first attempt's log, with its sdkmanager warnings, stays as its own step.
+* What `tools/android-sdk-pins/src/smoke_tests.bats` (`bats test`, run by `check.yml`'s
+  "SDK pins tool" step; tools/pin-audit's tests of repository-prototype are the
+  precedent for running a built binary against stand-ins) keeps, and no more: the
+  decision on every input; the flow played with a stand-in sdkmanager (a cut-short
+  manifest on its first call, then the whole one) and a stand-in action, which fails
+  when the wiring check refuses the real `android.yml`; and the wiring. The block of
+  lines of `android.yml` from the name line of the first attempt through the line before
+  the name line of the upload step is compared with `tools/android-sdk-pins/tests/wiring.txt`
+  as one exact text. Each of the two bounding lines occurs exactly once, the first before
+  the second. On the two lines that name the emulator action everything up to and
+  including the at sign is compared byte for byte, and the two texts after the at sign
+  must be equal; the form of a pin is the claim of `bats check-pins`, which the pin audit
+  runs on pwa, and is not restated. Each line of the block is read, so deleting it,
+  changing it, inserting a line after it and swapping it with a differing neighbour are
+  each refused; the cut is refused when a bounding line is absent, repeated or out of
+  order. The cases are generated from the lines of the real `android.yml` and played on
+  every run: for each line of the block one edit of each kind, five cut cases, two mask
+  cases and three controls that are accepted. A change to the block is made in
+  `wiring.txt` in the same pull request.
 
 # The pnpm download of the Android build (pwa#158)
 
