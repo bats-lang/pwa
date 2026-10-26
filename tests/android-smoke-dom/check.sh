@@ -1,6 +1,6 @@
 #!/bin/sh
 # android-smoke: the smoke test keeps the page's DOM when its text never shows (pwa#166)
-# Here smoke-test.sh, the one create_android wrote, runs against a
+# Here smoke-test.sh, the one create_android_locked wrote, runs against a
 # stand-in adb (and a no-op sleep, so the two minutes of waiting take no time) and a
 # stand-in for the WebView's DevTools endpoint (server.py), and
 #   1. a text never on the screen: the script fails, and the output directory holds

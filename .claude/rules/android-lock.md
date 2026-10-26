@@ -2,21 +2,16 @@
 paths:
   - src/lib.bats
   - tests/android-lock/**
-  - tests/dynamic/android-compat/**
   - example/pnpm-lock.yaml
 ---
 
 # The generated Android project installs from a committed lock (pwa#131, repository-prototype#352 row 8)
 
-`build-android.sh` (`build_android_script` in `src/lib.bats`) ran a bare
-`pnpm install` in the project `create_android` writes, with no lock. That
-form, and `create_android`, stay exactly as published (type and text) for
-one published version, and the locked form is beside them, additive:
-`build_android_script_locked` and `create_android_locked`, which an app opts
-into by calling (the example does). `tests/dynamic/android-compat` prints the
-old script and compares it with `expected`, the text of origin/main's
-function; bats-lang/pwa#165 removes the old names once quire (quire#735)
-has moved. Everything below is about the locked form. The old form had no lock: the
+`build-android.sh` (`build_android_script_locked` in `src/lib.bats`, written by
+`create_android_locked`) installs from a committed lock. The old form,
+`build_android_script` and `create_android` (a bare `pnpm install`, no lock),
+was published beside it for one version and is removed (bats-lang/pwa#165, no
+dependent called it any more; quire moved in quire#735). The old form had no lock: the
 plugins' own dependencies (and the `^8.1.0` ranges of Capacitor's core,
 Android platform and CLI) resolved to whatever the registry held on the
 day, so a commit that built once could build differently later.
@@ -26,7 +21,7 @@ day, so a commit that built once could build differently later.
   `package.json`), so the lock cannot live in it: the app commits
   `pnpm-lock.yaml` and puts it next to `build-android.sh`, as the example
   does (`example/pnpm-lock.yaml`, copied by check.yml). pwa generates no
-  lock and adds no input to `create_android`.
+  lock and adds no input to `create_android_locked`.
 * **The install is frozen.** The script stops with a message when there is
   no `pnpm-lock.yaml`, then runs `pnpm install --frozen-lockfile`: it
   fails when the lock does not match `package.json` (pnpm's
