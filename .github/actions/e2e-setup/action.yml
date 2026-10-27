@@ -34,6 +34,12 @@ inputs:
       ("true" or "false"); every apt call is bounded and a failure never
       fails the job (bats-lang/pwa#178)
     default: "false"
+  japanese-font:
+    description: >-
+      Install a font with Japanese characters (IPAGothic, 3.5 MB, kept
+      between runs under a key that names its content; "true" or "false"),
+      for pages that draw Japanese text in the browser (bats-lang/pwa#226)
+    default: "false"
 outputs:
   playwright-version:
     description: The installed Playwright version
@@ -88,3 +94,24 @@ runs:
       if: inputs.stall-tools == 'true'
       shell: bash
       run: ${{ github.action_path }}/stall-tools.sh
+
+    # keyword: japanese-font (.claude/rules/e2e-setup.md)
+    - name: Name the Japanese font
+      id: japanese-font
+      if: inputs.japanese-font == 'true'
+      shell: bash
+      run: ${{ github.action_path }}/japanese-font.sh key
+
+    - name: Restore the Japanese font
+      if: inputs.japanese-font == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/japanese-font
+        key: ${{ steps.japanese-font.outputs.key }}
+
+    - name: Install the Japanese font
+      if: inputs.japanese-font == 'true'
+      shell: bash
+      run: ${{ github.action_path }}/japanese-font.sh install
+      env:
+        FONT_DIR: ${{ runner.temp }}/japanese-font
