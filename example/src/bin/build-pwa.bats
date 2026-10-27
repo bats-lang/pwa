@@ -16,7 +16,7 @@ fn generate (): void = let
   val () = $P.create_android_locked("Example App", "dev.bats.example", "../pwa", "dist/android", "text/plain")
 in end
 
-(* build-pwa test [--timings <dir>] [-- <playwright args>] runs the
+(* build-pwa test [--timings <dir>] [--evidence <dir>] [-- <playwright args>] runs the
    example's e2e suite against dist/pwa (bats-lang/pwa#82); build-pwa
    alone generates it; build-pwa pages SOURCE NAME copies a directory of
    static pages to dist/pwa/NAME (bats-lang/pwa#243); build-pwa values ENVFILE
