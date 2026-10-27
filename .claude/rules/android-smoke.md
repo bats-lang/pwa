@@ -175,7 +175,7 @@ paths:
   also keeps the page's DOM, `dom.html`, beside them in the artifact
   `android-smoke-test`. A fix for a missing text starts from which of the three
   has it: the DOM, the tree or the pixels.
-* `keep_dom` (in the script `build_smoke_test_script` writes) reads the app's pid,
+* `keep_dom` (in the smoke script) reads the app's pid,
   finds `webview_devtools_remote_<pid>` in `/proc/net/unix`, makes `adb forward
   tcp:0 localabstract:<it>` (a port the host picks, so it cannot meet a forward the
   failure evidence in `android.yml` makes on 9222), asks each page of
@@ -231,17 +231,18 @@ paths:
   published `n + 15000` of `build_smoke_test_script_font_scale` (head 10400 to about
   10900 bytes), and a published bound is part of the type a dependent compiles
   against. So the type and the text of the two published forms are unchanged
-  (`build_smoke_test_script`, `n + 12000`; `build_smoke_test_script_font_scale`,
-  `n + 15000`: both still poll `uiautomator dump`, byte for byte the script of main
-  before pwa#201), and the fix is the new form beside them,
+  (`build_smoke_test_script_font_scale`, `n + 15000`: it still polls
+  `uiautomator dump`, byte for byte the script of main before pwa#201), and the
+  fix is the new form beside it,
   `build_smoke_test_script_font_scale_devtools` (`n + 16000`), which `create_android`
   writes and so which every app build's `smoke-test.sh` is. The script is built from
   pieces (`_smoke_head_a`, `_smoke_shown_dump` or `_smoke_shown_devtools`,
   `_smoke_head_b`, the font scale step, `_smoke_tail_a`, `_smoke_never_dump` or
   `_smoke_never_devtools`, `_smoke_tail_b`) each with its own bound, so the old forms
-  keep their proof. `tests/dynamic/smoke-compat` calls both old forms and compares
+  keep their proof. `tests/dynamic/smoke-compat` calls the old forms and compares
   their text with `expected`, so an edit cannot drop them. The old
-  `font_scale` is removed by bats-lang/pwa#203, `build_smoke_test_script` by #189.
+  `font_scale` is removed by bats-lang/pwa#203 (the form without the font
+  scale step was removed by #189).
   `build_main_activity` is not changed (11500). No dependent calls either form
   directly (quire's `gen-pwa` calls `create_android_locked`).
 
@@ -264,9 +265,7 @@ paths:
   scale is probed again until the answer is right, 15 tries 2 s apart: a page that
   is still loading, or still at the old scale, is not a failure, the last answer is.
 * `build_smoke_test_script_font_scale` is the form `create_android` writes;
-  `build_smoke_test_script` stays beside it without the step (the head and tail
-  are shared), called by `tests/dynamic/smoke-compat`, whose `expected` is its
-  text. `tests/android-smoke-dom/check.sh` plays the step against the stand-in
+  `tests/android-smoke-dom/check.sh` plays the step against the stand-in
   `adb` (it records the scale set) and `server.py`, whose probe answers a line
   20 px times the scale: passes; the line staying at 20 px (a shell with
   `textZoom`), a page wider than the window, text past the window's edge and a

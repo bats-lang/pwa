@@ -164,16 +164,11 @@ staload TR = "./test_run.sats"
    (bats-lang/quire#247). Fails when a text never shows, a file is not
    handed over once, the app crashes, or the page logs an error to the
    console. *)
-(* deprecated (android-smoke): create_android writes build_smoke_test_script_font_scale; removed by bats-lang/pwa#189 *)
-#pub fn build_smoke_test_script {ni:nat | ni < 256}{n:nat | n + 12000 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 12000] $B.builder(m), app_id: string ni): void
-
-(* build_smoke_test_script_font_scale (bats-lang/pwa#154): the same script,
+(* build_smoke_test_script_font_scale (bats-lang/pwa#154): the smoke script,
    and with the text shown it plays the system font scale 1.3 and 2.0 on the
    emulator and fails unless the page's text is about that many times as high
    as at 1.0 (the shell sets no textZoom, so the scale reaches the page) and
-   fits the window. The form create_android writes; build_smoke_test_script
-   stays beside it, without that step (android-smoke). *)
+   fits the window (android-smoke). *)
 (* deprecated (android-smoke): create_android writes build_smoke_test_script_font_scale_devtools, whose shown() asks the page (pwa#201); this keeps its type and its dump-polling text, removed by bats-lang/pwa#203 *)
 #pub fn build_smoke_test_script_font_scale {ni:nat | ni < 256}{n:nat | n + 15000 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 15000] $B.builder(m), app_id: string ni): void
@@ -194,7 +189,8 @@ staload TR = "./test_run.sats"
    (relative to project_dir): capacitor.config.json, package.json,
    android-release.gradle, MainActivity.java, intent-filters.xml,
    backup-rules.xml and data-extraction-rules.xml (Auto Backup keeps
-   bridge's backed-up files only), build-android.sh and smoke-test.sh. Running build-android.sh (Node,
+   bridge's backed-up files only), .nvmrc and .java-version (the Node and
+   Java versions the build reads), build-android.sh and smoke-test.sh. Running build-android.sh (Node,
    a JDK and the Android SDK needed) builds the Android app, which opens
    and is shared files of type mime. No secret is written: signing
    reads the keystore and its passwords when the build runs. *)
@@ -1342,15 +1338,6 @@ fn _smoke_tail_b {n:nat | n + 180 <= $B.BUILDER_CAP}
 in end
 
 (* the old forms keep the text they had before pwa#201 (android-smoke) *)
-implement build_smoke_test_script (b, app_id) = let
-  val () = _smoke_head_a1(b, app_id)
-  val () = _smoke_head_a2(b)
-  val () = _smoke_shown_dump(b)
-  val () = _smoke_head_b(b)
-  val () = _smoke_tail_a(b)
-  val () = _smoke_never_dump(b)
-in _smoke_tail_b(b) end
-
 implement build_smoke_test_script_font_scale (b, app_id) = let
   val () = _smoke_head_a1(b, app_id)
   val () = _smoke_head_a2(b)
@@ -1500,6 +1487,13 @@ fn _android_project_files {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 2
   var pnpm_b = $B.create()
   val () = build_pnpm_script(pnpm_b)
   val () = _write_to(project_dir, "fetch-pnpm.sh", pnpm_b)
+  (* the versions android.yml reads with setup-node and setup-java (version files, keyword: version-file, .claude/rules/android-lock.md) *)
+  var nvm_b = $B.create()
+  val () = $B.bput(nvm_b, "22.23.3\n")
+  val () = _write_to(project_dir, ".nvmrc", nvm_b)
+  var jv_b = $B.create()
+  val () = $B.bput(jv_b, "21.0.12+8.0.LTS\n")
+  val () = _write_to(project_dir, ".java-version", jv_b)
   var st_b = $B.create()
   val () = build_smoke_test_script_probes(st_b, app_id)
 in _write_mode(project_dir, "smoke-test.sh", st_b, 493) end

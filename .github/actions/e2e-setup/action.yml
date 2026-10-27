@@ -8,9 +8,12 @@ description: >-
   android.yml is called:
   `uses: bats-lang/pwa/.github/actions/e2e-setup@<sha>`, after the checkout.
 inputs:
-  node-version:
-    description: Node.js version for actions/setup-node (exact, as bridge and dom pin it)
-    default: "22.23.3"
+  node-version-file:
+    description: >-
+      The file holding Node.js's version, read by actions/setup-node, relative to
+      working-directory (.nvmrc, the file nvm and Renovate read too); no literal
+      version is set here (bats-lang/pwa#136)
+    default: ".nvmrc"
   working-directory:
     description: The directory of package.json and package-lock.json
     default: "."
@@ -54,7 +57,7 @@ runs:
     - name: Set up Node.js
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
-        node-version: ${{ inputs.node-version }}
+        node-version-file: ${{ inputs.working-directory }}/${{ inputs.node-version-file }}
         cache: npm
         cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
 
