@@ -28,8 +28,9 @@ inputs:
   stall-tools:
     description: >-
       Install gdb, elfutils, libc6-dbg and rr for an app's stall capture
-      ("true" or "false"); every apt call is bounded and a failure never
-      fails the job (bats-lang/pwa#178)
+      ("true" or "false"); every apt call is bounded, a failure never
+      fails the job (bats-lang/pwa#178) and the packages are kept between
+      runs under a key that names their versions (bats-lang/pwa#227)
     default: "false"
   japanese-font:
     description: >-
@@ -87,10 +88,28 @@ runs:
         PLAYWRIGHT_BROWSERS_PATH: ${{ steps.version.outputs.browsers }}
 
     # keyword: stall-tools (.claude/rules/e2e-setup.md)
+    - name: Name the stall tools' packages
+      id: stall-tools
+      if: inputs.stall-tools == 'true'
+      shell: bash
+      run: ${{ github.action_path }}/stall-tools.sh key
+      env:
+        E2E_STALL_STATE: ${{ runner.temp }}/stall-tools-state
+
+    - name: Restore the stall tools' packages
+      if: inputs.stall-tools == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/stall-tools-debs
+        key: ${{ steps.stall-tools.outputs.key }}
+
     - name: Install gdb, elfutils and libc6-dbg
       if: inputs.stall-tools == 'true'
       shell: bash
-      run: ${{ github.action_path }}/stall-tools.sh
+      run: ${{ github.action_path }}/stall-tools.sh install
+      env:
+        E2E_STALL_STATE: ${{ runner.temp }}/stall-tools-state
+        STALL_DEBS_DIR: ${{ runner.temp }}/stall-tools-debs
 
     # keyword: japanese-font (.claude/rules/e2e-setup.md)
     - name: Name the Japanese font

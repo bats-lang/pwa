@@ -8,7 +8,9 @@
 # key changing with the Playwright version and not with the app, the
 # browsers install retried, sdkmanager's cut repository index retried, and the stall
 # tools' apt calls bounded (a
-# stalled apt-get is stopped and the next attempt runs, pwa#163). The action's YAML (setup-node, the cache) can
+# stalled apt-get is stopped and the next attempt runs, pwa#163) and their packages kept
+# between runs (a miss, a hit that asks the mirror for nothing, a cache of another libc6, a
+# damaged package, the key, pwa#227). The action's YAML (setup-node, the cache) can
 # only run in a workflow: the job of check.yml that uses it is that test.
 # usage: tests/e2e-setup/check.sh
 set -eu
@@ -162,7 +164,8 @@ rm -f "$TMP/count"
 grep -q 'the download failed (try 1 of 3)' "$TMP/out" \
   || fail "the index retry was not said" "$TMP/out"
 
-# --- the stall tools: every apt call bounded, a stalled one stopped, the next attempt run
+# --- the stall tools: every apt call bounded, a stalled one stopped, the next attempt run;
+# the packages kept between runs (pwa#227): a miss fetches and keeps them, a hit asks the mirror for nothing
 mkdir -p "$TMP/f/bin"
 cat > "$TMP/f/bin/sudo" <<'FAKE'
 #!/bin/sh
@@ -170,33 +173,123 @@ exec "$@"
 FAKE
 cat > "$TMP/f/bin/dpkg-query" <<'FAKE'
 #!/bin/sh
-printf '2.39-0ubuntu8'
+printf '%s' "${FAKE_LIBC:-2.39-0ubuntu8}"
 FAKE
 cat > "$TMP/f/bin/apt-get" <<'FAKE'
 #!/bin/sh
-# FAKE_STALL: the number of first calls that never return (a mirror that stalls)
-n=$(cat "$FAKE_COUNT" 2>/dev/null || echo 0); n=$((n + 1)); echo $n > "$FAKE_COUNT"
-echo "$*" >> "$FAKE_COUNT.args"
-if [ "$n" -le "${FAKE_STALL:-0}" ]; then exec sleep 60; fi
+# A fake apt-get over the archives directory E2E_APT_ARCHIVES.
+# FAKE_STALL: the number of first calls (simulations apart) that never return (a mirror that stalls)
+# -s install: the Inst lines of the packages; --download-only: a .deb the archives lack is
+# taken from the "mirror" (listed in $FAKE_COUNT.fetched); a .deb whose bytes are not the
+# mirror's is fetched again (apt checks an archive against the index's hashes); install: the
+# .debs it used are listed in $FAKE_COUNT.installed, from the archives, else the mirror
+ARGS="$*"
+sim=no; dl=no; action=; pkgs=
+while [ $# -gt 0 ]; do
+  case $1 in
+    -o) shift ;;
+    -s) sim=yes ;;
+    --download-only) dl=yes ;;
+    -*) ;;
+    update|install) action=$1 ;;
+    *) pkgs="$pkgs $1" ;;
+  esac
+  shift
+done
+if [ "$sim" = no ]; then
+  n=$(cat "$FAKE_COUNT" 2>/dev/null || echo 0); n=$((n + 1)); echo $n > "$FAKE_COUNT"
+  echo "$ARGS" >> "$FAKE_COUNT.args"
+  if [ "$n" -le "${FAKE_STALL:-0}" ]; then exec sleep 60; fi
+fi
+debs_of() { # <package> -> name version arch lines
+  case $1 in
+    gdb) echo "gdb 15.1-1 amd64"; echo "gdb-common 1:15.1-1 all" ;;
+    elfutils) echo "elfutils 0.190-1 amd64" ;;
+    libc6-dbg=*) echo "libc6-dbg ${1#libc6-dbg=} amd64" ;;
+    rr) echo "rr 5.7.0-1 amd64" ;;
+  esac
+}
+for pkg in $pkgs; do
+  debs_of "$pkg" | while read -r name version arch; do
+    case $version in *:*) fversion=${version%%:*}%3a${version#*:} ;; *) fversion=$version ;; esac
+    file=${name}_${fversion}_${arch}.deb
+    if [ "$sim" = yes ]; then
+      echo "Inst $name (${version} Ubuntu:24.04/noble-updates [$arch])"
+    elif [ "$action" = install ]; then
+      if [ "$dl" = no ]; then
+        if [ "$(cat "$E2E_APT_ARCHIVES/$file" 2>/dev/null)" != "mirror:$file" ]; then echo "$file" >> "$FAKE_COUNT.fetched"; fi
+        echo "$file" >> "$FAKE_COUNT.installed"
+      elif [ "$(cat "$E2E_APT_ARCHIVES/$file" 2>/dev/null)" != "mirror:$file" ]; then
+        echo "$file" >> "$FAKE_COUNT.fetched"
+        echo "mirror:$file" > "$E2E_APT_ARCHIVES/$file"
+      fi
+    fi
+  done
+done
 exit 0
 FAKE
 chmod +x "$TMP/f/bin/sudo" "$TMP/f/bin/dpkg-query" "$TMP/f/bin/apt-get"
-stall() { # <stalled calls> -> stall-tools.sh with an apt-get that stalls that many calls
-  rm -f "$TMP/count" "$TMP/count.args"
-  PATH="$TMP/f/bin:$PATH" FAKE_COUNT="$TMP/count" FAKE_STALL=$1 E2E_APT_HANG_S=1 E2E_PAUSE_S=0 "$ACT/stall-tools.sh" > "$TMP/out" 2>&1
+stall() { # <stalled calls> <debs dir> [libc6] -> stall-tools.sh install, an empty archives directory and state
+  rm -rf "$TMP/count" "$TMP/count.args" "$TMP/count.fetched" "$TMP/count.installed" "$TMP/f/arch" "$TMP/f/state"
+  mkdir -p "$TMP/f/arch"
+  PATH="$TMP/f/bin:$PATH" FAKE_COUNT="$TMP/count" FAKE_STALL=$1 FAKE_LIBC=${3:-2.39-0ubuntu8} E2E_APT_HANG_S=1 E2E_PAUSE_S=0 \
+    E2E_APT_ARCHIVES="$TMP/f/arch" E2E_STALL_STATE="$TMP/f/state" STALL_DEBS_DIR=$2 "$ACT/stall-tools.sh" install > "$TMP/out" 2>&1
 }
-stall 1 || fail "stall-tools.sh failed after a stalled update" "$TMP/out"
+stall_key() { # <libc6> -> the key of stall-tools.sh key, in $TMP/f/key
+  rm -rf "$TMP/count" "$TMP/count.args" "$TMP/f/state"; : > "$TMP/f/key"
+  PATH="$TMP/f/bin:$PATH" FAKE_COUNT="$TMP/count" FAKE_LIBC=$1 E2E_PAUSE_S=0 E2E_STALL_STATE="$TMP/f/state" \
+    GITHUB_OUTPUT="$TMP/f/key" "$ACT/stall-tools.sh" key > "$TMP/out" 2>&1
+}
+stall 1 "$TMP/f/debs1" || fail "stall-tools.sh failed after a stalled update" "$TMP/out"
 grep -q 'apt-get update: apt-get did not return in 1s and was stopped (try 1 of 3)' "$TMP/out" || fail "the stalled update was not stopped" "$TMP/out"
 grep -q 'installed=yes' "$TMP/out" || fail "the next attempt did not install" "$TMP/out"
 [ "$(grep -c '^-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 update -q$' "$TMP/count.args")" = 2 ] || fail "the update did not run twice, bounded" "$TMP/count.args"
-[ "$(wc -l < "$TMP/count.args")" = 5 ] || fail "apt-get ran $(wc -l < "$TMP/count.args") times, not 5" "$TMP/count.args"
-[ "$(grep -c '^-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 ' "$TMP/count.args")" = 5 ] || fail "an apt call without apt's own bounds" "$TMP/count.args"
+# update twice, then a download and an install of each of the 3 groups
+[ "$(wc -l < "$TMP/count.args")" = 8 ] || fail "apt-get ran $(wc -l < "$TMP/count.args") times, not 8" "$TMP/count.args"
+[ "$(grep -c '^-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 ' "$TMP/count.args")" = 8 ] || fail "an apt call without apt's own bounds" "$TMP/count.args"
 grep -q 'install -y -q --no-upgrade libc6-dbg=2.39-0ubuntu8$' "$TMP/count.args" || fail "libc6-dbg is not pinned to the installed libc6" "$TMP/count.args"
 # every call stalls: three tries of the update, then the job goes on (exit 0) saying why
-stall 1000 || fail "stall-tools.sh failed the job when every call stalled" "$TMP/out"
+stall 1000 "$TMP/f/debs2" || fail "stall-tools.sh failed the job when every call stalled" "$TMP/out"
 grep -q 'installed=no' "$TMP/out" || fail "installed=no not said" "$TMP/out"
 grep -q 'gdb and elfutils are not installed' "$TMP/out" || fail "the missing tools not said" "$TMP/out"
 [ "$(grep -c ' update -q$' "$TMP/count.args")" = 3 ] || fail "the update was not tried 3 times" "$TMP/count.args"
+
+# a miss: the mirror is asked for each of the 5 packages once, and they are kept
+stall 0 "$TMP/f/cache" || fail "a miss" "$TMP/out"
+grep -q '^Stall tools: 0 of 5 packages restored from the cache$' "$TMP/out" || fail "a miss not said" "$TMP/out"
+[ "$(sort "$TMP/count.fetched" | uniq | wc -l)" = 5 ] && [ "$(wc -l < "$TMP/count.fetched")" = 5 ] || fail "the mirror was not asked for each package once" "$TMP/count.fetched"
+[ "$(ls "$TMP/f/cache" | wc -l)" = 5 ] || fail "a miss did not keep the 5 packages" "$TMP/out"
+[ -f "$TMP/f/cache/gdb-common_1%3a15.1-1_all.deb" ] && [ -f "$TMP/f/cache/libc6-dbg_2.39-0ubuntu8_amd64.deb" ] || fail "the kept names (an epoch is %3a)" "$TMP/out"
+grep -q 'installed=yes' "$TMP/out" || fail "a miss did not install" "$TMP/out"
+# a hit: the mirror is asked for nothing, and the same 5 packages are installed
+stall 0 "$TMP/f/cache" || fail "a hit" "$TMP/out"
+grep -q '^Stall tools: 5 of 5 packages restored from the cache$' "$TMP/out" || fail "a hit not said" "$TMP/out"
+[ ! -s "$TMP/count.fetched" ] || fail "a hit asked the mirror" "$TMP/count.fetched"
+[ "$(sort -u "$TMP/count.installed" | wc -l)" = 5 ] || fail "a hit did not install the 5 packages" "$TMP/count.installed"
+# a cache of another libc6 (the image moved): libc6-dbg of the installed one only, from the mirror;
+# the old one is neither installed nor kept
+stall 0 "$TMP/f/cache" 2.39-0ubuntu7 || fail "a cache of another libc6" "$TMP/out"
+grep -q '^Stall tools: 4 of 5 packages restored from the cache$' "$TMP/out" || fail "the other libc6 was trusted" "$TMP/out"
+[ "$(cat "$TMP/count.fetched")" = libc6-dbg_2.39-0ubuntu7_amd64.deb ] || fail "the mirror was asked for more or less than libc6-dbg of the installed libc6" "$TMP/count.fetched"
+! grep -q 'ubuntu8' "$TMP/count.installed" || fail "libc6-dbg of the other libc6 was installed" "$TMP/count.installed"
+[ -f "$TMP/f/cache/libc6-dbg_2.39-0ubuntu7_amd64.deb" ] && [ ! -e "$TMP/f/cache/libc6-dbg_2.39-0ubuntu8_amd64.deb" ] || fail "the cache was not rewritten for the installed libc6" "$TMP/out"
+# a damaged cached package: apt's own check fetches it again
+stall 0 "$TMP/f/cache" 2.39-0ubuntu7 || fail "a hit before the damage" "$TMP/out"
+printf 'damaged' > "$TMP/f/cache/rr_5.7.0-1_amd64.deb"
+stall 0 "$TMP/f/cache" 2.39-0ubuntu7 || fail "a damaged package" "$TMP/out"
+[ "$(cat "$TMP/count.fetched")" = rr_5.7.0-1_amd64.deb ] || fail "a damaged package was trusted" "$TMP/count.fetched"
+# the key names the packages' versions and the libc6: it moves with either
+stall_key 2.39-0ubuntu8 || fail "the key" "$TMP/out"
+KEY8=$(cat "$TMP/f/key")
+echo "$KEY8" | grep -q '^key=stall-tools-linux-x64-libc6-2.39-0ubuntu8-5-[0-9a-f]\{16\}$' || fail "the key" "$TMP/f/key"
+stall_key 2.39-0ubuntu7 || fail "the key of another libc6" "$TMP/out"
+[ "$(cat "$TMP/f/key")" != "$KEY8" ] || fail "the key did not move with the libc6" "$TMP/f/key"
+stall_key 2.39-0ubuntu8 || fail "the key again" "$TMP/out"
+[ "$(cat "$TMP/f/key")" = "$KEY8" ] || fail "the key is not the same for the same packages" "$TMP/f/key"
+rm -rf "$TMP/f/state"; : > "$TMP/f/key"
+PATH="$TMP/f/bin:$PATH" FAKE_COUNT="$TMP/count" FAKE_STALL=1000 E2E_APT_HANG_S=1 E2E_PAUSE_S=0 E2E_STALL_STATE="$TMP/f/state" GITHUB_RUN_ID=7 \
+  GITHUB_OUTPUT="$TMP/f/key" "$ACT/stall-tools.sh" key > "$TMP/out" 2>&1 || fail "a key with a mirror that stalls failed the job" "$TMP/out"
+grep -q '^key=stall-tools-unresolved-7-' "$TMP/f/key" || fail "the key of an index that could not be updated" "$TMP/f/key"
 
 # --- the Japanese font: a miss fetches the pinned deb, a hit fetches nothing (pwa#226)
 mkdir -p "$TMP/j/root/usr/share/fonts/opentype/ipafont-gothic" "$TMP/j/root/DEBIAN"
