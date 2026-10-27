@@ -83,12 +83,23 @@ https://docs.github.com/en/code-security/concepts/supply-chain-security/multi-ec
 The daily relock moves the compiler
 (`.github/bats-version`), the package repository
 (`.github/repository-version`) and the workflow pins of `publish.yml` and
-`relock.yml`. Renovate moves Node's version (a literal in `check.yml`,
-`android.yml` and the input default of `.github/actions/e2e-setup`) and
-Java's (`android.yml`) once the Renovate app is installed
-(bats-lang/repository-prototype#369); until then they are moved by hand.
-quire takes its Node version from `e2e-setup` through its pin of pwa, so a
-bump here reaches quire when quire's pwa pin moves, not by itself. The bats
+`relock.yml`. Node's and Java's versions are in version files, never in a
+workflow (keyword: version-file, bats-lang/pwa#136): `.nvmrc` (setup-node's
+`node-version-file`) and `.java-version` (setup-java's `java-version-file`,
+whose parser takes `21.0.12+8.0.LTS` from a file not named `.tool-versions`).
+`android.yml` has no checkout of its caller, so it reads them from the
+artifact it downloads, `app/<project-dir>/`, where `create_android` and
+`create_android_locked` write them (the versions are two constants in
+`src/lib.bats`); the caller's `upload-artifact` of the project needs
+`include-hidden-files: true`, since the action skips dotfiles by default and
+the job then fails with "node version file ... does not exist"; `e2e-setup` reads `.nvmrc` from its `working-directory`
+(input `node-version-file`), `example/.nvmrc` for the example and the app's
+own root file for quire, which moves to it with its next pin of this action.
+A literal `node-version`, `java-version` or `python-version` in `.github` is
+checked by bats `check-pins` (a `*-version-file` key is accepted, a literal
+must be three numbers; bats#390). Until pwa#144's relock subcommand moves them, they are
+moved by hand. quire takes its Node version from its own `.nvmrc`.
+The bats
 setup action's commit and the runner label are moved by hand, each in a
 pull request of its own.
 
@@ -297,6 +308,7 @@ names is touched (its `paths:`):
 * The relock of the Android SDK pins (pwa#185): `.claude/rules/android-relock.md`
 * The e2e setup action (quire#637): `.claude/rules/e2e-setup.md`
 * The Play release workflow (pwa#90, quire#623): `.claude/rules/play-release.md`
+* Skipping a push run's tests when the merge queue passed the same commit (pwa#215): `.claude/rules/queue-passed.md`
 * The signing key's fingerprints (pwa#96, quire#623): `.claude/rules/key-fingerprints.md`
 
 A comment states its reason in one line and names the area by keyword; the detail lives in `.claude/rules/*.md`: search them for the keyword before changing the code.
