@@ -4,7 +4,7 @@
 # The reference is quire's own scripts/sync-clients.sh and sync-clients.env, copied unchanged
 # from bats-lang/quire at 619e898 (tests/values/); non-bats code of ours is this driver of the
 # built binary (the avenue exhausted: bats has no process-level test of a built program here,
-# as tests/static-pages/check.sh).
+# with a tree to compare, as tests/static-pages is a bats project of its own).
 # usage: tests/values/check.sh <gen-pwa binary>
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)

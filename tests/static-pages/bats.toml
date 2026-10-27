@@ -1,0 +1,12 @@
+[package]
+name = "static-pages-test"
+kind = "lib"
+unsafe = false
+
+[dependencies]
+"array" = ""
+"builder" = ""
+"file" = ""
+"list" = ""
+"process" = ""
+"result" = ""

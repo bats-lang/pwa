@@ -57,6 +57,6 @@ no policy of the app's. `ValuesChecked` is the inside of a run, never an end.
 The tests (`tests/values/check.sh`, run by `check.yml`) drive the built binary: the byte-for-byte
 file, the forms (backtracking, counts, classes, escapes), each refusal above, the large cases and
 each way a write fails. The cases that need a user who cannot write (a read-only `dist/pwa`, an
-env file without permission) are skipped for root, as in `tests/static-pages/check.sh`. The
+env file without permission) are skipped for root, as in `tests/static-pages`. The
 avenue for non-bats code is that driver (a third-party shell around the built binary and quire's
 own script as the reference); the code under test is bats.

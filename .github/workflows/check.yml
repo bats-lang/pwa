@@ -211,9 +211,9 @@ jobs:
       - name: gen-pwa test
         run: tests/test-command/check.sh example/dist/debug/build-pwa example/dist/pwa
 
-      # gen-pwa pages (bats-lang/pwa#243): the tree copied byte for byte, and each refusal
+      # gen-pwa pages (bats-lang/pwa#243): the tree copied byte for byte, and each refusal, a bats test of the built binary
       - name: gen-pwa pages
-        run: tests/static-pages/check.sh example/dist/debug/build-pwa
+        run: (cd tests/static-pages && bats test --repository $HOME/repository)
 
       # gen-pwa values (bats-lang/pwa#244): quire's sync-clients.json byte for byte, and each refusal
       - name: gen-pwa values
