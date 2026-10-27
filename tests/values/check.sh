@@ -65,7 +65,7 @@ mkdir envdir
 refused "unreadable env file, a directory" "envdir: .*directory" envdir v.json 'A:a:[a-z]'
 if [ "$(id -u)" != 0 ]; then
   cp e.env locked.env; chmod 000 locked.env
-  refused "unreadable env file, permission" "locked.env: .*Permission denied" locked.env v.json 'A:a:[a-z]'
+  refused "unreadable env file, permission" "locked.env: .*permission denied" locked.env v.json 'A:a:[a-z]'
 fi
 head -c 600000 /dev/zero | tr '\0' 'a' > big.env
 refused "env file too large" "too large for an env file" big.env v.json 'A:a:[a-z]'
@@ -107,7 +107,7 @@ refused "write failed, a directory" "dist/pwa/v.json: .*directory" e.env v.json 
 rmdir dist/pwa/v.json
 if [ "$(id -u)" != 0 ]; then
   chmod 555 dist/pwa
-  refused "write failed, read-only" "dist/pwa/v.json: .*Permission denied" e.env v.json 'D:d:[a-z]{0,3}'
+  refused "write failed, read-only" "dist/pwa/v.json: .*permission denied" e.env v.json 'D:d:[a-z]{0,3}'
   chmod 755 dist/pwa
 fi
 rm -rf dist

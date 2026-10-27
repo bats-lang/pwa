@@ -43,7 +43,7 @@ refused "three arguments" "usage" src a b
 # a write that fails: dist/pwa is read-only (skipped for root, who may write)
 if [ "$(id -u)" != 0 ]; then
   rm -rf dist; mkdir -p dist/pwa; chmod 555 dist/pwa
-  refused "write failed" "Permission denied" src home
+  refused "write failed" "permission denied" src home
   chmod 755 dist/pwa
 fi
 # a write that fails for any user: dist/pwa is missing
@@ -64,6 +64,6 @@ refused "deep" "more than 64 levels" deep deeper
 # the file that cannot be read
 if [ "$(id -u)" != 0 ]; then
   mkdir -p src2; printf x > src2/secret; chmod 000 src2/secret
-  refused "read failed" "Permission denied" src2 unread
+  refused "read failed" "permission denied" src2 unread
 fi
 echo "gen-pwa pages: ok"
