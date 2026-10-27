@@ -235,9 +235,15 @@ stall() { # <stalled calls> <debs dir> [libc6] -> stall-tools.sh install, an emp
   PATH="$TMP/f/bin:$PATH" FAKE_COUNT="$TMP/count" FAKE_STALL=$1 FAKE_LIBC=${3:-2.39-0ubuntu8} E2E_APT_HANG_S=1 E2E_PAUSE_S=0 \
     E2E_APT_ARCHIVES="$TMP/f/arch" E2E_STALL_STATE="$TMP/f/state" STALL_DEBS_DIR=$2 "$ACT/stall-tools.sh" install > "$TMP/out" 2>&1
 }
-stall_key() { # <libc6> -> the key of stall-tools.sh key, in $TMP/f/key
+# The key names the runner (RUNNER_OS, RUNNER_ARCH: a GitHub runner sets them, "Linux" and "X64";
+# the script falls back to linux and x64 when they are unset), so the test sets them itself and
+# does not read the environment it runs in: stall_key takes them as arguments, "-" for unset.
+stall_key() { # <libc6> [runner os] [runner arch] -> the key of stall-tools.sh key, in $TMP/f/key
   rm -rf "$TMP/count" "$TMP/count.args" "$TMP/f/state"; : > "$TMP/f/key"
-  PATH="$TMP/f/bin:$PATH" FAKE_COUNT="$TMP/count" FAKE_LIBC=$1 E2E_PAUSE_S=0 E2E_STALL_STATE="$TMP/f/state" \
+  case ${2:-Linux} in -) runner_os='-u RUNNER_OS' ;; *) runner_os="RUNNER_OS=${2:-Linux}" ;; esac
+  case ${3:-X64} in -) runner_arch='-u RUNNER_ARCH' ;; *) runner_arch="RUNNER_ARCH=${3:-X64}" ;; esac
+  # shellcheck disable=SC2086
+  env $runner_os $runner_arch PATH="$TMP/f/bin:$PATH" FAKE_COUNT="$TMP/count" FAKE_LIBC=$1 E2E_PAUSE_S=0 E2E_STALL_STATE="$TMP/f/state" \
     GITHUB_OUTPUT="$TMP/f/key" "$ACT/stall-tools.sh" key > "$TMP/out" 2>&1
 }
 stall 1 "$TMP/f/debs1" || fail "stall-tools.sh failed after a stalled update" "$TMP/out"
@@ -281,7 +287,12 @@ stall 0 "$TMP/f/cache" 2.39-0ubuntu7 || fail "a damaged package" "$TMP/out"
 # the key names the packages' versions and the libc6: it moves with either
 stall_key 2.39-0ubuntu8 || fail "the key" "$TMP/out"
 KEY8=$(cat "$TMP/f/key")
-echo "$KEY8" | grep -q '^key=stall-tools-linux-x64-libc6-2.39-0ubuntu8-5-[0-9a-f]\{16\}$' || fail "the key" "$TMP/f/key"
+echo "$KEY8" | grep -q '^key=stall-tools-Linux-X64-libc6-2.39-0ubuntu8-5-[0-9a-f]\{16\}$' || fail "the key" "$TMP/f/key"
+# the runner is in the key: unset it is linux and x64, another runner is another key
+stall_key 2.39-0ubuntu8 - - || fail "the key with no runner variables" "$TMP/out"
+cat "$TMP/f/key" | grep -q '^key=stall-tools-linux-x64-libc6-2.39-0ubuntu8-5-[0-9a-f]\{16\}$' || fail "the key of no runner variables" "$TMP/f/key"
+stall_key 2.39-0ubuntu8 macOS ARM64 || fail "the key of another runner" "$TMP/out"
+cat "$TMP/f/key" | grep -q '^key=stall-tools-macOS-ARM64-libc6-2.39-0ubuntu8-5-[0-9a-f]\{16\}$' || fail "the key of another runner" "$TMP/f/key"
 stall_key 2.39-0ubuntu7 || fail "the key of another libc6" "$TMP/out"
 [ "$(cat "$TMP/f/key")" != "$KEY8" ] || fail "the key did not move with the libc6" "$TMP/f/key"
 stall_key 2.39-0ubuntu8 || fail "the key again" "$TMP/out"
