@@ -1,0 +1,86 @@
+name: queue passed
+description: >-
+  Whether a push run to main may skip its tests because the merge queue already
+  passed the very same commit (bats-lang/pwa#215). Reads the merge_group runs of
+  the commit from the API and decides by the commit alone: a run of the same
+  workflow file, event merge_group, head_sha the pushed commit, conclusion
+  success. No time, no cache key, no name is compared. Every other run (a
+  schedule, a workflow_dispatch, a pull request, a push with no such run) gets
+  skip=false. Call it by commit, after the checkout:
+  `uses: bats-lang/pwa/.github/actions/queue-passed@<sha>`, in a job that has
+  `permissions: {actions: read, contents: read}`. It sets up bats as the
+  caller's pins say (.github/bats-version, .github/repository-version,
+  bats.lock), builds tools/queue-passed from this action's own commit and runs
+  `queue-passed decide`; on any other event it does none of that.
+inputs:
+  token:
+    description: The token that reads the runs (needs actions read)
+    default: ${{ github.token }}
+  event:
+    description: The event of the run asking (only a test sets it)
+    default: ${{ github.event_name }}
+  sha:
+    description: The commit of the run asking (only a test sets it)
+    default: ${{ github.sha }}
+  repository:
+    description: The repository whose runs are read (only a test sets it)
+    default: ${{ github.repository }}
+  workflow-ref:
+    description: The workflow of the run asking, owner/repo/path@ref (only a test sets it)
+    default: ${{ github.workflow_ref }}
+  runs-file:
+    description: >-
+      A file in the answer's form (the API's list of workflow runs) to decide
+      from, instead of the API (only a test sets it)
+    default: ''
+outputs:
+  skip:
+    description: >-
+      true when the merge queue passed this commit and the tests it ran need not
+      run again; false otherwise (and for every event but push)
+    value: ${{ steps.decide.outputs.skip || 'false' }}
+  run-url:
+    description: The queue run that passed this commit (empty when skip is false)
+    value: ${{ steps.decide.outputs.run-url }}
+  reason:
+    description: One sentence saying why skip is what it is
+    value: "${{ steps.decide.outputs.reason || 'the event is not push, so everything runs' }}"
+runs:
+  using: composite
+  steps:
+    # The API's answer, by the commit and the event; the tool re-reads both of
+    # every run, so the filters are not trusted. A failed call leaves nothing
+    # usable and the tool then decides to run everything (area: queue-passed)
+    - name: The merge queue's runs of this commit
+      if: inputs.event == 'push' && inputs.runs-file == ''
+      continue-on-error: true
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        REPOSITORY: ${{ inputs.repository }}
+        SHA: ${{ inputs.sha }}
+        ANSWER: ${{ runner.temp }}/queue-passed-runs.json
+      run: gh api "repos/$REPOSITORY/actions/runs?event=merge_group&head_sha=$SHA&per_page=20" > "$ANSWER"
+
+    # The compiler and packages as the caller pins them
+    - name: Set up bats
+      if: inputs.event == 'push'
+      uses: bats-lang/bats/.github/actions/setup@8e978dfe7fac83726730361329c91b0e829beaad # bats 8e978df (#287)
+
+    - name: Build the tool
+      if: inputs.event == 'push'
+      shell: bash
+      working-directory: ${{ github.action_path }}/../../../tools/queue-passed
+      run: bats build --only release --repository "$HOME/repository"
+
+    - name: Decide
+      id: decide
+      if: inputs.event == 'push'
+      shell: bash
+      env:
+        EVENT: ${{ inputs.event }}
+        SHA: ${{ inputs.sha }}
+        WORKFLOW_REF: ${{ inputs.workflow-ref }}
+        ANSWER: ${{ inputs.runs-file || format('{0}/queue-passed-runs.json', runner.temp) }}
+        TOOL: ${{ github.action_path }}/../../../tools/queue-passed/dist/release/queue-passed
+      run: '"$TOOL" decide "$EVENT" "$SHA" "$WORKFLOW_REF" "$ANSWER" >> "$GITHUB_OUTPUT"'

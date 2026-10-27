@@ -5,17 +5,16 @@
 
 (* The old forms keep their published types and the text they had before
    bats-lang/pwa#201 (android-smoke), for one published version:
-   build_smoke_test_script (without the font scale step, pwa#154; removed by
-   pwa#189) and build_smoke_test_script_font_scale (type 15000, shown() polling
+   build_smoke_test_script_font_scale (type 15000, shown() polling
    uiautomator dump; removed by pwa#203), beside the new
-   build_smoke_test_script_font_scale_devtools. This prints the two old forms
-   for the app id "dev.bats.example", the second after a line of '=' signs;
-   `expected` is both scripts as they were on main before pwa#201, so an edit
-   that drops an old form, or puts the DevTools shown() or the step in the
-   first, fails here. After a second line of '=' signs it prints
+   build_smoke_test_script_font_scale_devtools. This prints that old form
+   for the app id "dev.bats.example"; `expected` is its script as it was on
+   main before pwa#201, so an edit that drops the form, or puts the DevTools
+   shown() in it, fails here. After a line of '=' signs it prints
    build_smoke_test_script_font_scale_devtools (pwa#205, removed by pwa#218),
    the form before the probes step of build_smoke_test_script_probes, as it was
-   on main before pwa#205. *)
+   on main before pwa#205. (The form without the
+   font scale step was removed by pwa#189.) *)
 fun _print {l:agz}{cap:pos}{n:nat | n <= cap}{i:nat | i <= n} .<n - i>.
   (a: !$A.arr(byte, l, cap), n: int n, i: int i): void =
   if i >= n then ()
@@ -24,15 +23,9 @@ fun _print {l:agz}{cap:pos}{n:nat | n <= cap}{i:nat | i <= n} .<n - i>.
   in _print(a, n, i + 1) end
 
 implement main0 () = let
-  var b = $B.create()
-  val () = $P.build_smoke_test_script(b, "dev.bats.example")
-  val @(a, n) = $B.into_arr(b)
-  val () = _print(a, n, 0)
-  val () = $A.free<byte>(a)
   var b2 = $B.create()
   val () = $P.build_smoke_test_script_font_scale(b2, "dev.bats.example")
   val @(a2, n2) = $B.into_arr(b2)
-  val () = println! ("==========")
   val () = _print(a2, n2, 0)
   val () = $A.free<byte>(a2)
   var b3 = $B.create()
