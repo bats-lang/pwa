@@ -16,6 +16,8 @@
 #use wasm.bats-packages.dev/bridge as BR
 
 staload TR = "./test_run.sats"
+staload SP = "./static_pages.sats"
+staload PV = "./public_values.sats"
 
 (* ============================================================
    Builder-based API (generate file contents into builders)
@@ -1537,3 +1539,42 @@ in _write_mode(project_dir, "build-android.sh", sh_b, 493) end
 implement test_wanted () = $TR.gen_test_wanted ()
 
 implement test_run () = $TR.gen_test_run ()
+
+(* ============================================================
+   gen-pwa pages (bats-lang/pwa#243, keyword: static-pages)
+   ============================================================ *)
+
+(* Whether the program's first argument is "pages": an app's generator
+   then copies a directory of its static pages instead of generating.
+   Build tooling for the app's CI: nothing of it is part of what pwa
+   generates or of what the app runs. *)
+#pub fn pages_wanted (): bool
+
+(* gen-pwa pages SOURCE NAME: copies the tree at SOURCE into dist/pwa/NAME;
+   0 when copied, 1 when refused or failed, said on stderr with the path
+   and the system's reason (src/static_pages.bats) *)
+#pub fn pages_run (): int
+
+implement pages_wanted () = $SP.pages_wanted ()
+
+implement pages_run () = $SP.pages_run ()
+
+(* ============================================================
+   gen-pwa values (bats-lang/pwa#244, keyword: public-values)
+   ============================================================ *)
+
+(* Whether the program's first argument is "values": an app's generator
+   then writes a JSON file of its public values instead of generating.
+   Build tooling for the app's CI: nothing of it is part of what pwa
+   generates or of what the app runs. *)
+#pub fn values_wanted (): bool
+
+(* gen-pwa values ENVFILE OUTFILE NAME:KEY:FORM...: writes dist/pwa/OUTFILE
+   from the committed env file; 0 when written, 1 when refused or failed,
+   said on stderr with the name and the reason, and no file is written
+   then (src/public_values.bats) *)
+#pub fn values_run (): int
+
+implement values_wanted () = $PV.values_wanted ()
+
+implement values_run () = $PV.values_run ()
