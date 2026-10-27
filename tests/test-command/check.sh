@@ -18,6 +18,7 @@
 set -eu
 GEN=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 PWA=$(cd "$2" && pwd)
+HERE=$(cd "$(dirname "$0")" && pwd)
 TMP=$(mktemp -d)
 cleanup() { pkill -f "$TMP/fake-pw" 2>/dev/null || true; rm -rf "$TMP"; }
 trap cleanup EXIT
@@ -31,7 +32,9 @@ cat > "$TMP/fake-pw" <<'FAKE'
 #!/bin/sh
 log=$FAKE_PW_LOG
 echo "keeper $PPID" >> "$log"
-{ echo "start $$ $*"; echo "url $PWA_TEST_BASE_URL"; echo "browsers $PLAYWRIGHT_BROWSERS_PATH"; echo "json ${PLAYWRIGHT_JSON_OUTPUT_NAME:-}"; } >> "$log"
+{ echo "start $$ $*"; echo "url $PWA_TEST_BASE_URL"; echo "browsers $PLAYWRIGHT_BROWSERS_PATH"; echo "json ${PLAYWRIGHT_JSON_OUTPUT_NAME:-}"; echo "evidence ${PWA_TEST_EVIDENCE_DIR:-}"; echo "options ${NODE_OPTIONS:-}"; echo "source-left ${PWA_TEST_WATCH_SOURCE:+yes}"; } >> "$log"
+# the page watch (bats-lang/pwa#230): the preload NODE_OPTIONS names is copied out for the tests of it
+if [ -n "${FAKE_PW_COPY_WATCH:-}" ]; then f=${NODE_OPTIONS#*--require=\"}; f=${f%%\"*}; cp "$f" "$FAKE_PW_COPY_WATCH"; echo "watch-existed $f" >> "$log"; fi
 node -e "fetch(process.env.PWA_TEST_BASE_URL + '/app.wasm').then(r => console.log('fetched', r.status, r.headers.get('content-type')))" >> "$log" 2>&1
 # a path with a NUL is refused, and the server goes on serving
 node -e "fetch(process.env.PWA_TEST_BASE_URL + '/%00').then(r => console.log('nul', r.status)).then(() => fetch(process.env.PWA_TEST_BASE_URL + '/')).then(r => console.log('after nul', r.status))" >> "$log" 2>&1
@@ -86,7 +89,7 @@ grep -q "could not be opened: refusing to run without the machine's lock" "$TMP/
 
 # --timings with no directory (last, empty, or "--", which is the end of
 # gen-pwa's options): refused with the usage line, nothing run
-usage='gen-pwa test \[--timings <dir>\] \[-- <playwright args>\]'
+usage='gen-pwa test \[--timings <dir>\] \[--evidence <dir>\] \[-- <playwright args>\]'
 run "$TMP/t1.log" --timings > "$TMP/t1.out" 2>&1 && { echo "FAIL: --timings last ran"; cat "$TMP/t1.out"; exit 1; }
 grep -q "^gen-pwa test: --timings needs a directory: $usage\$" "$TMP/t1.out" || { echo "FAIL: --timings last not said"; cat "$TMP/t1.out"; exit 1; }
 run "$TMP/t2.log" --timings "" > "$TMP/t2.out" 2>&1 && { echo "FAIL: --timings \"\" ran"; cat "$TMP/t2.out"; exit 1; }
@@ -94,6 +97,24 @@ grep -q "^gen-pwa test: --timings needs a directory: $usage\$" "$TMP/t2.out" || 
 run "$TMP/t3.log" --timings -- > "$TMP/t3.out" 2>&1 && { echo "FAIL: --timings -- ran"; cat "$TMP/t3.out"; exit 1; }
 grep -q "^gen-pwa test: --timings needs a directory: $usage\$" "$TMP/t3.out" || { echo "FAIL: --timings -- not said"; cat "$TMP/t3.out"; exit 1; }
 [ ! -e "$TMP/t1.log" ] && [ ! -e "$TMP/t2.log" ] && [ ! -e "$TMP/t3.log" ] || { echo "FAIL: Playwright ran with --timings and no directory"; exit 1; }
+# --evidence <dir> (bats-lang/pwa#230): the same refusals, and the directory handed over
+run "$TMP/e1.log" --evidence > "$TMP/e1.out" 2>&1 && { echo "FAIL: --evidence last ran"; cat "$TMP/e1.out"; exit 1; }
+grep -q "^gen-pwa test: --evidence needs a directory: $usage\$" "$TMP/e1.out" || { echo "FAIL: --evidence last not said"; cat "$TMP/e1.out"; exit 1; }
+run "$TMP/e2.log" --evidence -- > "$TMP/e2.out" 2>&1 && { echo "FAIL: --evidence -- ran"; cat "$TMP/e2.out"; exit 1; }
+[ ! -e "$TMP/e1.log" ] && [ ! -e "$TMP/e2.log" ] || { echo "FAIL: Playwright ran with --evidence and no directory"; exit 1; }
+run "$TMP/e3.log" --timings "$TMP/times" --evidence "$TMP/ev" -- --project x > "$TMP/e3.out" 2>&1 || { echo "FAIL: a run with --evidence"; cat "$TMP/e3.out"; exit 1; }
+[ "$(grep -c "^evidence $TMP/ev\$" "$TMP/e3.log")" = 2 ] || { echo "FAIL: --evidence not handed over as PWA_TEST_EVIDENCE_DIR"; cat "$TMP/e3.log"; exit 1; }
+[ "$(grep -c '^evidence pwa-evidence$' "$TMP/a.log")" = 2 ] || { echo "FAIL: the default evidence directory"; cat "$TMP/a.log"; exit 1; }
+[ "$(grep -c '^options .*--require="' "$TMP/a.log")" = 2 ] && [ "$(grep -c '^source-left $' "$TMP/a.log")" = 2 ] || { echo "FAIL: the preload not named in NODE_OPTIONS, or its source left in the environment"; cat "$TMP/a.log"; exit 1; }
+# a NODE_OPTIONS of the caller's is kept before ours
+NODE_OPTIONS=--no-warnings run "$TMP/n.log" > "$TMP/n.out" 2>&1 || { echo "FAIL: a run with NODE_OPTIONS"; cat "$TMP/n.out"; exit 1; }
+grep -q '^options .*--no-warnings .*--require="' "$TMP/n.log" || { echo "FAIL: the caller's NODE_OPTIONS lost"; cat "$TMP/n.log"; exit 1; }
+# the preload is removed when the run ends
+FAKE_PW_COPY_WATCH="$TMP/watch.cjs" run "$TMP/c.log" > "$TMP/c.out" 2>&1 || { echo "FAIL: a run that copies the preload"; cat "$TMP/c.out"; exit 1; }
+f=$(grep -m1 '^watch-existed ' "$TMP/c.log"); f=${f#watch-existed }
+[ -s "$TMP/watch.cjs" ] && [ ! -e "$f" ] || { echo "FAIL: the preload was not written, or is left after the run"; exit 1; }
+# its tests (node --test): a page that does not answer, a test near its timeout, and each part failing
+PWA_WATCH="$TMP/watch.cjs" node --test "$HERE/watch.test.mjs" > "$TMP/watch.out" 2>&1 || { echo "FAIL: the page watch's tests"; cat "$TMP/watch.out"; exit 1; }
 for p in $(ports "$TMP/a.log"); do closed "$p" || { echo "FAIL: port $p still served after the run"; exit 1; }; done
 
 # a caller's --workers: one run, as given
