@@ -159,6 +159,8 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: example-android
+          # the project's .nvmrc and .java-version are dotfiles; upload-artifact skips them by default (keyword: version-file)
+          include-hidden-files: true
           path: |
             example/dist/android
             example/dist/pwa
@@ -170,8 +172,8 @@ jobs:
       - name: Set up the e2e tests
         uses: ./.github/actions/e2e-setup
         with:
-          node-version: 22.23.3
           working-directory: example
+          japanese-font: "true"
 
       # the action's scripts, against a fake npm and a registry that resets
       # connections (the action's YAML runs in the step above)

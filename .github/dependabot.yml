@@ -5,12 +5,11 @@
 # example/package-lock.json (the Playwright and serve versions the e2e tests
 # run on).
 #
-# Not here: Node's version, which is a literal in check.yml and android.yml and
-# the input default of .github/actions/e2e-setup. Dependabot's docs name none of
-# them, so Renovate moves them once its app is installed
-# (bats-lang/repository-prototype#369), and by hand until then. Java's version
-# in android.yml is moved the same way. The bats setup action's commit (ignored
-# below) and the runner label are moved by hand.
+# Not here: Node's and Java's versions, which are the version files `.nvmrc` and
+# `.java-version` (bats-lang/pwa#136), not a literal in a workflow. Dependabot
+# names none of them, so they are moved by hand until pwa#144's relock subcommand.
+# The bats setup action's commit (ignored below) and the runner label are moved
+# by hand.
 #
 # One pull request for all of them (bats-lang/pwa#156, as quire#799): the group
 # below spans both ecosystems, so a weekly run opens one pull request and one
