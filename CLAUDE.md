@@ -305,6 +305,7 @@ names is touched (its `paths:`):
 
 * gen-pwa test (pwa#82): `.claude/rules/gen-pwa-test.md`
 * gen-pwa pages (pwa#243): `.claude/rules/static-pages.md`
+* gen-pwa values (pwa#244): `.claude/rules/public-values.md`
 * The Android smoke test: `.claude/rules/android-smoke.md`
 * The relock of the Android SDK pins (pwa#185): `.claude/rules/android-relock.md`
 * The e2e setup action (quire#637): `.claude/rules/e2e-setup.md`

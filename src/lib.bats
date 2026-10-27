@@ -17,6 +17,7 @@
 
 staload TR = "./test_run.sats"
 staload SP = "./static_pages.sats"
+staload PV = "./public_values.sats"
 
 (* ============================================================
    Builder-based API (generate file contents into builders)
@@ -1557,3 +1558,23 @@ implement test_run () = $TR.gen_test_run ()
 implement pages_wanted () = $SP.pages_wanted ()
 
 implement pages_run () = $SP.pages_run ()
+
+(* ============================================================
+   gen-pwa values (bats-lang/pwa#244, keyword: public-values)
+   ============================================================ *)
+
+(* Whether the program's first argument is "values": an app's generator
+   then writes a JSON file of its public values instead of generating.
+   Build tooling for the app's CI: nothing of it is part of what pwa
+   generates or of what the app runs. *)
+#pub fn values_wanted (): bool
+
+(* gen-pwa values ENVFILE OUTFILE NAME:KEY:FORM...: writes dist/pwa/OUTFILE
+   from the committed env file; 0 when written, 1 when refused or failed,
+   said on stderr with the name and the reason, and no file is written
+   then (src/public_values.bats) *)
+#pub fn values_run (): int
+
+implement values_wanted () = $PV.values_wanted ()
+
+implement values_run () = $PV.values_run ()

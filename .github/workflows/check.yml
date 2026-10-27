@@ -215,6 +215,10 @@ jobs:
       - name: gen-pwa pages
         run: (cd tests/static-pages && bats test --repository $HOME/repository)
 
+      # gen-pwa values (bats-lang/pwa#244): quire's sync-clients.json byte for byte, and each refusal
+      - name: gen-pwa values
+        run: tests/values/check.sh example/dist/debug/build-pwa
+
       # the example's suite, run as an app runs it: build-pwa test serves
       # dist/pwa itself and checks the browsers Playwright expects
       - name: Run e2e tests
