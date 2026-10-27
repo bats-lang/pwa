@@ -76,7 +76,7 @@ implement main0 () =
 
 ## Android app
 
-`create_android(app_name, app_id, web_dir, project_dir)` writes a
+`create_android_locked(app_name, app_id, web_dir, project_dir, mime)` writes a
 [Capacitor](https://capacitorjs.com) project in `project_dir` around the
 PWA in `web_dir` (relative to `project_dir`, e.g. `"../pwa"`):
 `capacitor.config.json`, `package.json`, `android-release.gradle`,
@@ -89,9 +89,7 @@ first run is retried when the network failed, 3 tries, and the wrapper and
 the binary are checked against pinned checksums, bats-lang/pwa#158; pnpm installs a plugin from a subfolder of a git repository,
 which npm cannot: bats-lang/quire#321), with `node_modules` flat
 (`nodeLinker: hoisted` in the `pnpm-workspace.yaml` it writes), where
-Capacitor's Gradle files look for the plugins. In the locked form
-(`create_android_locked`, beside `create_android`, which keeps a bare
-`pnpm install` until bats-lang/pwa#165 removes it) the install is
+Capacitor's Gradle files look for the plugins. The install is
 `pnpm install --frozen-lockfile` from the `pnpm-lock.yaml` the app
 commits and puts beside `build-android.sh` (it is not generated, so what
 pnpm resolves for the plugins' own dependencies cannot move under a

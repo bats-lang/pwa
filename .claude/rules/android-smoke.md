@@ -234,7 +234,7 @@ paths:
   (`build_smoke_test_script_font_scale`, `n + 15000`: it still polls
   `uiautomator dump`, byte for byte the script of main before pwa#201), and the
   fix is the new form beside it,
-  `build_smoke_test_script_font_scale_devtools` (`n + 16000`), which `create_android`
+  `build_smoke_test_script_font_scale_devtools` (`n + 16000`), which `create_android_locked`
   writes and so which every app build's `smoke-test.sh` is. The script is built from
   pieces (`_smoke_head_a`, `_smoke_shown_dump` or `_smoke_shown_devtools`,
   `_smoke_head_b`, the font scale step, `_smoke_tail_a`, `_smoke_never_dump` or
@@ -264,7 +264,7 @@ paths:
 * The activity is recreated by a font scale (see the file hand-over steps), so each
   scale is probed again until the answer is right, 15 tries 2 s apart: a page that
   is still loading, or still at the old scale, is not a failure, the last answer is.
-* `build_smoke_test_script_font_scale` is the form `create_android` writes;
+* `build_smoke_test_script_font_scale` is the form `create_android_locked` writes;
   `tests/android-smoke-dom/check.sh` plays the step against the stand-in
   `adb` (it records the scale set) and `server.py`, whose probe answers a line
   20 px times the scale: passes; the line staying at 20 px (a shell with
@@ -315,7 +315,7 @@ paths:
 
 * Chromium cannot draw Android's floating selection menu, so quire#753's question (does a
   system menu drawn over a toolbar button hide it) is asked of the real WebView. The newest
-  smoke form, `build_smoke_test_script_probes` (the form `create_android` writes), adds a step
+  smoke form, `build_smoke_test_script_probes` (the form `create_android_locked` writes), adds a step
   after the font scale. It reads files next to `smoke-test.sh`, each a JavaScript expression run
   through `devtools_eval`; an app with none of them gets the script it had, and the step makes no
   call. The step only reads the page and sends input through adb: nothing pwa generates for the

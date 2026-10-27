@@ -2,7 +2,7 @@
 (* Native build tool: writes index.html, bridge.js, service-worker.js, manifest.json to disk *)
 (* All JS generation is delegated to the bridge package: the page holds
    bridge.js and nothing else, and the service worker is bridge's. *)
-(* For Android: writes a Capacitor project around the PWA (create_android) *)
+(* For Android: writes a Capacitor project around the PWA (create_android_locked) *)
 
 #include "share/atspre_staload.hats"
 
@@ -65,25 +65,17 @@ staload PV = "./public_values.sats"
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 2000] $B.builder(m)): void
 
 (* build-android.sh: builds the Capacitor project it sits in into a
-   release AAB and APK (pnpm install, cap add android, the app's own
+   release AAB and APK (pnpm install from a lock, cap add android, the app's own
    MainActivity, its intent filters and launcher icon, the Gradle above,
    cap sync, gradlew bundleRelease assembleRelease; pnpm comes from
    fetch-pnpm.sh, below); signed when
    ANDROID_KEYSTORE names a keystore file. The launcher icon is the
    PWA's icon-512.png in web_dir (relative to the project), when there
-   is one. *)
-#pub fn build_android_script {nw:nat | nw < 256}{n:nat | n + 4000 <= $B.BUILDER_CAP}
-  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 4000] $B.builder(m), web_dir: string nw): void
-
-(* build_android_script_locked (bats-lang/pwa#131): the same script, with
-   the install from a lock. It runs pnpm install --frozen-lockfile on the
+   is one. The install (bats-lang/pwa#131) runs pnpm install --frozen-lockfile on the
    pnpm-lock.yaml the app commits beside the script (it fails when the lock
    does not match package.json and never rewrites it) and stops with a
    message when there is none, so what pnpm resolves for the plugins' own
-   dependencies cannot move under a commit. build_android_script, above,
-   is unchanged (a bare pnpm install) and stays for one published version,
-   until the apps have moved (the ticket that removes it is named in
-   .claude/rules/android-lock.md). *)
+   dependencies cannot move under a commit (android-lock). *)
 #pub fn build_android_script_locked {nw:nat | nw < 256}{n:nat | n + 5000 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 5000] $B.builder(m), web_dir: string nw): void
 
@@ -171,15 +163,15 @@ staload PV = "./public_values.sats"
    emulator and fails unless the page's text is about that many times as high
    as at 1.0 (the shell sets no textZoom, so the scale reaches the page) and
    fits the window (android-smoke). *)
-(* deprecated (android-smoke): create_android writes build_smoke_test_script_font_scale_devtools, whose shown() asks the page (pwa#201); this keeps its type and its dump-polling text, removed by bats-lang/pwa#203 *)
+(* deprecated (android-smoke): create_android_locked writes build_smoke_test_script_font_scale_devtools, whose shown() asks the page (pwa#201); this keeps its type and its dump-polling text, removed by bats-lang/pwa#203 *)
 #pub fn build_smoke_test_script_font_scale {ni:nat | ni < 256}{n:nat | n + 15000 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 15000] $B.builder(m), app_id: string ni): void
 
 (* build_smoke_test_script_font_scale with the fix of bats-lang/pwa#201 (android-smoke): shown()
    asks the page over DevTools whether it is visible and holds the text, as uiautomator's tree
    stays partial on a slow emulator. Its text is longer, so its bound is 16000. The form
-   create_android writes. *)
-(* deprecated (android-smoke): create_android writes build_smoke_test_script_probes, which adds the probes of pwa#205; this keeps its type and its text, removed by bats-lang/pwa#218 *)
+   create_android_locked writes. *)
+(* deprecated (android-smoke): create_android_locked writes build_smoke_test_script_probes, which adds the probes of pwa#205; this keeps its type and its text, removed by bats-lang/pwa#218 *)
 #pub fn build_smoke_test_script_font_scale_devtools {ni:nat | ni < 256}{n:nat | n + 16000 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 16000] $B.builder(m), app_id: string ni): void
 
@@ -195,15 +187,9 @@ staload PV = "./public_values.sats"
    Java versions the build reads), build-android.sh and smoke-test.sh. Running build-android.sh (Node,
    a JDK and the Android SDK needed) builds the Android app, which opens
    and is shared files of type mime. No secret is written: signing
-   reads the keystore and its passwords when the build runs. *)
-#pub fn create_android {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nd:nat | nd < 256}{nm:nat | nm < 256}
-  (app_name: string na, app_id: string ni, web_dir: string nw, project_dir: string nd, mime: string nm): void
-
-(* create_android_locked (bats-lang/pwa#131): create_android with the
-   locked form of build-android.sh (build_android_script_locked): the app
-   commits a pnpm-lock.yaml beside the project, and the install from it is
-   frozen. An app moves to it by calling this in place of create_android;
-   create_android is unchanged. *)
+   reads the keystore and its passwords when the build runs.
+   The app commits a pnpm-lock.yaml beside the project, and the install
+   from it is frozen (bats-lang/pwa#131, android-lock). *)
 #pub fn create_android_locked {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nd:nat | nd < 256}{nm:nat | nm < 256}
   (app_name: string na, app_id: string ni, web_dir: string nw, project_dir: string nd, mime: string nm): void
 
@@ -552,12 +538,6 @@ fn _android_script_tail {nw:nat | nw < 256}{n:nat | n + 1800 <= $B.BUILDER_CAP}
   val () = $B.bput(b, "cd android\n")
   val () = $B.bput(b, "./gradlew bundleRelease assembleRelease\n")
 in end
-
-implement build_android_script (b, web_dir) = let
-  val () = _android_script_head(b)
-  val () = _android_script_pnpm(b)
-  val () = $B.bput(b, "$pnpm install\n")
-in _android_script_tail(b, web_dir) end
 
 implement build_android_script_locked (b, web_dir) = let
   val () = _android_script_head(b)
@@ -1499,12 +1479,6 @@ fn _android_project_files {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 2
   var st_b = $B.create()
   val () = build_smoke_test_script_probes(st_b, app_id)
 in _write_mode(project_dir, "smoke-test.sh", st_b, 493) end
-
-implement create_android (app_name, app_id, web_dir, project_dir, mime) = let
-  val () = _android_project_files(app_name, app_id, web_dir, project_dir, mime)
-  var sh_b = $B.create()
-  val () = build_android_script(sh_b, web_dir)
-in _write_mode(project_dir, "build-android.sh", sh_b, 493) end
 
 implement create_android_locked (app_name, app_id, web_dir, project_dir, mime) = let
   val () = _android_project_files(app_name, app_id, web_dir, project_dir, mime)

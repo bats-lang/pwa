@@ -88,8 +88,7 @@ workflow (keyword: version-file, bats-lang/pwa#136): `.nvmrc` (setup-node's
 `node-version-file`) and `.java-version` (setup-java's `java-version-file`,
 whose parser takes `21.0.12+8.0.LTS` from a file not named `.tool-versions`).
 `android.yml` has no checkout of its caller, so it reads them from the
-artifact it downloads, `app/<project-dir>/`, where `create_android` and
-`create_android_locked` write them (the versions are two constants in
+artifact it downloads, `app/<project-dir>/`, where `create_android_locked` writes them (the versions are two constants in
 `src/lib.bats`); the caller's `upload-artifact` of the project needs
 `include-hidden-files: true`, since the action skips dotfiles by default and
 the job then fails with "node version file ... does not exist"; `e2e-setup` reads `.nvmrc` from its `working-directory`
