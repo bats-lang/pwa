@@ -8,9 +8,12 @@ description: >-
   android.yml is called:
   `uses: bats-lang/pwa/.github/actions/e2e-setup@<sha>`, after the checkout.
 inputs:
-  node-version:
-    description: Node.js version for actions/setup-node (exact, as bridge and dom pin it)
-    default: "22.23.3"
+  node-version-file:
+    description: >-
+      The file holding Node.js's version, read by actions/setup-node, relative to
+      working-directory (.nvmrc, the file nvm and Renovate read too); no literal
+      version is set here (bats-lang/pwa#136)
+    default: ".nvmrc"
   working-directory:
     description: The directory of package.json and package-lock.json
     default: "."
@@ -28,8 +31,15 @@ inputs:
   stall-tools:
     description: >-
       Install gdb, elfutils, libc6-dbg and rr for an app's stall capture
-      ("true" or "false"); every apt call is bounded and a failure never
-      fails the job (bats-lang/pwa#178)
+      ("true" or "false"); every apt call is bounded, a failure never
+      fails the job (bats-lang/pwa#178) and the packages are kept between
+      runs under a key that names their versions (bats-lang/pwa#227)
+    default: "false"
+  japanese-font:
+    description: >-
+      Install a font with Japanese characters (IPAGothic, 3.5 MB, kept
+      between runs under a key that names its content; "true" or "false"),
+      for pages that draw Japanese text in the browser (bats-lang/pwa#226)
     default: "false"
 outputs:
   playwright-version:
@@ -47,7 +57,7 @@ runs:
     - name: Set up Node.js
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
-        node-version: ${{ inputs.node-version }}
+        node-version-file: ${{ inputs.working-directory }}/${{ inputs.node-version-file }}
         cache: npm
         cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
 
@@ -81,7 +91,46 @@ runs:
         PLAYWRIGHT_BROWSERS_PATH: ${{ steps.version.outputs.browsers }}
 
     # keyword: stall-tools (.claude/rules/e2e-setup.md)
+    - name: Name the stall tools' packages
+      id: stall-tools
+      if: inputs.stall-tools == 'true'
+      shell: bash
+      run: ${{ github.action_path }}/stall-tools.sh key
+      env:
+        E2E_STALL_STATE: ${{ runner.temp }}/stall-tools-state
+
+    - name: Restore the stall tools' packages
+      if: inputs.stall-tools == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/stall-tools-debs
+        key: ${{ steps.stall-tools.outputs.key }}
+
     - name: Install gdb, elfutils and libc6-dbg
       if: inputs.stall-tools == 'true'
       shell: bash
-      run: ${{ github.action_path }}/stall-tools.sh
+      run: ${{ github.action_path }}/stall-tools.sh install
+      env:
+        E2E_STALL_STATE: ${{ runner.temp }}/stall-tools-state
+        STALL_DEBS_DIR: ${{ runner.temp }}/stall-tools-debs
+
+    # keyword: japanese-font (.claude/rules/e2e-setup.md)
+    - name: Name the Japanese font
+      id: japanese-font
+      if: inputs.japanese-font == 'true'
+      shell: bash
+      run: ${{ github.action_path }}/japanese-font.sh key
+
+    - name: Restore the Japanese font
+      if: inputs.japanese-font == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/japanese-font
+        key: ${{ steps.japanese-font.outputs.key }}
+
+    - name: Install the Japanese font
+      if: inputs.japanese-font == 'true'
+      shell: bash
+      run: ${{ github.action_path }}/japanese-font.sh install
+      env:
+        FONT_DIR: ${{ runner.temp }}/japanese-font

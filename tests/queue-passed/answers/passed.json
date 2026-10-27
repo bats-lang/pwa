@@ -1,0 +1,116 @@
+{
+  "total_count": 3,
+  "workflow_runs": [
+    {
+      "artifacts_url": "https://api.github.com/repos/bats-lang/quire/actions/runs/40231953202/artifacts",
+      "cancel_url": "https://api.github.com/repos/bats-lang/quire/actions/runs/40231953202/cancel",
+      "check_suite_id": 109041028542,
+      "check_suite_node_id": "CS_kwDORcH2Mc8AAAAZY1oNvg",
+      "check_suite_url": "https://api.github.com/repos/bats-lang/quire/check-suites/109041028542",
+      "conclusion": "skipped",
+      "created_at": "2026-10-25T20:41:30Z",
+      "display_title": "check",
+      "event": "merge_group",
+      "head_branch": "gh-readonly-queue/main/pr-873-47a371d9c114d1c2bb5e9c8a80e8b47cb1a9189f",
+      "head_sha": "7fb2de0db6a22d79b672b2c75eb246400e5630d4",
+      "html_url": "https://github.com/bats-lang/quire/actions/runs/40231953202",
+      "id": 40231953202,
+      "jobs_url": "https://api.github.com/repos/bats-lang/quire/actions/runs/40231953202/jobs",
+      "logs_url": "https://api.github.com/repos/bats-lang/quire/actions/runs/40231953202/logs",
+      "name": "check",
+      "node_id": "WFR_kwLORcH2Mc8AAAAJXgLjMg",
+      "path": ".github/workflows/check.yml",
+      "previous_attempt_url": null,
+      "referenced_workflows": [
+        {
+          "path": "bats-lang/pwa/.github/workflows/android.yml@34119fbcf644c7a2a2745b70f8263e37db501bd6",
+          "sha": "34119fbcf644c7a2a2745b70f8263e37db501bd6"
+        },
+        {
+          "path": "bats-lang/pwa/.github/workflows/play-release.yml@de812f3cb8710c6d2ed1e488948635926faf0b27",
+          "sha": "de812f3cb8710c6d2ed1e488948635926faf0b27"
+        }
+      ],
+      "rerun_url": "https://api.github.com/repos/bats-lang/quire/actions/runs/40231953202/rerun",
+      "run_attempt": 1,
+      "run_number": 1867,
+      "run_started_at": "2026-10-25T20:41:30Z",
+      "status": "completed",
+      "updated_at": "2026-10-25T20:41:32Z",
+      "url": "https://api.github.com/repos/bats-lang/quire/actions/runs/40231953202",
+      "workflow_id": 240305187,
+      "workflow_url": "https://api.github.com/repos/bats-lang/quire/actions/workflows/240305187"
+    },
+    {
+      "artifacts_url": "https://api.github.com/repos/bats-lang/quire/actions/runs/40229598535/artifacts",
+      "cancel_url": "https://api.github.com/repos/bats-lang/quire/actions/runs/40229598535/cancel",
+      "check_suite_id": 109034831228,
+      "check_suite_node_id": "CS_kwDORcH2Mc8AAAAZYvt9fA",
+      "check_suite_url": "https://api.github.com/repos/bats-lang/quire/check-suites/109034831228",
+      "conclusion": "success",
+      "created_at": "2026-10-25T20:11:33Z",
+      "display_title": "check",
+      "event": "merge_group",
+      "head_branch": "gh-readonly-queue/main/pr-873-47a371d9c114d1c2bb5e9c8a80e8b47cb1a9189f",
+      "head_sha": "7fb2de0db6a22d79b672b2c75eb246400e5630d4",
+      "html_url": "https://github.com/bats-lang/quire/actions/runs/40229598535",
+      "id": 40229598535,
+      "jobs_url": "https://api.github.com/repos/bats-lang/quire/actions/runs/40229598535/jobs",
+      "logs_url": "https://api.github.com/repos/bats-lang/quire/actions/runs/40229598535/logs",
+      "name": "check",
+      "node_id": "WFR_kwLORcH2Mc8AAAAJXd71Rw",
+      "path": ".github/workflows/check.yml",
+      "previous_attempt_url": null,
+      "referenced_workflows": [
+        {
+          "path": "bats-lang/pwa/.github/workflows/play-release.yml@de812f3cb8710c6d2ed1e488948635926faf0b27",
+          "sha": "de812f3cb8710c6d2ed1e488948635926faf0b27"
+        },
+        {
+          "path": "bats-lang/pwa/.github/workflows/android.yml@34119fbcf644c7a2a2745b70f8263e37db501bd6",
+          "sha": "34119fbcf644c7a2a2745b70f8263e37db501bd6"
+        }
+      ],
+      "rerun_url": "https://api.github.com/repos/bats-lang/quire/actions/runs/40229598535/rerun",
+      "run_attempt": 1,
+      "run_number": 1864,
+      "run_started_at": "2026-10-25T20:11:33Z",
+      "status": "completed",
+      "updated_at": "2026-10-25T20:40:55Z",
+      "url": "https://api.github.com/repos/bats-lang/quire/actions/runs/40229598535",
+      "workflow_id": 240305187,
+      "workflow_url": "https://api.github.com/repos/bats-lang/quire/actions/workflows/240305187"
+    },
+    {
+      "artifacts_url": "https://api.github.com/repos/bats-lang/quire/actions/runs/40229598279/artifacts",
+      "cancel_url": "https://api.github.com/repos/bats-lang/quire/actions/runs/40229598279/cancel",
+      "check_suite_id": 109034830553,
+      "check_suite_node_id": "CS_kwDORcH2Mc8AAAAZYvt62Q",
+      "check_suite_url": "https://api.github.com/repos/bats-lang/quire/check-suites/109034830553",
+      "conclusion": "success",
+      "created_at": "2026-10-25T20:11:33Z",
+      "display_title": "supersede",
+      "event": "merge_group",
+      "head_branch": "gh-readonly-queue/main/pr-873-47a371d9c114d1c2bb5e9c8a80e8b47cb1a9189f",
+      "head_sha": "7fb2de0db6a22d79b672b2c75eb246400e5630d4",
+      "html_url": "https://github.com/bats-lang/quire/actions/runs/40229598279",
+      "id": 40229598279,
+      "jobs_url": "https://api.github.com/repos/bats-lang/quire/actions/runs/40229598279/jobs",
+      "logs_url": "https://api.github.com/repos/bats-lang/quire/actions/runs/40229598279/logs",
+      "name": "supersede",
+      "node_id": "WFR_kwLORcH2Mc8AAAAJXd70Rw",
+      "path": ".github/workflows/supersede.yml",
+      "previous_attempt_url": null,
+      "referenced_workflows": [],
+      "rerun_url": "https://api.github.com/repos/bats-lang/quire/actions/runs/40229598279/rerun",
+      "run_attempt": 1,
+      "run_number": 102,
+      "run_started_at": "2026-10-25T20:11:33Z",
+      "status": "completed",
+      "updated_at": "2026-10-25T20:11:42Z",
+      "url": "https://api.github.com/repos/bats-lang/quire/actions/runs/40229598279",
+      "workflow_id": 387622605,
+      "workflow_url": "https://api.github.com/repos/bats-lang/quire/actions/workflows/387622605"
+    }
+  ]
+}

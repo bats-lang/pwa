@@ -16,11 +16,19 @@ fn generate (): void = let
   val () = $P.create_android_locked("Example App", "dev.bats.example", "../pwa", "dist/android", "text/plain")
 in end
 
-(* build-pwa test [--timings <dir>] [-- <playwright args>] runs the
+(* build-pwa test [--timings <dir>] [--evidence <dir>] [-- <playwright args>] runs the
    example's e2e suite against dist/pwa (bats-lang/pwa#82); build-pwa
-   alone generates it *)
+   alone generates it; build-pwa pages SOURCE NAME copies a directory of
+   static pages to dist/pwa/NAME (bats-lang/pwa#243); build-pwa values ENVFILE
+   OUTFILE NAME:KEY:FORM... writes a JSON file of public values (bats-lang/pwa#244) *)
 implement main0 () =
   if $P.test_wanted () then let
     val status = $P.test_run ()
+  in if status <> 0 then exit_void (status) else () end
+  else if $P.pages_wanted () then let
+    val status = $P.pages_run ()
+  in if status <> 0 then exit_void (status) else () end
+  else if $P.values_wanted () then let
+    val status = $P.values_run ()
   in if status <> 0 then exit_void (status) else () end
   else generate ()
