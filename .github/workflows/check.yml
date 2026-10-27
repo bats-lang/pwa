@@ -172,6 +172,7 @@ jobs:
         with:
           node-version: 22.23.3
           working-directory: example
+          japanese-font: "true"
 
       # the action's scripts, against a fake npm and a registry that resets
       # connections (the action's YAML runs in the step above)
