@@ -3,8 +3,11 @@ name: check
 on:
   push:
     branches: [main]
+  # A draft pull request runs no job (keyword: draft-ci, pwa#249), so marking it
+  # ready must start the check: ready_for_review is added to the default types
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   # The daily relock dispatches it on its relock/<date> branch: a pull
   # request opened with GITHUB_TOKEN starts no workflow by itself
   workflow_dispatch:
@@ -17,6 +20,7 @@ on:
 
 jobs:
   check:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -229,6 +233,7 @@ jobs:
   # The example's Android app, built by the reusable workflow; unsigned,
   # since this repository has no keystore
   android:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     needs: check
     uses: ./.github/workflows/android.yml
     with:
@@ -247,6 +252,7 @@ jobs:
   # it, from a fixture of the API's answer in place of the API: a push of a sha
   # the queue passed skips and names the queue run, and any other event never does
   queue-passed-action:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     permissions:
       actions: read
