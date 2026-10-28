@@ -3,7 +3,10 @@
 # track unless told otherwise; bats-lang/pwa#90, from quire#308), through
 # the Play Developer API's edits: insert, upload the bundle, set the
 # track to a completed release of its version code with these release
-# notes, then commit (or, for a dry run, validate). The release is named
+# notes, then commit (or, for a dry run, validate). Before anything is set,
+# the new version code must be above every code Play already has (the
+# track's releases and the edit's bundles, read from the API in the same
+# edit before the upload: bats-lang/pwa#258, keyword: version-code). The release is named
 # by Play, from the bundle's versionName. Committing with
 # ERROR_IF_IN_REVIEW: a change in review is never cancelled by this one,
 # which then fails instead. An edit that does not commit is deleted, so
@@ -92,10 +95,28 @@ call "create the edit" -X POST -H 'Content-Type: application/json' -d '{}' "$app
 edit=$(jq -r .id "$body")
 echo "edit $edit"
 
+# the codes Play already has, read in this edit before the upload; the
+# track's are strings and the bundles' numbers, and each may be empty
+call "read the $track track" -X GET "$app/edits/$edit/tracks/$track"
+on_track=$(jq -r '[.releases[]?.versionCodes[]? | tonumber] | max // empty' "$body")
+call "list the bundles" -X GET "$app/edits/$edit/bundles"
+in_bundles=$(jq -r '[.bundles[]?.versionCode | tonumber] | max // empty' "$body")
+highest=
+for code in "$on_track" "$in_bundles"; do
+  if [ -n "$code" ] && { [ -z "$highest" ] || [ "$code" -gt "$highest" ]; }; then highest=$code; fi
+done
+
 call "upload the bundle" -X POST -H 'Content-Type: application/octet-stream' \
   --data-binary "@$aab" "$upload/edits/$edit/bundles?uploadType=media"
 version_code=$(jq -r .versionCode "$body")
 echo "bundle uploaded: version code $version_code"
+
+# Play names the code in its answer to the upload (it is in the bundle's
+# manifest, a protobuf), so the comparison is here, before the track is set
+if [ -n "$highest" ] && [ "$version_code" -le "$highest" ]; then
+  echo "error: the new version code $version_code is not above the highest on Play, $highest (track $track: ${on_track:-none}, bundles: ${in_bundles:-none})" >&2
+  exit 1
+fi
 
 jq -n --arg track "$track" --arg code "$version_code" --rawfile notes "$notes" '{
   track: $track,

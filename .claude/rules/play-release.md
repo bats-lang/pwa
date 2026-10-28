@@ -20,6 +20,43 @@ delete an edit that does not commit. `tests/play-release/run.sh` (a step
 of the `check` job) checks it against a stub of Play, and that every
 action the workflow uses is pinned by a commit with its version.
 
+* **The new version code is above every code on Play (pwa#258, keyword:
+  version-code).** In the same edit, before the upload, the script reads the
+  track (`edits.tracks.get`) and the bundles (`edits.bundles.list`); after
+  the upload, which is where Play names the new bundle's code (it is in the
+  bundle's manifest, a protobuf), and before the track is set, it refuses a
+  code that is not strictly above the highest of the two, naming the new code
+  and the highest. Nothing is kept in a file: the data is the run's own. The
+  edit is deleted as for any refusal. An empty track and no bundles accept
+  any code. `tests/play-release/run.sh` plays equal (the 955894 case), lower,
+  higher and empty against the stub (`STUB_TRACK_CODES`, `STUB_BUNDLE_CODES`,
+  `STUB_UPLOAD_CODE`).
+* **Play's answer shapes (pwa#258; read 2026-10-28).** The Google Play
+  Developer API reference says, for `edits.tracks.get` (a `Track`, whose
+  `releases[]` are `Release`s): `versionCodes[]` is `string ( int64 format)`,
+  "Version codes of all APKs in the release"
+  (https://developers.google.com/android-publisher/api-ref/rest/v3/edits.tracks);
+  for `edits.bundles.list` (`{"kind": string, "bundles": [Bundle]}`): a
+  `Bundle`'s `versionCode` is `integer`, "The version code of the Android App
+  Bundle, as specified in the Android App Bundle's base module APK manifest
+  file" (https://developers.google.com/android-publisher/api-ref/rest/v3/edits.bundles).
+  The script applies `tonumber` to both, so it takes either form; the stub
+  writes strings for the track and numbers for the bundles, as the reference
+  says. No recorded real answer was found in this repository's history.
+* **Why this is shell, jq and Python (the avenue, pwa#258, CLAUDE.md "We do
+  not write shell scripts").** The job is an HTTPS call with a bearer token
+  (`edits`, `tracks`, `bundles`), a comparison of the numbers in the answers,
+  and, for the test, a loopback HTTP server that logs each request. Searched
+  in the bats packages (2026-10-28; `grep -E "socket\(|getaddrinfo|SSL_|
+  libcurl|curl_|accept\(|listen\("` over every package's `.bats` sources):
+  no package opens a socket, speaks TLS or serves HTTP. `process` spawns a
+  program, so a bats program could only run `curl`, which is the same
+  dependency with a bats wrapper; `json` and `toml` parse, they do not
+  call; `bridge`'s `fetch` is wasm only (`#target wasm`); `file` reads
+  files and descriptors. What bats lacks is a native HTTPS client and a
+  loopback HTTP server; the move is bats-lang/repository-prototype#543 (p2).
+  The script and its test already existed as shell; this change adds a
+  comparison to them, not a new file.
 * **Process, not a capability.** Nothing pwa generates changes, and
   nothing the app runs: it is a release step of an app's CI, as
   `android.yml` and the e2e-setup action are, and it holds no secret.
