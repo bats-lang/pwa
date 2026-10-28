@@ -3,7 +3,9 @@
 # a release makes an edit, uploads the AAB's bytes, sets the internal
 # track to a completed release of the uploaded version code with the
 # notes, and commits without cancelling a review; a dry run validates and
-# deletes the edit; a refused step deletes the edit and commits nothing;
+# deletes the edit; a new version code that is not above every code on the
+# track and in the bundles list (read from the API in the same edit) is
+# refused with both numbers; a refused step deletes the edit and commits nothing;
 # notes that are empty or over Play's 500 characters fail before Play is
 # asked anything; another track is released to by its name, and production
 # or a name that is no track's is refused before Play is asked; the notes
@@ -55,13 +57,15 @@ stub
 "$release" "$tmp/app.aab" "$tmp/notes" > "$tmp/out" || fail "$case: failed"
 expect_requests \
   "POST $app/edits" \
+  "GET $app/edits/edit-1/tracks/internal" \
+  "GET $app/edits/edit-1/bundles" \
   "POST /upload$app/edits/edit-1/bundles?uploadType=media" \
   "PUT $app/edits/edit-1/tracks/internal" \
   "POST $app/edits/edit-1:commit?changesInReviewBehavior=ERROR_IF_IN_REVIEW"
 [ -z "$(jq -r 'select(.authorization != "Bearer token-1") | .path' "$tmp/log")" ] || fail "$case: a request without the token"
-jq -r 'select(.path | contains("/bundles")) | .body' "$tmp/log" | base64 -d > "$tmp/sent.aab"
+jq -r 'select(.method == "POST" and (.path | contains("/bundles"))) | .body' "$tmp/log" | base64 -d > "$tmp/sent.aab"
 cmp "$tmp/app.aab" "$tmp/sent.aab" || fail "$case: the bundle sent is not the AAB"
-[ "$(jq -r 'select(.path | contains("/bundles")) | .type' "$tmp/log")" = application/octet-stream ] || fail "$case: the bundle's type"
+[ "$(jq -r 'select(.method == "POST" and (.path | contains("/bundles"))) | .type' "$tmp/log")" = application/octet-stream ] || fail "$case: the bundle's type"
 jq -r 'select(.method == "PUT") | .body' "$tmp/log" | base64 -d | jq -c . > "$tmp/track"
 want='{"track":"internal","releases":[{"versionCodes":["4242"],"status":"completed","releaseNotes":[{"language":"en-US","text":"• One\n• Two “quoted”"}]}]}'
 [ "$(cat "$tmp/track")" = "$want" ] || fail "$case: the track was $(cat "$tmp/track")"
@@ -73,13 +77,15 @@ stub
 "$release" "$tmp/app.aab" "$tmp/notes" --dry-run > /dev/null || fail "$case: failed"
 expect_requests \
   "POST $app/edits" \
+  "GET $app/edits/edit-1/tracks/internal" \
+  "GET $app/edits/edit-1/bundles" \
   "POST /upload$app/edits/edit-1/bundles?uploadType=media" \
   "PUT $app/edits/edit-1/tracks/internal" \
   "POST $app/edits/edit-1:validate" \
   "DELETE $app/edits/edit-1"
 echo "ok: $case"
 
-for step in /bundles /tracks/internal :validate; do
+for step in GET:/tracks/internal GET:/bundles POST:/bundles PUT:/tracks/internal POST::validate; do
   case="a refused $step"
   stub "$step"
   if "$release" "$tmp/app.aab" "$tmp/notes" --dry-run > /dev/null 2> "$tmp/err"; then
@@ -92,8 +98,58 @@ for step in /bundles /tracks/internal :validate; do
   echo "ok: $case"
 done
 
+# codes_stub <track codes> <bundle codes> <uploaded code>: a stub whose Play
+# already holds these codes and answers the upload with the last
+codes_stub() {
+  STUB_TRACK_CODES=$1 STUB_BUNDLE_CODES=$2 STUB_UPLOAD_CODE=$3
+  export STUB_TRACK_CODES STUB_BUNDLE_CODES STUB_UPLOAD_CODE
+  stub
+  unset STUB_TRACK_CODES STUB_BUNDLE_CODES STUB_UPLOAD_CODE
+}
+# refused_code <what>: the release failed naming both numbers, did not set the
+# track or commit, and deleted the edit
+refused_code() {
+  if "$release" "$tmp/app.aab" "$tmp/notes" > /dev/null 2> "$tmp/err"; then fail "$case: succeeded"; fi
+  grep -q "version code $1 is not above the highest on Play, $2" "$tmp/err" || fail "$case: did not name both numbers: $(cat "$tmp/err")"
+  if requests | grep -Eq 'PUT|:commit'; then fail "$case: set the track or committed"; fi
+  [ "$(requests | tail -1)" = "DELETE $app/edits/edit-1" ] || fail "$case: the edit was not deleted"
+}
+
+case="version code: equal to the one on the track (the 955894 case)"
+codes_stub 955894 "" 955894
+refused_code 955894 955894
+echo "ok: $case"
+
+case="version code: equal to a bundle that is on no track"
+codes_stub "" "100,955894" 955894
+refused_code 955894 955894
+echo "ok: $case"
+
+case="version code: lower than the track's"
+codes_stub "955894,100" 7 955000
+refused_code 955000 955894
+echo "ok: $case"
+
+case="version code: lower than a bundle's, above the track's"
+codes_stub 10 200 150
+refused_code 150 200
+echo "ok: $case"
+
+case="version code: higher than both is released"
+codes_stub 955894 955000 955895
+"$release" "$tmp/app.aab" "$tmp/notes" > "$tmp/out" || fail "$case: failed"
+grep -q "version code 955895" "$tmp/out" || fail "$case: did not say the version code"
+requests | grep -q ':commit' || fail "$case: did not commit"
+echo "ok: $case"
+
+case="version code: an empty track and no bundles is released"
+codes_stub "" "" 1
+"$release" "$tmp/app.aab" "$tmp/notes" > /dev/null || fail "$case: failed"
+requests | grep -q ':commit' || fail "$case: did not commit"
+echo "ok: $case"
+
 case="a refused commit"
-stub :commit
+stub POST::commit
 if "$release" "$tmp/app.aab" "$tmp/notes" > /dev/null 2>&1; then fail "$case: succeeded"; fi
 [ "$(requests | tail -1)" = "DELETE $app/edits/edit-1" ] || fail "$case: the edit was not deleted"
 echo "ok: $case"
@@ -120,6 +176,8 @@ stub
 PLAY_TRACK=beta "$release" "$tmp/app.aab" "$tmp/notes" > "$tmp/out" || fail "$case: failed"
 expect_requests \
   "POST $app/edits" \
+  "GET $app/edits/edit-1/tracks/beta" \
+  "GET $app/edits/edit-1/bundles" \
   "POST /upload$app/edits/edit-1/bundles?uploadType=media" \
   "PUT $app/edits/edit-1/tracks/beta" \
   "POST $app/edits/edit-1:commit?changesInReviewBehavior=ERROR_IF_IN_REVIEW"

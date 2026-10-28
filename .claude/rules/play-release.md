@@ -20,6 +20,17 @@ delete an edit that does not commit. `tests/play-release/run.sh` (a step
 of the `check` job) checks it against a stub of Play, and that every
 action the workflow uses is pinned by a commit with its version.
 
+* **The new version code is above every code on Play (pwa#258, keyword:
+  version-code).** In the same edit, before the upload, the script reads the
+  track (`edits.tracks.get`) and the bundles (`edits.bundles.list`); after
+  the upload, which is where Play names the new bundle's code (it is in the
+  bundle's manifest, a protobuf), and before the track is set, it refuses a
+  code that is not strictly above the highest of the two, naming the new code
+  and the highest. Nothing is kept in a file: the data is the run's own. The
+  edit is deleted as for any refusal. An empty track and no bundles accept
+  any code. `tests/play-release/run.sh` plays equal (the 955894 case), lower,
+  higher and empty against the stub (`STUB_TRACK_CODES`, `STUB_BUNDLE_CODES`,
+  `STUB_UPLOAD_CODE`).
 * **Process, not a capability.** Nothing pwa generates changes, and
   nothing the app runs: it is a release step of an app's CI, as
   `android.yml` and the e2e-setup action are, and it holds no secret.
