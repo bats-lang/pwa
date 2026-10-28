@@ -10,6 +10,17 @@ STUB_TRACK_CODES (the track's releases, as strings, as Play writes them),
 STUB_BUNDLE_CODES (the edit's bundles, as numbers) and STUB_UPLOAD_CODE
 (the version code of the bundle uploaded; 4242 by default).
 
+Shapes (Google Play Developer API reference):
+edits.tracks.get returns a Track, whose releases[].versionCodes[] is
+"string ( int64 format)" ("Version codes of all APKs in the release",
+https://developers.google.com/android-publisher/api-ref/rest/v3/edits.tracks);
+edits.bundles.list returns {"kind": string, "bundles": [Bundle]}, and a
+Bundle's versionCode is "integer" ("The version code of the Android App
+Bundle, as specified in the Android App Bundle's base module APK manifest
+file", https://developers.google.com/android-publisher/api-ref/rest/v3/edits.bundles).
+The stub writes the two forms the reference gives: strings for the track,
+numbers for the bundles.
+
 usage: python3 stub.py <port-file> <log> [<failing suffix>...]"""
 import base64
 import json
