@@ -8,6 +8,15 @@ description: >-
   android.yml is called:
   `uses: bats-lang/pwa/.github/actions/e2e-setup@<sha>`, after the checkout.
 inputs:
+  # keyword: input-overlap (.claude/rules/e2e-setup.md), removal: bats-lang/pwa#261
+  node-version:
+    description: >-
+      Deprecated: use node-version-file. An exact Node.js version for
+      actions/setup-node; when set, it is used and node-version-file is not read
+      (removal: bats-lang/pwa#261)
+    deprecationMessage: >-
+      node-version is deprecated, use node-version-file (removal: bats-lang/pwa#261)
+    default: ""
   node-version-file:
     description: >-
       The file holding Node.js's version, read by actions/setup-node, relative to
@@ -57,7 +66,8 @@ runs:
     - name: Set up Node.js
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
-        node-version-file: ${{ inputs.working-directory }}/${{ inputs.node-version-file }}
+        node-version: ${{ inputs.node-version }}
+        node-version-file: ${{ inputs.node-version == '' && format('{0}/{1}', inputs.working-directory, inputs.node-version-file) || '' }}
         cache: npm
         cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
 
