@@ -13,7 +13,9 @@
    shown() in it, fails here. After a line of '=' signs it prints
    build_smoke_test_script_font_scale_devtools (pwa#205, removed by pwa#218),
    the form before the probes step of build_smoke_test_script_probes, as it was
-   on main before pwa#205. (The form without the
+   on main before pwa#205. After a second line of '=' signs it prints
+   build_smoke_test_script_probes (pwa#267, removed by pwa#270), the form
+   before the font scales of build_smoke_test_script_scaled_probes. (The form without the
    font scale step was removed by pwa#189.) *)
 fun _print {l:agz}{cap:pos}{n:nat | n <= cap}{i:nat | i <= n} .<n - i>.
   (a: !$A.arr(byte, l, cap), n: int n, i: int i): void =
@@ -33,4 +35,10 @@ implement main0 () = let
   val @(a3, n3) = $B.into_arr(b3)
   val () = println! ("==========")
   val () = _print(a3, n3, 0)
-in $A.free<byte>(a3) end
+  val () = $A.free<byte>(a3)
+  var b4 = $B.create()
+  val () = $P.build_smoke_test_script_probes(b4, "dev.bats.example")
+  val @(a4, n4) = $B.into_arr(b4)
+  val () = println! ("==========")
+  val () = _print(a4, n4, 0)
+in $A.free<byte>(a4) end
