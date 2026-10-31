@@ -175,9 +175,14 @@ staload PV = "./public_values.sats"
 #pub fn build_smoke_test_script_font_scale_devtools {ni:nat | ni < 256}{n:nat | n + 16000 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 16000] $B.builder(m), app_id: string ni): void
 
-(* the newest form: a long press and taps at the points the app's probe files name (android-smoke, pwa#205) *)
+(* a long press and taps at the points the app's probe files name (android-smoke, pwa#205) *)
+(* deprecated (android-smoke): create_android_locked writes build_smoke_test_script_scaled_probes, which opens the app and plays the probes at each font scale (pwa#267); this keeps its type and its text, removed by bats-lang/pwa#270 *)
 #pub fn build_smoke_test_script_probes {ni:nat | ni < 256}{n:nat | n + 18560 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 18560] $B.builder(m), app_id: string ni): void
+
+(* the newest form: the app's setup probe once, then at font scales 1.0 and 2.0 its readiness probe, a long press, taps and their result (android-smoke, pwa#267) *)
+#pub fn build_smoke_test_script_scaled_probes {ni:nat | ni < 256}{n:nat | n + 20600 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 20600] $B.builder(m), app_id: string ni): void
 
 (* Writes a Capacitor project in project_dir for the PWA in web_dir
    (relative to project_dir): capacitor.config.json, package.json,
@@ -1277,6 +1282,90 @@ fn _smoke_probes {n:nat | n + 2560 <= $B.BUILDER_CAP}
   val () = $B.bput(b, "fi\n")
 in end
 
+(* the probes step of the form with the font scales: an app setup probe once, then at each scale a readiness wait, a long press, taps and the result (android-smoke, pwa#267) *)
+fn _smoke_probes_scaled {n:nat | n + 4600 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 4600] $B.builder(m)): void = let
+  val () = $B.bput(b, "# The app's probes, files next to this script, each a JavaScript expression the\n")
+  val () = $B.bput(b, "# page answers over DevTools (android-smoke, pwa#267). An app with none gets none of this.\n")
+  val () = $B.bput(b, "# smoke-open.js runs once; then at each font scale smoke-ready.js is polled until it\n")
+  val () = $B.bput(b, "# answers true, before the long press, the taps and their result\n")
+  val () = $B.bput(b, "HERE=$(cd \"$(dirname \"$0\")\" && pwd)\n")
+  val () = $B.bput(b, "# Whether $1 is a coordinate in device pixels\n")
+  val () = $B.bput(b, "is_pixel() {\n")
+  val () = $B.bput(b, "  printf '%s\\n' \"$1\" | grep -Eq '^[0-9]+(\\.[0-9]+)?$'\n")
+  val () = $B.bput(b, "}\n")
+  val () = $B.bput(b, "# Waits (60 polls or SMOKE_WAIT_S seconds, as shown() does) until smoke-ready.js\n")
+  val () = $B.bput(b, "# answers true at font scale $1; fails naming the step when it never does\n")
+  val () = $B.bput(b, "ready() {\n")
+  val () = $B.bput(b, "  [ -f \"$HERE/smoke-ready.js\" ] || return 0\n")
+  val () = $B.bput(b, "  r_polls=0\n")
+  val () = $B.bput(b, "  r_answer=\n")
+  val () = $B.bput(b, "  r_started=$(date +%s)\n")
+  val () = $B.bput(b, "  while [ $r_polls -lt 60 ] && [ $(( $(date +%s) - r_started )) -lt \"${SMOKE_WAIT_S:-120}\" ]; do\n")
+  val () = $B.bput(b, "    sleep 2\n")
+  val () = $B.bput(b, "    r_polls=$((r_polls + 1))\n")
+  val () = $B.bput(b, "    devtools_eval \"$(cat \"$HERE/smoke-ready.js\")\" \"$OUT/ready-answer.txt\" plain\n")
+  val () = $B.bput(b, "    r_answer=$(head -c 200 \"$OUT/ready-answer.txt\")\n")
+  val () = $B.bput(b, "    if [ \"$r_answer\" = true ]; then return 0; fi\n")
+  val () = $B.bput(b, "  done\n")
+  val () = $B.bput(b, "  fail \"Ready: smoke-ready.js never answered true at font scale $1 ($r_polls polls, the last answered '$r_answer')\"\n")
+  val () = $B.bput(b, "  return 1\n")
+  val () = $B.bput(b, "}\n")
+  val () = $B.bput(b, "if [ $found = 1 ] && { [ -f \"$HERE/smoke-open.js\" ] || [ -f \"$HERE/smoke-ready.js\" ] || [ -f \"$HERE/smoke-select-point.js\" ] || [ -f \"$HERE/smoke-tap-points.js\" ] || [ -f \"$HERE/smoke-tap-result.js\" ]; }; then\n")
+  val () = $B.bput(b, "  if [ -f \"$HERE/smoke-open.js\" ]; then\n")
+  val () = $B.bput(b, "    devtools_eval \"$(cat \"$HERE/smoke-open.js\")\" \"$OUT/open-answer.txt\" plain\n")
+  val () = $B.bput(b, "    if [ \"$(head -c 200 \"$OUT/open-answer.txt\")\" = 'DevTools did not answer' ]; then fail \"Setup: smoke-open.js was not answered\"; fi\n")
+  val () = $B.bput(b, "  fi\n")
+  val () = $B.bput(b, "  for scale in 1.0 2.0; do\n")
+  val () = $B.bput(b, "    adb shell settings put system font_scale \"$scale\"\n")
+  val () = $B.bput(b, "    if ready \"$scale\"; then\n")
+  val () = $B.bput(b, "      # A long press (a real one, in the real WebView) at the point <x> <y> the probe\n")
+  val () = $B.bput(b, "      # smoke-select-point.js answers, to see the selection the app draws\n")
+  val () = $B.bput(b, "      if [ -f \"$HERE/smoke-select-point.js\" ]; then\n")
+  val () = $B.bput(b, "        devtools_eval \"$(cat \"$HERE/smoke-select-point.js\")\" \"$OUT/select-point-$scale.txt\" plain\n")
+  val () = $B.bput(b, "        read -r px py extra < \"$OUT/select-point-$scale.txt\" || true\n")
+  val () = $B.bput(b, "        if is_pixel \"$px\" && is_pixel \"$py\" && [ -z \"$extra\" ]; then\n")
+  val () = $B.bput(b, "          adb shell input swipe \"${px%%.*}\" \"${py%%.*}\" \"${px%%.*}\" \"${py%%.*}\" 1000\n")
+  val () = $B.bput(b, "          sleep 1\n")
+  val () = $B.bput(b, "        else\n")
+  val () = $B.bput(b, "          fail \"Long press: font scale $scale: smoke-select-point.js answered '$(head -c 200 \"$OUT/select-point-$scale.txt\")', not x and y in device pixels\"\n")
+  val () = $B.bput(b, "        fi\n")
+  val () = $B.bput(b, "      fi\n")
+  val () = $B.bput(b, "      # A tap at the centre of each button the probe smoke-tap-points.js names (lines\n")
+  val () = $B.bput(b, "      # <name> <x> <y>), then the page's answer smoke-tap-result.js: true when it saw a\n")
+  val () = $B.bput(b, "      # click on every one, else the names it missed\n")
+  val () = $B.bput(b, "      if [ -f \"$HERE/smoke-tap-points.js\" ] || [ -f \"$HERE/smoke-tap-result.js\" ]; then\n")
+  val () = $B.bput(b, "        if [ ! -f \"$HERE/smoke-tap-points.js\" ] || [ ! -f \"$HERE/smoke-tap-result.js\" ]; then\n")
+  val () = $B.bput(b, "          fail \"Taps: font scale $scale: smoke-tap-points.js and smoke-tap-result.js go together, and one is missing\"\n")
+  val () = $B.bput(b, "        else\n")
+  val () = $B.bput(b, "          devtools_eval \"$(cat \"$HERE/smoke-tap-points.js\")\" \"$OUT/tap-points-$scale.txt\" plain\n")
+  val () = $B.bput(b, "          taps=0\n")
+  val () = $B.bput(b, "          while read -r name px py extra; do\n")
+  val () = $B.bput(b, "            [ -n \"$name\" ] || continue\n")
+  val () = $B.bput(b, "            if is_pixel \"$px\" && is_pixel \"$py\" && [ -z \"$extra\" ]; then\n")
+  val () = $B.bput(b, "              adb shell input tap \"${px%%.*}\" \"${py%%.*}\"\n")
+  val () = $B.bput(b, "              taps=$((taps + 1))\n")
+  val () = $B.bput(b, "              sleep 1\n")
+  val () = $B.bput(b, "            else\n")
+  val () = $B.bput(b, "              fail \"Taps: font scale $scale: smoke-tap-points.js answered the line '$name $px $py $extra', not a name and x and y in device pixels\"\n")
+  val () = $B.bput(b, "            fi\n")
+  val () = $B.bput(b, "          done < \"$OUT/tap-points-$scale.txt\"\n")
+  val () = $B.bput(b, "          if [ $taps = 0 ]; then\n")
+  val () = $B.bput(b, "            fail \"Taps: font scale $scale: smoke-tap-points.js named no button ('$(head -c 200 \"$OUT/tap-points-$scale.txt\")')\"\n")
+  val () = $B.bput(b, "          else\n")
+  val () = $B.bput(b, "            devtools_eval \"$(cat \"$HERE/smoke-tap-result.js\")\" \"$OUT/tap-result-$scale.txt\" plain\n")
+  val () = $B.bput(b, "            if [ \"$(head -c 200 \"$OUT/tap-result-$scale.txt\")\" != true ]; then\n")
+  val () = $B.bput(b, "              fail \"Taps: font scale $scale: the page saw no click on: $(head -c 200 \"$OUT/tap-result-$scale.txt\" | tr '\\n' ' ')\"\n")
+  val () = $B.bput(b, "            fi\n")
+  val () = $B.bput(b, "          fi\n")
+  val () = $B.bput(b, "        fi\n")
+  val () = $B.bput(b, "      fi\n")
+  val () = $B.bput(b, "    fi\n")
+  val () = $B.bput(b, "  done\n")
+  val () = $B.bput(b, "  adb shell settings put system font_scale 1.0\n")
+  val () = $B.bput(b, "fi\n")
+in end
+
 (* the smoke test script from its screenshot to the line that says the text never showed (android-smoke) *)
 fn _smoke_tail_a {n:nat | n + 650 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 650] $B.builder(m)): void = let
@@ -1349,6 +1438,18 @@ implement build_smoke_test_script_probes (b, app_id) = let
   val () = _smoke_head_b(b)
   val () = _smoke_font_scale(b)
   val () = _smoke_probes(b)
+  val () = _smoke_tail_a(b)
+  val () = _smoke_never_devtools(b)
+in _smoke_tail_b(b) end
+
+implement build_smoke_test_script_scaled_probes (b, app_id) = let
+  val () = _smoke_head_a1(b, app_id)
+  val () = _smoke_unlock(b)
+  val () = _smoke_head_a2(b)
+  val () = _smoke_shown_devtools(b)
+  val () = _smoke_head_b(b)
+  val () = _smoke_font_scale(b)
+  val () = _smoke_probes_scaled(b)
   val () = _smoke_tail_a(b)
   val () = _smoke_never_devtools(b)
 in _smoke_tail_b(b) end
@@ -1477,7 +1578,7 @@ fn _android_project_files {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 2
   val () = $B.bput(jv_b, "21.0.12+8.0.LTS\n")
   val () = _write_to(project_dir, ".java-version", jv_b)
   var st_b = $B.create()
-  val () = build_smoke_test_script_probes(st_b, app_id)
+  val () = build_smoke_test_script_scaled_probes(st_b, app_id)
 in _write_mode(project_dir, "smoke-test.sh", st_b, 493) end
 
 implement create_android_locked (app_name, app_id, web_dir, project_dir, mime) = let
