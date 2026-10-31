@@ -30,6 +30,11 @@
 #      step; three points tapped in order and a result of true pass; a result naming a
 #      missed button fails naming it; no tap probe files make no tap; the long press is
 #      before the taps; one of the two tap probes alone fails.
+#  10. (pwa#267) the app is opened and the probes run at each font scale: smoke-open.js runs
+#      once; smoke-ready.js is polled until it answers true, again after each change of the
+#      scale, and a readiness that never comes fails naming the step and the scale; the long
+#      press and the taps are made at both scales 1.0 and 2.0 (the points of each scale are
+#      the probe's answer at that scale), and a miss at 2.0 is named with its scale.
 # usage: tests/android-smoke-dom/check.sh <smoke-test.sh>
 set -eu
 # the wait of shown(), two minutes in a run, seconds here
@@ -97,7 +102,8 @@ run() {
   if [ -n "${6:-}" ]; then cp "$TMP/probes/$6"/* "$TMP/$name.dir/"; fi
   rm -f "$TMP/port"
   rm -f "$TMP/scale"
-  python3 "$HERE/server.py" "$TMP/port" "$mode" "$TMP/scale" &
+  rm -f "$TMP/$name.calls"
+  python3 "$HERE/server.py" "$TMP/port" "$mode" "$TMP/scale" "$TMP/$name.calls" &
   SERVER=$!
   for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$TMP/port" ] && break; /bin/sleep 1; done
   [ -s "$TMP/port" ] || fail "the DevTools stand-in did not start"
@@ -239,10 +245,10 @@ probe select smoke-select-point.js "540 1200"
 if want longpress; then
 run longpress ok screen-with-text.xml unix-with-socket "BATS PWA" select
 [ "$(cat "$TMP/longpress.status")" = 0 ] || fail "the script failed with a probe that answers a point" "$TMP/longpress.out"
-[ "$(grep -c -E "$INPUTS" "$TMP/longpress.log")" = 1 ] || fail "not one input call for one point" "$TMP/longpress.log"
-grep -qx 'adb shell input swipe 540 1200 540 1200 1000' "$TMP/longpress.log" ||
-  fail "no long press of 1000 ms at the point" "$TMP/longpress.log"
-echo "case 9, a probe answering '540 1200': $(grep -E "$INPUTS" "$TMP/longpress.log")"
+[ "$(grep -c -E "$INPUTS" "$TMP/longpress.log")" = 2 ] || fail "not one input call for one point at each of the two scales" "$TMP/longpress.log"
+[ "$(grep -cx 'adb shell input swipe 540 1200 540 1200 1000' "$TMP/longpress.log")" = 2 ] ||
+  fail "no long press of 1000 ms at the point, at each scale" "$TMP/longpress.log"
+echo "case 9, a probe answering '540 1200', at both scales: $(grep -E "$INPUTS" "$TMP/longpress.log" | tr '\n' ';')"
 fi
 if want noprobe; then
 run noprobe ok screen-with-text.xml unix-with-socket "BATS PWA"
@@ -254,7 +260,7 @@ if want pressnothing; then
 probe nothing smoke-select-point.js ""
 run pressnothing ok screen-with-text.xml unix-with-socket "BATS PWA" nothing
 [ "$(cat "$TMP/pressnothing.status")" = 1 ] || fail "the script passed with a probe that answers nothing" "$TMP/pressnothing.out"
-grep -q "^Long press: smoke-select-point.js answered '', not x and y in device pixels$" "$TMP/pressnothing.out" ||
+grep -q "^Long press: font scale 1.0: smoke-select-point.js answered '', not x and y in device pixels$" "$TMP/pressnothing.out" ||
   fail "the failure does not name the step" "$TMP/pressnothing.out"
 if grep -q -E "$INPUTS" "$TMP/pressnothing.log"; then fail "a long press with no point" "$TMP/pressnothing.log"; fi
 echo "case 9, a probe answering nothing: $(grep '^Long press' "$TMP/pressnothing.out")"
@@ -263,12 +269,12 @@ if want presswords; then
 probe notpoint smoke-select-point.js "left 10"
 run presswords ok screen-with-text.xml unix-with-socket "BATS PWA" notpoint
 [ "$(cat "$TMP/presswords.status")" = 1 ] || fail "the script passed with a probe that answers words" "$TMP/presswords.out"
-grep -q "^Long press: smoke-select-point.js answered 'left 10'" "$TMP/presswords.out" || fail "words not said" "$TMP/presswords.out"
+grep -q "^Long press: font scale 2.0: smoke-select-point.js answered 'left 10'" "$TMP/presswords.out" || fail "words not said" "$TMP/presswords.out"
 fi
 if want presssilent; then
 run presssilent silent-probe screen-with-text.xml unix-with-socket "BATS PWA" select
 [ "$(cat "$TMP/presssilent.status")" = 1 ] || fail "the script passed with a silent page" "$TMP/presssilent.out"
-grep -q "^Long press: smoke-select-point.js answered 'DevTools did not answer'" "$TMP/presssilent.out" ||
+grep -q "^Long press: font scale 1.0: smoke-select-point.js answered 'DevTools did not answer'" "$TMP/presssilent.out" ||
   fail "a silent page is not said at the long press" "$TMP/presssilent.out"
 fi
 if want tapped; then
@@ -279,9 +285,11 @@ share 500 600"
 probe taps smoke-tap-result.js "true"
 run tapped ok screen-with-text.xml unix-with-socket "BATS PWA" taps
 [ "$(cat "$TMP/tapped.status")" = 0 ] || fail "the script failed with three points tapped and a result of true" "$TMP/tapped.out"
-[ "$(grep -c -E "$INPUTS" "$TMP/tapped.log")" = 4 ] || fail "not a long press and three taps" "$TMP/tapped.log"
+[ "$(grep -c -E "$INPUTS" "$TMP/tapped.log")" = 8 ] || fail "not a long press and three taps at each of two scales" "$TMP/tapped.log"
 grep -E "$INPUTS" "$TMP/tapped.log" > "$TMP/tapped.inputs"
 printf '%s\n' 'adb shell input swipe 540 1200 540 1200 1000' 'adb shell input tap 100 200' \
+  'adb shell input tap 300 400' 'adb shell input tap 500 600' \
+  'adb shell input swipe 540 1200 540 1200 1000' 'adb shell input tap 100 200' \
   'adb shell input tap 300 400' 'adb shell input tap 500 600' > "$TMP/tapped.want"
 cmp -s "$TMP/tapped.inputs" "$TMP/tapped.want" || fail "the long press and the taps are not in order, at the points" "$TMP/tapped.inputs" "$TMP/tapped.want"
 echo "case 9, three points and a result of true: the script exited 0 and called"
@@ -296,7 +304,7 @@ probe missed smoke-tap-result.js "save
 share"
 run tapmissed ok screen-with-text.xml unix-with-socket "BATS PWA" missed
 [ "$(cat "$TMP/tapmissed.status")" = 1 ] || fail "the script passed with buttons the page did not see clicked" "$TMP/tapmissed.out"
-grep -q '^Taps: the page saw no click on: save share $' "$TMP/tapmissed.out" || fail "the missed buttons are not named" "$TMP/tapmissed.out"
+grep -q '^Taps: font scale 1.0: the page saw no click on: save share $' "$TMP/tapmissed.out" || fail "the missed buttons are not named" "$TMP/tapmissed.out"
 echo "case 9, a result naming missed buttons: $(grep '^Taps' "$TMP/tapmissed.out")"
 fi
 if want tapsonly; then
@@ -304,7 +312,7 @@ probe tapsonly smoke-tap-points.js "back 100 200"
 probe tapsonly smoke-tap-result.js "true"
 run tapsonly ok screen-with-text.xml unix-with-socket "BATS PWA" tapsonly
 [ "$(cat "$TMP/tapsonly.status")" = 0 ] || fail "the script failed with taps and no long press" "$TMP/tapsonly.out"
-[ "$(grep -c -E "$INPUTS" "$TMP/tapsonly.log")" = 1 ] || fail "not one tap" "$TMP/tapsonly.log"
+[ "$(grep -c -E "$INPUTS" "$TMP/tapsonly.log")" = 2 ] || fail "not one tap at each scale" "$TMP/tapsonly.log"
 if grep -q 'input swipe' "$TMP/tapsonly.log"; then fail "a long press with no select probe" "$TMP/tapsonly.log"; fi
 run notaps ok screen-with-text.xml unix-with-socket "BATS PWA" select
 if grep -q 'input tap' "$TMP/notaps.log"; then fail "a tap with no tap probe files" "$TMP/notaps.log"; fi
@@ -315,7 +323,7 @@ probe nopoints smoke-tap-points.js ""
 probe nopoints smoke-tap-result.js "true"
 run tapsnothing ok screen-with-text.xml unix-with-socket "BATS PWA" nopoints
 [ "$(cat "$TMP/tapsnothing.status")" = 1 ] || fail "the script passed with a tap probe that names no button" "$TMP/tapsnothing.out"
-grep -q "^Taps: smoke-tap-points.js named no button" "$TMP/tapsnothing.out" || fail "no button not said" "$TMP/tapsnothing.out"
+grep -q "^Taps: font scale 1.0: smoke-tap-points.js named no button" "$TMP/tapsnothing.out" || fail "no button not said" "$TMP/tapsnothing.out"
 fi
 if want tapbad; then
 probe badline smoke-tap-points.js "back 100 200
@@ -323,12 +331,112 @@ save left top"
 probe badline smoke-tap-result.js "true"
 run tapbad ok screen-with-text.xml unix-with-socket "BATS PWA" badline
 [ "$(cat "$TMP/tapbad.status")" = 1 ] || fail "the script passed with a tap line that is not a point" "$TMP/tapbad.out"
-grep -q "^Taps: smoke-tap-points.js answered the line 'save left top '" "$TMP/tapbad.out" || fail "bad line not said" "$TMP/tapbad.out"
+grep -q "^Taps: font scale 1.0: smoke-tap-points.js answered the line 'save left top '" "$TMP/tapbad.out" || fail "bad line not said" "$TMP/tapbad.out"
 fi
 if want tapspair; then
 probe pointsonly smoke-tap-points.js "back 100 200"
 run tapspair ok screen-with-text.xml unix-with-socket "BATS PWA" pointsonly
 [ "$(cat "$TMP/tapspair.status")" = 1 ] || fail "the script passed with one of the two tap probes" "$TMP/tapspair.out"
-grep -q '^Taps: smoke-tap-points.js and smoke-tap-result.js go together, and one is missing$' "$TMP/tapspair.out" || fail "the pair not said" "$TMP/tapspair.out"
+grep -q '^Taps: font scale 1.0: smoke-tap-points.js and smoke-tap-result.js go together, and one is missing$' "$TMP/tapspair.out" || fail "the pair not said" "$TMP/tapspair.out"
+fi
+# 10. (pwa#267) the probes at each font scale: a probe whose answer depends on the scale
+# ("// stand-in answer by scale", sections @1.0 and @2.0 of server.py)
+sprobe() {
+  mkdir -p "$TMP/probes/$1"
+  printf '// stand-in answer by scale\n%s' "$3" > "$TMP/probes/$1/$2"
+}
+SET_SCALES="settings put system font_scale"
+if want scaled-both; then
+sprobe both smoke-open.js "@1.0
+opened
+@2.0
+opened"
+sprobe both smoke-ready.js "@1.0
+true
+@2.0
+true"
+sprobe both smoke-select-point.js "@1.0
+540 1200
+@2.0
+540 2400"
+sprobe both smoke-tap-points.js "@1.0
+back 100 200
+@2.0
+back 100 400"
+sprobe both smoke-tap-result.js "@1.0
+true
+@2.0
+true"
+run scaledboth ok screen-with-text.xml unix-with-socket "BATS PWA" both
+[ "$(cat "$TMP/scaledboth.status")" = 0 ] || fail "the script failed with probes that pass at both scales" "$TMP/scaledboth.out"
+# the setup probe is called once (it answered 'opened', at the scale the font step left, 1.0)
+[ "$(grep -c ' opened$' "$TMP/scaledboth.calls")" = 1 ] || fail "the setup probe was not called once" "$TMP/scaledboth.calls"
+grep -E "$INPUTS" "$TMP/scaledboth.log" > "$TMP/scaledboth.inputs"
+printf '%s\n' 'adb shell input swipe 540 1200 540 1200 1000' 'adb shell input tap 100 200' \
+  'adb shell input swipe 540 2400 540 2400 1000' 'adb shell input tap 100 400' > "$TMP/scaledboth.want"
+cmp -s "$TMP/scaledboth.inputs" "$TMP/scaledboth.want" || fail "the long press and the tap are not made at each scale, at its points" "$TMP/scaledboth.inputs" "$TMP/scaledboth.want"
+# after the probe's first scale (1.0) the scale is set to 2.0 before the second long press, readiness polled after each
+grep -n -E "^adb shell (settings put system font_scale|input swipe)" "$TMP/scaledboth.log" | tail -5 | cut -d: -f2- | tr '\n' ';' | grep -q 'font_scale 1.0;adb shell input swipe 540 1200 .*;adb shell settings put system font_scale 2.0;adb shell input swipe 540 2400 .*;adb shell settings put system font_scale 1.0;$' ||
+  fail "the scales were not set 1.0, long press, 2.0, long press, 1.0 again" "$TMP/scaledboth.log"
+[ "$(grep -c '^2.0 true$' "$TMP/scaledboth.calls")" = 2 ] || fail "readiness and the result were not asked at 2.0" "$TMP/scaledboth.calls"
+echo "case 10, a setup probe, a ready probe and probes at both scales: setup called $(grep -c ' opened$' "$TMP/scaledboth.calls") time, inputs"
+cat "$TMP/scaledboth.inputs"
+fi
+if want scaled-never-ready; then
+sprobe never smoke-ready.js "@1.0
+false
+@2.0
+false"
+sprobe never smoke-select-point.js "@1.0
+540 1200
+@2.0
+540 2400"
+run neverready ok screen-with-text.xml unix-with-socket "BATS PWA" never
+[ "$(cat "$TMP/neverready.status")" = 1 ] || fail "the script passed with a readiness probe that never answers true" "$TMP/neverready.out"
+grep -q "^Ready: smoke-ready.js never answered true at font scale 1.0 (" "$TMP/neverready.out" || fail "the step and the scale are not named" "$TMP/neverready.out"
+if grep -q -E "$INPUTS" "$TMP/neverready.log"; then fail "a long press before the page was ready" "$TMP/neverready.log"; fi
+echo "case 10, a readiness probe that never answers true: $(grep '^Ready' "$TMP/neverready.out" | head -1)"
+fi
+if want scaled-ready-at-2; then
+sprobe readylate smoke-ready.js "@1.0
+true
+@2.0
+false"
+sprobe readylate smoke-select-point.js "@1.0
+540 1200
+@2.0
+540 2400"
+run readylate ok screen-with-text.xml unix-with-socket "BATS PWA" readylate
+[ "$(cat "$TMP/readylate.status")" = 1 ] || fail "the script passed with a page that is not ready at 2.0" "$TMP/readylate.out"
+grep -q "^Ready: smoke-ready.js never answered true at font scale 2.0 (" "$TMP/readylate.out" || fail "scale 2.0 is not named" "$TMP/readylate.out"
+[ "$(grep -c -E "$INPUTS" "$TMP/readylate.log")" = 1 ] || fail "not the long press of scale 1.0 alone" "$TMP/readylate.log"
+echo "case 10, ready at 1.0 and not at 2.0: $(grep '^Ready' "$TMP/readylate.out" | head -1)"
+fi
+if want scaled-miss; then
+sprobe miss smoke-select-point.js "@1.0
+540 1200
+@2.0
+540 2400"
+sprobe miss smoke-tap-points.js "@1.0
+back 100 200
+@2.0
+back 100 400"
+sprobe miss smoke-tap-result.js "@1.0
+true
+@2.0
+back"
+run scaledmiss ok screen-with-text.xml unix-with-socket "BATS PWA" miss
+[ "$(cat "$TMP/scaledmiss.status")" = 1 ] || fail "the script passed with a miss at 2.0" "$TMP/scaledmiss.out"
+grep -q '^Taps: font scale 2.0: the page saw no click on: back $' "$TMP/scaledmiss.out" || fail "the miss is not named with its scale" "$TMP/scaledmiss.out"
+if grep -q '^Taps: font scale 1.0' "$TMP/scaledmiss.out"; then fail "a miss is reported at 1.0" "$TMP/scaledmiss.out"; fi
+[ "$(grep -c -E "$INPUTS" "$TMP/scaledmiss.log")" = 4 ] || fail "not a long press and a tap at both scales" "$TMP/scaledmiss.log"
+echo "case 10, a miss at 2.0: $(grep '^Taps' "$TMP/scaledmiss.out")"
+fi
+if want scaled-setup-silent; then
+sprobe quiet smoke-open.js "@1.0
+x"
+run setupsilent silent-probe screen-with-text.xml unix-with-socket "BATS PWA" quiet
+[ "$(cat "$TMP/setupsilent.status")" = 1 ] || fail "the script passed with a setup probe the page never answered" "$TMP/setupsilent.out"
+grep -q '^Setup: smoke-open.js was not answered$' "$TMP/setupsilent.out" || fail "the setup step is not named" "$TMP/setupsilent.out"
 fi
 if [ -z "${SMOKE_CASE:-}" ]; then echo "OK: the page's DOM is kept when the text never shows, and the font scale reaches the page"; else echo "OK: case $SMOKE_CASE"; fi
