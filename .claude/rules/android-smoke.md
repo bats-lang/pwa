@@ -335,3 +335,27 @@ paths:
   line is `// stand-in answer` with the lines after it. Each class has a case that fails when the
   class occurs (a tap dropped, a result ignored, a short press, a probe that answers nothing
   passing), shown by editing the generated script.
+
+# The probes run with the book open, at each font scale (pwa#267)
+
+* Evidence: `build_smoke_test_script_probes` ran its probes while the library was showing (no book
+  open) and once, at font scale 1.0; `devtools_eval` has no `awaitPromise` and no retry, so a probe
+  could not wait for a book to render, and only adb can change the system font scale.
+* `build_smoke_test_script_scaled_probes` (the form `create_android_locked` writes) replaces the
+  probes step by `_smoke_probes_scaled`. With the text shown and at least one probe file next to the
+  script: `smoke-open.js` (optional app setup probe) runs once, an answer of `DevTools did not
+  answer` fails with a line starting `Setup:`; then for each scale of 1.0 and 2.0 the script sets
+  `settings put system font_scale`, polls `smoke-ready.js` (optional; 60 polls or `SMOKE_WAIT_S`
+  seconds like `shown()`) until it answers `true`, else fails with a line starting `Ready:` that names
+  the scale, polls made and the last answer, and only then makes the long press, the taps and the
+  result of pwa#205, whose `Long press:` and `Taps:` lines now read `font scale <scale>:` after the
+  colon. The scale is put back to 1.0 at the end. A failure at one scale does not skip the other.
+  The app keeps the book open across the activity's recreation by a font scale (that is the app's, the
+  readiness probe is what waits for it).
+* Overlap: `build_smoke_test_script_probes` keeps its type and text, deprecated by a comment, and
+  `tests/dynamic/smoke-compat` prints it (a third section of `expected`); removed by pwa#270.
+* `tests/android-smoke-dom/check.sh` case 10 plays it with `server.py`'s probes that answer by scale
+  (`// stand-in answer by scale`, sections `@1.0` and `@2.0`, calls logged): the setup probe called
+  once, a readiness that never answers true failing naming the step and scale 1.0, readiness lost
+  at 2.0 only, a long press and taps at both scales at each scale's points, and a miss at 2.0 named
+  with its scale and not at 1.0. Case 9 now expects its probes at both scales.

@@ -2,7 +2,7 @@
 # GET /json lists a page and a worker, and the page's WebSocket answers
 # Runtime.evaluate with a console event first and then the document, split
 # in two frames (the second a continuation) of more than 65535 bytes each.
-# usage: server.py <portfile> <mode> [<scalefile>]
+# usage: server.py <portfile> <mode> [<scalefile> [<calllog>]]
 #   ok: the document for outerHTML; for the font scale probe (pwa#154) a text
 #     line 20 px high times the scale in <scalefile> (1.0 when it is not there)
 #   silent: takes the evaluation and never answers it
@@ -15,6 +15,10 @@
 #   outside: the text spans past the window's right edge at a scale above 1
 # An app's probe (pwa#205) is a file whose first line is "// stand-in answer" and
 # whose other lines are the page's answer, as a string, to any mode but silent.
+# A probe whose first line is "// stand-in answer by scale" (pwa#267) has sections: a line
+# "@<scale>" (1.0, 2.0) starts the answer for that font scale, read from <scalefile>; a scale
+# with no section answers nothing. Each such answer's first line is appended to <calllog>
+# (scale, a space, the line), so a test counts the calls of a probe.
 import base64, hashlib, json, re, socketserver, struct, sys, threading
 
 GUID = b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
@@ -22,6 +26,7 @@ FILLER = 'x' * 100000
 DOCUMENT = '<html><body><div id="bats-root">BATS PWA</div><p>' + FILLER + '</p></body></html>'
 mode = sys.argv[2]
 scale_file = sys.argv[3] if len(sys.argv) > 3 else None
+call_log = sys.argv[4] if len(sys.argv) > 4 else None
 WINDOW = 412
 
 
@@ -107,6 +112,22 @@ class Handler(socketserver.StreamRequestHandler):
             visible_required = 'document.visibilityState === "visible"' in expression
             shown = (mode != 'hidden' or not visible_required) and needle in DOCUMENT
             value = {'result': {'type': 'boolean', 'value': shown}}
+            answer = json.dumps({'id': call['id'], 'result': value}).encode()
+            self.wfile.write(frame(1, True, answer))
+            return
+        if expression.startswith('// stand-in answer by scale'):
+            sections, key = {}, None
+            for line in expression.split('\n')[1:]:
+                if line.startswith('@'):
+                    key, sections[line[1:]] = line[1:], []
+                elif key is not None:
+                    sections[key].append(line)
+            scale = '%.1f' % current_scale()
+            answer_text = '\n'.join(sections.get(scale, []))
+            if call_log:
+                with open(call_log, 'a') as log:
+                    log.write('%s %s\n' % (scale, answer_text.split('\n')[0]))
+            value = {'result': {'type': 'string', 'value': answer_text}}
             answer = json.dumps({'id': call['id'], 'result': value}).encode()
             self.wfile.write(frame(1, True, answer))
             return
