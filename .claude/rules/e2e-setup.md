@@ -48,17 +48,12 @@ ever), a lock out of sync, a missing lock, the minimum and the key; the
 `check` job runs it, and the example is the action's first user (its
 `package-lock.json` is committed for that).
 
-## The old `node-version` input stays one cycle (pwa#254, keyword: input-overlap)
+## The old `node-version` input is gone (pwa#254, pwa#274, keyword: input-overlap)
 
-pwa#136 replaced the input `node-version` by `node-version-file` with no overlap, and
-a caller that passed it was refused by GitHub at its next pin move. The input is
-back, beside `node-version-file`, deprecated (`deprecationMessage`, which the runner
-logs as a warning, and a description that starts with `Deprecated`); when set it is
-what `actions/setup-node` gets and `node-version-file` is passed empty, so a file that
-does not exist is not read. It is removed by pwa#261 (p2), not before every caller has
-moved and a relock cycle has passed. `check.yml` calls the action with
-`node-version: 22.23.3` and a `node-version-file` that does not exist and checks
-`node --version`, so an edit cannot drop it.
+pwa#136 replaced the input `node-version` by `node-version-file` with no overlap; pwa#254 put it back,
+deprecated, for one relock cycle, and pwa#274 removed it (the deprecation merged 2026-10-29; quire, the
+only outside caller, does not pass it). Its default `""` was not an exact version, which failed
+`bats check-pins`. The action reads `node-version-file` only, relative to `working-directory`.
 
 ## The stall tools (`stall-tools: "true"`, pwa#178, pwa#163)
 
