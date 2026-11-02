@@ -48,10 +48,10 @@ ever), a lock out of sync, a missing lock, the minimum and the key; the
 `check` job runs it, and the example is the action's first user (its
 `package-lock.json` is committed for that).
 
-## The old `node-version` input is gone (pwa#254, pwa#274, keyword: input-overlap)
+## The old `node-version` input is gone (pwa#254, pwa#261, keyword: input-overlap)
 
 pwa#136 replaced the input `node-version` by `node-version-file` with no overlap; pwa#254 put it back,
-deprecated, for one relock cycle, and pwa#274 removed it (the deprecation merged 2026-10-29; quire, the
+deprecated, for one relock cycle, and pwa#261 removed it (the deprecation merged 2026-10-29; quire, the
 only outside caller, does not pass it). Its default `""` was not an exact version, which failed
 `bats check-pins`. The action reads `node-version-file` only, relative to `working-directory`.
 
