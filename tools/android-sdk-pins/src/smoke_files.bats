@@ -84,6 +84,9 @@ implement append_x (path) =
 (* The file made (or emptied) to hold the text *)
 #pub fn write_text (path: $B.builder_v, text: $B.builder_v): bool
 
+(* The text added at the end of the file (made when it is not there) *)
+#pub fn append_text (path: $B.builder_v, text: $B.builder_v): bool
+
 fun _copy_to {l,k:agz}{cap:pos}{n:pos | n <= cap}{i:nat | i <= n} .<n - i>.
   (source: !$A.borrow(byte, l, cap), destination: !$A.arr(byte, k, n), size: int n, i: int i): void =
   if i >= size then ()
@@ -91,8 +94,8 @@ fun _copy_to {l,k:agz}{cap:pos}{n:pos | n <= cap}{i:nat | i <= n} .<n - i>.
     val () = $A.set<byte>(destination, i, $A.read<byte>(source, i))
   in _copy_to(source, destination, size, i + 1) end
 
-implement write_text (path, text) =
-  case+ _open(path, $F.WriteOnly(), $F.CreateOrTruncate()) of
+fn _write_text (path: $B.builder_v, text: $B.builder_v, opening: $F.opening): bool =
+  case+ _open(path, $F.WriteOnly(), opening) of
   | ~$R.err(_) => let val () = $B.builder_free(text) in false end
   | ~$R.ok(fd) => let
       val @(array, size) = $B.to_arr(text)
@@ -110,6 +113,10 @@ implement write_text (path, text) =
       val () = $A.free<byte>($A.thaw<byte>(frozen))
       val () = $R.discard<int><$F.io_error>($F.file_close(fd))
     in written end
+
+implement write_text (path, text) = _write_text(path, text, $F.CreateOrTruncate())
+
+implement append_text (path, text) = _write_text(path, text, $F.CreateOrAppend())
 
 (* The file's bytes into buffer (131072 bytes): how many, ~1 when it cannot be read whole *)
 #pub fn read_into {l:agz} (path: $B.builder_v, buffer: !$A.arr(byte, l, 131072)): [k:int | ~1 <= k; k <= 131072] int k
@@ -181,6 +188,59 @@ in
       val () = $P.pipe_end_close(stderr_pipe)
     in (case+ $P.child_wait(child) of | ~$R.ok(code) => code | ~$R.err(_) => ~1) end
   | ~$R.err(_) => ~1
+end
+
+(* As run_program, the standard output written to the file at out_path and the standard
+   error to the file at err_path (both made or emptied, the builders consumed): its exit
+   status, ~1 when it could not be run or a file could not be made *)
+#pub fn run_into {p:nat | p < 4000}
+  (program: string p, args: $L.listv($P.arg_entry), extra: $L.listv($P.arg_entry),
+   out_path: $B.builder_v, err_path: $B.builder_v): int
+
+fun _free_arguments {n:nat} .<n>. (xs: $L.list_vt($P.arg_entry, n)): void =
+  case+ xs of
+  | ~$L.list_vt_nil() => ()
+  | ~$L.list_vt_cons(@(array, _), rest) => let
+      val () = $A.free<byte>(array)
+    in _free_arguments(rest) end
+
+implement run_into (program, args, extra, out_path, err_path) = let
+  val opened_out = _open(out_path, $F.WriteOnly(), $F.CreateOrTruncate())
+  val opened_err = _open(err_path, $F.WriteOnly(), $F.CreateOrTruncate())
+in
+  case+ opened_out of
+  | ~$R.err(_) => let
+      val () = _free_arguments(args)
+      val () = _free_arguments(extra)
+    in (case+ opened_err of
+      | ~$R.err(_) => ~1
+      | ~$R.ok(err_fd) => let
+          val () = $R.discard<int><$F.io_error>($F.file_close(err_fd))
+        in ~1 end) end
+  | ~$R.ok(out_fd) => (case+ opened_err of
+      | ~$R.err(_) => let
+          val () = _free_arguments(args)
+          val () = _free_arguments(extra)
+          val () = $R.discard<int><$F.io_error>($F.file_close(out_fd))
+        in ~1 end
+      | ~$R.ok(err_fd) => let
+          val @(nul | path) = $P.path_of_string_proved(program)
+          val @(frozen, view) = $A.barr_freeze(path)
+          val argv = $L.list_vt_cons(arg_text(program), args)
+          val spawned = $P.spawn_inherit_env_with_proved(nul | view, argv, extra, $P.inherit(),
+            $P.inherit_fd(out_fd), $P.inherit_fd(err_fd))
+          val () = $A.cborrow_drop(frozen, view)
+          val () = $A.barr_free($A.barr_thaw(frozen))
+        in
+          case+ spawned of
+          | ~$R.ok(spawned_process) => let
+              val+ ~$P.spawn_pipes_mk(child, stdin_pipe, stdout_pipe, stderr_pipe) = spawned_process
+              val () = $P.pipe_end_close(stdin_pipe)
+              val () = $P.pipe_end_close(stdout_pipe)
+              val () = $P.pipe_end_close(stderr_pipe)
+            in (case+ $P.child_wait(child) of | ~$R.ok(code) => code | ~$R.err(_) => ~1) end
+          | ~$R.err(_) => ~1
+        end)
 end
 
 (* As run_program, the standard output (at most 4096 bytes) read: whether its

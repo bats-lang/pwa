@@ -7,6 +7,25 @@
    android-sdk-pins install <sdk-root>
    android-sdk-pins key
    android-sdk-pins decide MARKER
+   android-sdk-pins build-again LOG PROGRAM [ARGUMENT]
+
+   build-again runs the Android build of android.yml (bats-lang/pwa#276; area keyword
+   android-gradle-retry, .claude/rules/android-gradle-retry.md): PROGRAM [ARGUMENT],
+   found on PATH, with the environment inherited, at most ANDROID_BUILD_ATTEMPTS times
+   (default 3, 1 to 9). Each attempt's stdout and stderr are written to LOG.attempt
+   (emptied first), which is then written to stdout and appended to LOG, so LOG holds
+   every attempt in order and the job log shows an attempt's output when it ends. An
+   attempt that passed ends the command with 0. A failed attempt is run again only when
+   LOG.attempt says a dependency could not be found, resolved or downloaded, or names a
+   timeout or a reset connection (grep -E, the pattern in this file); any other failure,
+   and the failure of the last attempt, ends the command with 1. Before the next attempt a
+   ::warning:: line names the attempt, the Gradle daemon of GRADLE_PROJECT is stopped
+   (./gradlew --stop, its status said and not judged), the metadata caches of Gradle's
+   downloads (HOME/.gradle/caches/modules-2/metadata-*, which remember a repository's
+   not-found answer for 24 hours) are removed, the downloaded files stay, and
+   ANDROID_BUILD_PAUSE_S seconds pass (default 30, 0 to 3600). It exits 2, with a usage
+   line, when LOG or PROGRAM is missing, when there are more arguments than these, or
+   when GRADLE_PROJECT is unset. PROGRAM is started through env, so it is found on PATH.
 
    decide is the smoke test's whole decision whether the emulator step runs again
    (android.yml, bats-lang/pwa#214; area keyword android-smoke). It is called after
@@ -1592,6 +1611,220 @@ fn _decide {l:agz}{start:nat}{stop:int | start <= stop; stop <= 4096}
   val () = (if again then println! ("again=true") else println! ("again=false"))
 in code end
 
+(* ============================================================
+   build-again: the Android build, run again on a resolution failure
+   ============================================================ *)
+
+(* The arguments' bytes [start, stop), then a literal, then a zero byte, as a path *)
+fn _log_path {l:agz}{start:nat}{stop:int | start <= stop; stop <= 4096}{suffix_size:nat}
+  (bytes: !$A.borrow(byte, l, 4096), start: int start, stop: int stop, suffix: string suffix_size): $B.builder_v = let
+  var out : $B.builder_v = $B.create()
+  val () = _put_range(bytes, start, stop, 4096, out)
+  val () = _bput(out, suffix)
+  val () = _put(out, 0)
+in out end
+
+(* The file at the path (a builder with its zero byte, consumed), opened for writing *)
+fn _open_log (path: $B.builder_v, opening: $F.opening): $R.result($F.fd, $F.io_error) = let
+  val @(array, _) = $B.to_arr(path)
+  val @(frozen, view) = $A.freeze<byte>(array)
+  val opened = $F.file_open(view, 524288, $F.WriteOnly(), opening, 420)
+  val () = $A.drop<byte>(frozen, view)
+  val () = $A.free<byte>($A.thaw<byte>(frozen))
+in opened end
+
+(* The arguments' bytes [start, stop), then .attempt, as one argument *)
+fn _attempt_argument {l:agz}{start:nat}{stop:int | start <= stop; stop <= 4096}
+  (bytes: !$A.borrow(byte, l, 4096), start: int start, stop: int stop): $P.arg_entry = let
+  var out : $B.builder_v = $B.create()
+  val () = _put_range(bytes, start, stop, 4096, out)
+  val () = _bput(out, ".attempt")
+in _argument(out) end
+
+(* The arguments' bytes [start, stop) as one argument *)
+fn _argument_bytes {l:agz}{start:nat}{stop:int | start <= stop; stop <= 4096}
+  (bytes: !$A.borrow(byte, l, 4096), start: int start, stop: int stop): $P.arg_entry = let
+  var out : $B.builder_v = $B.create()
+  val () = _put_range(bytes, start, stop, 4096, out)
+in _argument(out) end
+
+(* The value of the variable as one argument *)
+fn _env_argument {name_size:pos | name_size < 1048576} (name: string name_size): $P.arg_entry = let
+  var out : $B.builder_v = $B.create()
+  val _ = _env(name, out)
+in _argument(out) end
+
+(* Whether the variable is set and not empty *)
+fn _env_set {name_size:pos | name_size < 1048576} (name: string name_size): bool = let
+  var value : $B.builder_v = $B.create()
+  val is_set = _env(name, value)
+  val () = $B.builder_free(value)
+in is_set end
+
+(* program (found on PATH) with arguments, its stdin /dev/null and its stdout and
+   stderr as given (a stream handed over is closed here): its status, ~1 when it could
+   not be run. The environment is inherited. *)
+fn _exec {program_size:nat | program_size < $B.BUILDER_CAP}
+  (program: string program_size, arguments: $L.listv($P.arg_entry),
+   out: $P.stream_config(false), err: $P.stream_config(false)): int = let
+  val @(nul_proof | path) = $P.path_of_string_proved(program)
+  val @(frozen_path, path_borrow) = $A.barr_freeze(path)
+  val argv = $L.list_vt_cons(_argument_of(program), arguments)
+  val spawned = $P.spawn_inherit_env_proved(nul_proof | path_borrow, argv, $P.dev_null(), out, err)
+  val () = $A.cborrow_drop(frozen_path, path_borrow)
+  val () = $A.barr_free($A.barr_thaw(frozen_path))
+in
+  case+ spawned of
+  | ~$R.ok(started) => let
+      val+ ~$P.spawn_pipes_mk(child, stdin_pipe, stdout_pipe, stderr_pipe) = started
+      val () = $P.pipe_end_close(stdin_pipe)
+      val () = $P.pipe_end_close(stdout_pipe)
+      val () = $P.pipe_end_close(stderr_pipe)
+    in (case+ $P.child_wait(child) of | ~$R.ok(code) => code | ~$R.err(_) => ~1) end
+  | ~$R.err(_) => ~1
+end
+
+(* "android-sdk-pins: build attempt n of N", a literal and a newline, to stderr *)
+fn _say_attempt {attempt,attempts:nat}{tail_size:nat}
+  (attempt: int attempt, attempts: int attempts, tail: string tail_size): void = let
+  var message : $B.builder_v = $B.create()
+  val () = _bput(message, "android-sdk-pins: build attempt ")
+  val () = _put_int(message, attempt)
+  val () = _bput(message, " of ")
+  val () = _put_int(message, attempts)
+  val () = _bput(message, tail)
+  val () = _put(message, 10)
+in _say(message) end
+
+(* The ERE of a failure to resolve a dependency: Gradle's own words for a repository that
+   did not answer, and the words of a timeout or a connection that was reset *)
+#define BUILD_RESOLUTION_PATTERN "Could not (find|resolve|get|download) |Read timed out|Connect timed out|Connection reset|Remote host terminated|Premature end of Content-Length|Received status code 5[0-9][0-9]|UnknownHostException|SocketTimeoutException|ECONNRESET|ETIMEDOUT|EAI_AGAIN"
+
+(* env PROGRAM [ARGUMENT] with the attempt's output (stdout and stderr, merged in the
+   file LOG.attempt, emptied first): its status, ~1 when it could not be run, ~2 when
+   LOG.attempt cannot be written *)
+fn _run_attempt {l:agz}{log_start:nat}{log_stop:int | log_start <= log_stop; log_stop <= 4096}
+  {program_start:nat}{program_stop:int | program_start <= program_stop; program_stop <= 4096}
+  {argument_start:nat}{argument_stop:int | argument_start <= argument_stop; argument_stop <= 4096}
+  (bytes: !$A.borrow(byte, l, 4096), log_start: int log_start, log_stop: int log_stop,
+   program_start: int program_start, program_stop: int program_stop,
+   argument_start: int argument_start, argument_stop: int argument_stop): int = let
+  val () = (case+ _open_log(_log_path(bytes, log_start, log_stop, ".attempt"), $F.CreateOrTruncate()) of
+    | ~$R.ok(emptied) => $R.discard<int><$F.io_error>($F.file_close(emptied))
+    | ~$R.err(_) => ())
+in
+  case+ _open_log(_log_path(bytes, log_start, log_stop, ".attempt"), $F.CreateOrAppend()) of
+  | ~$R.err(_) => ~2
+  | ~$R.ok(out_fd) =>
+    (case+ _open_log(_log_path(bytes, log_start, log_stop, ".attempt"), $F.CreateOrAppend()) of
+    | ~$R.err(_) => let
+        val () = $R.discard<int><$F.io_error>($F.file_close(out_fd))
+      in ~2 end
+    | ~$R.ok(err_fd) => let
+        val tail = (if argument_stop > argument_start
+          then $L.list_vt_cons(_argument_bytes(bytes, argument_start, argument_stop), $L.list_vt_nil())
+          else $L.list_vt_nil()): $L.listv($P.arg_entry)
+        val arguments = $L.list_vt_cons(_argument_bytes(bytes, program_start, program_stop), tail)
+      in _exec("env", arguments, $P.inherit_fd(out_fd), $P.inherit_fd(err_fd)) end)
+end
+
+(* LOG.attempt to the job log (stdout), then appended to LOG *)
+fn _hand_attempt {l:agz}{log_start:nat}{log_stop:int | log_start <= log_stop; log_stop <= 4096}
+  (bytes: !$A.borrow(byte, l, 4096), log_start: int log_start, log_stop: int log_stop): void = let
+  val _ = _exec("cat", $L.list_vt_cons(_attempt_argument(bytes, log_start, log_stop), $L.list_vt_nil()),
+    $P.inherit(), $P.inherit())
+in
+  case+ _open_log(_log_path(bytes, log_start, log_stop, ""), $F.CreateOrAppend()) of
+  | ~$R.err(_) => _say_text("android-sdk-pins: cannot append the attempt to the log\n")
+  | ~$R.ok(log_fd) => let
+      val _ = _exec("cat", $L.list_vt_cons(_attempt_argument(bytes, log_start, log_stop), $L.list_vt_nil()),
+        $P.inherit_fd(log_fd), $P.inherit())
+    in () end
+end
+
+(* Runs the build up to attempts times in all, left of them remaining: 0 when an attempt
+   passed, 1 when one failed and is not run again, 2 never (the usage is main's) *)
+fun _build_again {l:agz}{log_start:nat}{log_stop:int | log_start <= log_stop; log_stop <= 4096}
+  {program_start:nat}{program_stop:int | program_start <= program_stop; program_stop <= 4096}
+  {argument_start:nat}{argument_stop:int | argument_start <= argument_stop; argument_stop <= 4096}
+  {attempt,attempts,left,pause:nat} .<left>.
+  (bytes: !$A.borrow(byte, l, 4096), log_start: int log_start, log_stop: int log_stop,
+   program_start: int program_start, program_stop: int program_stop,
+   argument_start: int argument_start, argument_stop: int argument_stop,
+   attempt: int attempt, attempts: int attempts, left: int left, pause: int pause): int = let
+  val status = _run_attempt(bytes, log_start, log_stop, program_start, program_stop, argument_start, argument_stop)
+  val () = (if status = ~2 then _say_text("android-sdk-pins: cannot write the attempt's log next to the build log\n")
+    else _hand_attempt(bytes, log_start, log_stop))
+in
+  if status = ~2 then 1
+  else if status = 0 then let
+    val () = _say_attempt(attempt, attempts, " passed")
+  in 0 end
+  else let
+    val resolving = (_exec("grep", $L.list_vt_cons(_argument_of("-Eq"),
+      $L.list_vt_cons(_argument_of(BUILD_RESOLUTION_PATTERN),
+      $L.list_vt_cons(_attempt_argument(bytes, log_start, log_stop), $L.list_vt_nil()))),
+      $P.dev_null(), $P.dev_null()) = 0): bool
+  in
+    if ~resolving then let
+      val () = _say_attempt(attempt, attempts, " failed, not resolving a dependency: not run again")
+    in 1 end
+    else if left <= 1 then let
+      val () = _say_attempt(attempt, attempts, " failed resolving a dependency, and no attempt is left")
+    in 1 end
+    else let
+      var warning : $B.builder_v = $B.create()
+      val () = _bput(warning, "::warning::android-sdk-pins: build attempt ")
+      val () = _put_int(warning, attempt)
+      val () = _bput(warning, " of ")
+      val () = _put_int(warning, attempts)
+      val () = _bput(warning, " failed resolving a dependency: running attempt ")
+      val () = _put_int(warning, attempt + 1)
+      val () = _bput(warning, " of ")
+      val () = _put_int(warning, attempts)
+      val () = _bput(warning, " in ")
+      val () = _put_int(warning, pause)
+      val () = _bput(warning, " s\n")
+      val () = _print_builder(warning)
+      val () = fileref_flush(stdout_ref)
+      val stopped = _exec("env", $L.list_vt_cons(_argument_of("-C"), $L.list_vt_cons(_env_argument("GRADLE_PROJECT"),
+        _arguments2(_argument_of("./gradlew"), _argument_of("--stop")))), $P.inherit(), $P.inherit())
+      val () = (if stopped = 0 then _say_text("android-sdk-pins: the Gradle daemon is stopped\n")
+        else if stopped < 0 then _say_text("android-sdk-pins: ./gradlew --stop could not be run, going on\n")
+        else _say_text("android-sdk-pins: ./gradlew --stop failed, going on\n"))
+      var metadata : $B.builder_v = $B.create()
+      val _ = _env("HOME", metadata)
+      val () = _bput(metadata, "/.gradle/caches/modules-2")
+      val _ = _exec("find", $L.list_vt_cons(_argument(metadata), $L.list_vt_cons(_argument_of("-mindepth"),
+        $L.list_vt_cons(_argument_of("1"), $L.list_vt_cons(_argument_of("-maxdepth"),
+        $L.list_vt_cons(_argument_of("1"), $L.list_vt_cons(_argument_of("-name"),
+        $L.list_vt_cons(_argument_of("metadata-*"), $L.list_vt_cons(_argument_of("-exec"),
+        $L.list_vt_cons(_argument_of("rm"), $L.list_vt_cons(_argument_of("-rf"),
+        $L.list_vt_cons(_argument_of("--"), $L.list_vt_cons(_argument_of("{}"),
+        $L.list_vt_cons(_argument_of("+"), $L.list_vt_nil()))))))))))))),
+        $P.inherit(), $P.inherit())
+      val () = _pause(pause)
+    in
+      _build_again(bytes, log_start, log_stop, program_start, program_stop, argument_start, argument_stop,
+        attempt + 1, attempts, left - 1, pause)
+    end
+  end
+end
+
+(* The build's retry (android-gradle-retry, bats-lang/pwa#276), see the header: 0 or 1 *)
+fn _build {l:agz}{log_start:nat}{log_stop:int | log_start <= log_stop; log_stop <= 4096}
+  {program_start:nat}{program_stop:int | program_start <= program_stop; program_stop <= 4096}
+  {argument_start:nat}{argument_stop:int | argument_start <= argument_stop; argument_stop <= 4096}
+  (bytes: !$A.borrow(byte, l, 4096), log_start: int log_start, log_stop: int log_stop,
+   program_start: int program_start, program_stop: int program_stop,
+   argument_start: int argument_start, argument_stop: int argument_stop): int = let
+  val attempts = _number_env("ANDROID_BUILD_ATTEMPTS", 3, 1, 9)
+  val pause = _number_env("ANDROID_BUILD_PAUSE_S", 30, 0, 3600)
+in
+  _build_again(bytes, log_start, log_stop, program_start, program_stop, argument_start, argument_stop,
+    1, attempts, attempts, pause)
+end
+
 fn _status (code: int): void =
   if code <> 0 then exit_void(code) else ()
 
@@ -1604,6 +1837,11 @@ implement main0 () = let
   val @(command_start, command_stop) = _argument_range(arguments_borrow, arguments_size, 1)
   val @(feed_start, feed_stop) = _argument_range(arguments_borrow, arguments_size, 2)
   val @(extra_start, _) = _argument_range(arguments_borrow, arguments_size, 3)
+  val @(program_start, program_stop) = _argument_range(arguments_borrow, arguments_size, 3)
+  val @(argument_start, argument_stop) = _argument_range(arguments_borrow, arguments_size, 4)
+  val @(sixth_start, _) = _argument_range(arguments_borrow, arguments_size, 5)
+  val is_build_again = (arguments_size < 4095
+    && _is(arguments_borrow, command_start, command_stop, "build-again", 4096)): bool
   val is_repin = (arguments_size < 4095
     && _is(arguments_borrow, command_start, command_stop, "repin", 4096)): bool
   val is_decide = (arguments_size < 4095
@@ -1615,6 +1853,13 @@ implement main0 () = let
        else let
          val () = _say_text("usage: android-sdk-pins decide MARKER\n")
        in 2 end)
+    else if is_build_again then
+      (if feed_stop > feed_start && program_stop > program_start && sixth_start >= arguments_size
+          && _env_set("GRADLE_PROJECT")
+       then _build(arguments_borrow, feed_start, feed_stop, program_start, program_stop, argument_start, argument_stop)
+       else let
+         val () = _say_text("usage: android-sdk-pins build-again LOG PROGRAM [ARGUMENT] (GRADLE_PROJECT is set)\n")
+       in 2 end)
     else if is_repin then
       (if feed_stop > feed_start && extra_start >= arguments_size
        then _repin(arguments_borrow, feed_start, feed_stop)
@@ -1623,7 +1868,7 @@ implement main0 () = let
        in 2 end)
     else if ~usable then let
       val () = _say_text(
-        "usage: android-sdk-pins install <sdk-root> | repin <feed-directory> | key | decide <marker>\n")
+        "usage: android-sdk-pins install <sdk-root> | repin <feed-directory> | key | decide <marker> | build-again <log> <program> [<argument>]\n")
     in 2 end
     else let
       val pins = $A.alloc<byte>(65536)
