@@ -209,6 +209,12 @@ jobs:
       - name: Key fingerprints script
         run: tests/key-fingerprints/run.sh
 
+      # android.yml's build step runs the build again on a dependency
+      # resolution failure (bats-lang/pwa#276; area: android-gradle-retry): its
+      # lines against a build that fails once with Gradle's text, then passes
+      - name: Android build retry
+        run: tests/android-gradle-retry/check.sh
+
       # gen-pwa test (bats-lang/pwa#82) with a stand-in Playwright: the
       # port handed over and freed, two runs taking turns, nothing left
       # after a kill or a failure, the serial run on one worker

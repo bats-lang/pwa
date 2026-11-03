@@ -60,8 +60,9 @@
 # without publishing one.
 #
 # The build keeps its pnpm and Maven downloads between runs (the cache
-# android-downloads-*); a download it still needs and cannot get fails
-# the build, with pnpm's and Gradle's own defaults. A failed build
+# android-downloads-*); a build that fails resolving a Gradle dependency
+# runs again, twice at most, with a warning for each (bats-lang/pwa#276).
+# A failed build
 # or smoke test prints why into the job log itself: Gradle's cause, or
 # the app's processes, threads, screen, page and logcat, and the
 # emulator's own log (bats-lang/quire#258).
@@ -273,10 +274,41 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           RUN_NUMBER: ${{ github.run_number }}
           VERSION_CODE_OFFSET: ${{ inputs.version-code-offset }}
+          BUILD_SCRIPT: app/${{ inputs.project-dir }}/build-android.sh
+          GRADLE_PROJECT: app/${{ inputs.project-dir }}/android
         run: |
           export ANDROID_VERSION_CODE=$((RUN_NUMBER + VERSION_CODE_OFFSET))
           echo "Version code: $ANDROID_VERSION_CODE"
-          sh "app/${{ inputs.project-dir }}/build-android.sh" 2>&1 | tee "$RUNNER_TEMP/build-android.log"
+          # The build runs again, at most 3 times in all, when it failed
+          # resolving a dependency (bats-lang/pwa#276; area keyword
+          # android-gradle-retry, tests/android-gradle-retry/check.sh runs
+          # these lines): the attempt number is a ::warning:: in the log and
+          # every attempt's output is in build-android.log. Gradle keeps a
+          # "not found" answer of a repository for 24 hours, so before the
+          # next attempt its daemon is stopped and its metadata caches
+          # (modules-2/metadata-*) are removed; the downloaded files stay.
+          # Any other failure ends the step at once
+          # retry-begin
+          LOG="$RUNNER_TEMP/build-android.log"
+          : > "$LOG"
+          attempt=1
+          while :; do
+            if sh "$BUILD_SCRIPT" 2>&1 | tee "$RUNNER_TEMP/attempt.log"; then
+              cat "$RUNNER_TEMP/attempt.log" >> "$LOG"
+              break
+            fi
+            cat "$RUNNER_TEMP/attempt.log" >> "$LOG"
+            if [ "$attempt" -ge 3 ] || ! grep -Eq 'Could not (find|resolve|get|download) |Read timed out|Connect timed out|Connection reset|Remote host terminated|Premature end of Content-Length|Received status code 5[0-9][0-9]|UnknownHostException|SocketTimeoutException|ECONNRESET|ETIMEDOUT|EAI_AGAIN' "$RUNNER_TEMP/attempt.log"; then
+              echo "::error::The build failed on attempt $attempt of 3, and not again"
+              exit 1
+            fi
+            echo "::warning::Attempt $attempt of 3 failed resolving a dependency; running again in ${RETRY_DELAY:-30} s"
+            (cd "$GRADLE_PROJECT" && ./gradlew --stop) || true
+            rm -rf "$HOME"/.gradle/caches/modules-2/metadata-*
+            sleep "${RETRY_DELAY:-30}"
+            attempt=$((attempt + 1))
+          done
+          # retry-end
 
       # The Gradle daemon is stopped first, so that no file of the
       # cache is still being written while it is saved
