@@ -40,8 +40,9 @@ paths:
   in its `config.ini`, which the tool keeps and replaces the contents of; the
   emulator reads the kernel, ramdisk and system image from that directory at
   boot). The tool is built in the job `sdk-pins-tool`
-  (the bats setup action, called by commit, at pwa's own `.github/bats-version`)
-  while the app builds, and handed to the smoke test as an artifact. The system
+  (the bats setup action, called by commit, at pwa's own `.github/bats-version`),
+  a job of its own that the build and the smoke test wait for (`build-android` runs
+  the build through it, pwa#276), and handed to them as an artifact. The system
   image's cache key ends with the SHA-256 of `pins.txt`, which the tool prints
   (`android-sdk-pins key`, run in the step "Name the system image's cache"; not
   `hashFiles`, a GitHub expression no test can run), so a pin that moves is a new

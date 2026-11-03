@@ -58,7 +58,8 @@ jobs:
         run: |
           (cd tools/android-sdk-pins && bats build --repository $HOME/repository)
           # the smoke test's retry (bats-lang/pwa#214): the tool's decision and android.yml's wiring,
-          # against stand-in programs (tools/android-sdk-pins/src/smoke_tests.bats)
+          # and the build's retry (`build-again`, bats-lang/pwa#276; area: android-gradle-retry) with its
+          # wiring, against stand-in programs (tools/android-sdk-pins/src/smoke_tests.bats)
           (cd tools/android-sdk-pins && bats test --repository $HOME/repository)
           tests/android-sdk-pins/check.sh tools/android-sdk-pins/dist/debug/android-sdk-pins
           tests/android-sdk-pins/repin.sh tools/android-sdk-pins/dist/debug/android-sdk-pins
@@ -208,12 +209,6 @@ jobs:
       # with keytool; android.yml's steps that call it run in an app's job
       - name: Key fingerprints script
         run: tests/key-fingerprints/run.sh
-
-      # android.yml's build step runs the build again on a dependency
-      # resolution failure (bats-lang/pwa#276; area: android-gradle-retry): its
-      # lines against a build that fails once with Gradle's text, then passes
-      - name: Android build retry
-        run: tests/android-gradle-retry/check.sh
 
       # gen-pwa test (bats-lang/pwa#82) with a stand-in Playwright: the
       # port handed over and freed, two runs taking turns, nothing left
