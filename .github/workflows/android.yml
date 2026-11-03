@@ -60,11 +60,11 @@
 # without publishing one.
 #
 # The build keeps its pnpm and Maven downloads between runs (the cache
-# android-downloads-*); a download it still needs and cannot get fails
-# the build, with pnpm's and Gradle's own defaults. A failed build
-# or smoke test prints why into the job log itself: Gradle's cause, or
-# the app's processes, threads, screen, page and logcat, and the
-# emulator's own log (bats-lang/quire#258).
+# android-downloads-*); a build that fails resolving a Gradle dependency
+# runs again, twice at most, with a warning for each (bats-lang/pwa#276).
+# A failed build or smoke test prints why into the job log itself:
+# Gradle's cause, or the app's processes, threads, screen, page and
+# logcat, and the emulator's own log (bats-lang/quire#258).
 name: android
 
 on:
@@ -140,6 +140,7 @@ on:
 
 jobs:
   build-android:
+    needs: sdk-pins-tool
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -236,7 +237,9 @@ jobs:
       # what one build downloaded, and a new month starts afresh (GitHub
       # drops a set unused for 7 days). What the build resolves is still
       # what package.json and the Gradle files say; anything missing is
-      # downloaded, and a download that fails fails the build
+      # downloaded; a Gradle dependency that cannot be resolved runs the
+      # build again (bats-lang/pwa#276), and any other download that
+      # fails fails the build
       - name: Name the downloads
         id: downloads
         env:
@@ -265,6 +268,17 @@ jobs:
           org.gradle.logging.stacktrace=all
           PROPERTIES
 
+      - name: Get the build's retry tool
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: android-sdk-pins
+          path: sdk-pins-bin
+
+      - name: Make the build's retry tool runnable
+        run: chmod +x sdk-pins-bin/android-sdk-pins
+
+      # Runs the build at most 3 times in all, when it failed resolving a
+      # Gradle dependency (bats-lang/pwa#276; area: android-gradle-retry)
       - name: Build release AAB and APK
         shell: bash
         env:
@@ -273,10 +287,11 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           RUN_NUMBER: ${{ github.run_number }}
           VERSION_CODE_OFFSET: ${{ inputs.version-code-offset }}
+          GRADLE_PROJECT: app/${{ inputs.project-dir }}/android
         run: |
           export ANDROID_VERSION_CODE=$((RUN_NUMBER + VERSION_CODE_OFFSET))
           echo "Version code: $ANDROID_VERSION_CODE"
-          sh "app/${{ inputs.project-dir }}/build-android.sh" 2>&1 | tee "$RUNNER_TEMP/build-android.log"
+          "$GITHUB_WORKSPACE/sdk-pins-bin/android-sdk-pins" build-again "$RUNNER_TEMP/build-android.log" sh "app/${{ inputs.project-dir }}/build-android.sh"
 
       # The Gradle daemon is stopped first, so that no file of the
       # cache is still being written while it is saved
@@ -416,10 +431,10 @@ jobs:
 
   # The tool that installs the smoke test's SDK packages at their pins
   # (tools/android-sdk-pins, bats-lang/pwa#137), built in a job of its own
-  # beside the build, so the smoke test waits for no compiler. Its source is
-  # read from the commit this workflow runs at (job.workflow_sha).
+  # that the build and the smoke test wait for (build-android runs the build
+  # through it, bats-lang/pwa#276). Its source is read from the commit this
+  # workflow runs at (job.workflow_sha).
   sdk-pins-tool:
-    if: inputs.smoke-test-text != ''
     runs-on: ubuntu-24.04
     steps:
       - name: Check this workflow's commit
@@ -466,7 +481,7 @@ jobs:
           bats build --only release --repository "$HOME/repository"
           test -f dist/release/android-sdk-pins
 
-      - name: Hand the tool to the smoke test
+      - name: Hand the tool to the jobs that wait for it
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-sdk-pins
