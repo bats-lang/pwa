@@ -128,7 +128,10 @@ paths:
   first attempt's log, with its sdkmanager warnings, stays as its own step.
 * What `tools/android-sdk-pins/src/smoke_tests.bats` (`bats test`, run by `check.yml`'s
   "SDK pins tool" step; tools/pin-audit's tests of repository-prototype are the
-  precedent for running a built binary against stand-ins) keeps, and no more: the
+  precedent for running a built binary against stand-ins) keeps the smoke test's
+  three kinds of case, and also the build's (`build-again`, its cases and its own golden
+  file `tests/build-wiring.txt`, in `.claude/rules/android-gradle-retry.md`). The smoke
+  test's: the
   decision on every input; the flow played with a stand-in sdkmanager (a cut-short
   manifest on its first call, then the whole one) and a stand-in action, which fails
   when the wiring check refuses the real `android.yml`; and the wiring. The block of
@@ -144,7 +147,8 @@ paths:
   order. The cases are generated from the lines of the real `android.yml` and played on
   every run: for each line of the block one edit of each kind, five cut cases, two mask
   cases and three controls that are accepted. A change to the block is made in
-  `wiring.txt` in the same pull request.
+  `wiring.txt` in the same pull request. The build step's block is compared the same way
+  with `tests/build-wiring.txt` (a change to it is made there in the same pull request).
 
 # The pnpm download of the Android build (pwa#158)
 

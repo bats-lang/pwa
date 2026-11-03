@@ -481,7 +481,7 @@ jobs:
           bats build --only release --repository "$HOME/repository"
           test -f dist/release/android-sdk-pins
 
-      - name: Hand the tool to the smoke test
+      - name: Hand the tool to the jobs that wait for it
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-sdk-pins
