@@ -62,10 +62,9 @@
 # The build keeps its pnpm and Maven downloads between runs (the cache
 # android-downloads-*); a build that fails resolving a Gradle dependency
 # runs again, twice at most, with a warning for each (bats-lang/pwa#276).
-# A failed build
-# or smoke test prints why into the job log itself: Gradle's cause, or
-# the app's processes, threads, screen, page and logcat, and the
-# emulator's own log (bats-lang/quire#258).
+# A failed build or smoke test prints why into the job log itself:
+# Gradle's cause, or the app's processes, threads, screen, page and
+# logcat, and the emulator's own log (bats-lang/quire#258).
 name: android
 
 on:
@@ -237,7 +236,9 @@ jobs:
       # what one build downloaded, and a new month starts afresh (GitHub
       # drops a set unused for 7 days). What the build resolves is still
       # what package.json and the Gradle files say; anything missing is
-      # downloaded, and a download that fails fails the build
+      # downloaded; a Gradle dependency that cannot be resolved runs the
+      # build again (bats-lang/pwa#276), and any other download that
+      # fails fails the build
       - name: Name the downloads
         id: downloads
         env:
