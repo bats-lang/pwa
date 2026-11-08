@@ -62,6 +62,7 @@
 # The build keeps its pnpm and Maven downloads between runs (the cache
 # android-downloads-*); a build that fails resolving a Gradle dependency
 # runs again, twice at most, with a warning for each (bats-lang/pwa#276).
+# The JDK is cached by setup-java (cache-jdk, bats-lang/pwa#292).
 # A failed build or smoke test prints why into the job log itself:
 # Gradle's cause, or the app's processes, threads, screen, page and
 # logcat, and the emulator's own log (bats-lang/quire#258).
@@ -152,10 +153,16 @@ jobs:
         with:
           node-version-file: app/${{ inputs.project-dir }}/.nvmrc
 
+      # The JDK comes from setup-java's own cache of it when the download
+      # fails (bats-lang/pwa#292; area: jdk-cache): cache-jdk saves the
+      # installation of the pinned version after a job that passed and
+      # restores it before any download, and a miss downloads, so a failed
+      # download with nothing cached still fails this step
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version-file: app/${{ inputs.project-dir }}/.java-version
+          cache-jdk: true
 
       - name: Decode signing keystore
         env:
@@ -510,10 +517,12 @@ jobs:
           name: android-sdk-pins
           path: sdk-pins-bin
 
+      # (bats-lang/pwa#292; area: jdk-cache, as in build-android)
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version-file: app/${{ inputs.project-dir }}/.java-version
+          cache-jdk: true
 
       - name: Enable KVM
         run: |
