@@ -57,6 +57,9 @@ STUB
 cat > "$TMP/bin/adb" <<'STUB'
 #!/bin/sh
 echo "adb $*" >> "$STUB_LOG"
+# adb forwards its stdin to the device unless it is run with -n (pwa#303): a shell call
+# without -n takes the rest of the file a loop reads from, as the real adb does
+if [ "$1" = shell ] && [ "$2" != -n ]; then cat > "$STUB_LOG.stdin"; fi
 case "$*" in
   "shell getprop sys.boot_completed") echo 1 ;;
   "shell am get-started-user-state 0")
@@ -240,7 +243,7 @@ echo "case 8: a user that stays locked: the script was ended by timeout (status 
 echo "case 8: a user locked for three answers: $(grep -c '^adb shell am get-started-user-state 0$' "$TMP/unlocking.log") polls, then the install"
 fi
 # 9. (pwa#205) the app's probes: files next to the script that the page answers over DevTools
-INPUTS="^adb shell input (swipe|tap) "
+INPUTS="^adb shell (-n )?input (swipe|tap) "
 probe select smoke-select-point.js "540 1200"
 if want longpress; then
 run longpress ok screen-with-text.xml unix-with-socket "BATS PWA" select
@@ -287,10 +290,10 @@ run tapped ok screen-with-text.xml unix-with-socket "BATS PWA" taps
 [ "$(cat "$TMP/tapped.status")" = 0 ] || fail "the script failed with three points tapped and a result of true" "$TMP/tapped.out"
 [ "$(grep -c -E "$INPUTS" "$TMP/tapped.log")" = 8 ] || fail "not a long press and three taps at each of two scales" "$TMP/tapped.log"
 grep -E "$INPUTS" "$TMP/tapped.log" > "$TMP/tapped.inputs"
-printf '%s\n' 'adb shell input swipe 540 1200 540 1200 1000' 'adb shell input tap 100 200' \
-  'adb shell input tap 300 400' 'adb shell input tap 500 600' \
-  'adb shell input swipe 540 1200 540 1200 1000' 'adb shell input tap 100 200' \
-  'adb shell input tap 300 400' 'adb shell input tap 500 600' > "$TMP/tapped.want"
+printf '%s\n' 'adb shell input swipe 540 1200 540 1200 1000' 'adb shell -n input tap 100 200' \
+  'adb shell -n input tap 300 400' 'adb shell -n input tap 500 600' \
+  'adb shell input swipe 540 1200 540 1200 1000' 'adb shell -n input tap 100 200' \
+  'adb shell -n input tap 300 400' 'adb shell -n input tap 500 600' > "$TMP/tapped.want"
 cmp -s "$TMP/tapped.inputs" "$TMP/tapped.want" || fail "the long press and the taps are not in order, at the points" "$TMP/tapped.inputs" "$TMP/tapped.want"
 echo "case 9, three points and a result of true: the script exited 0 and called"
 cat "$TMP/tapped.inputs"
@@ -372,8 +375,8 @@ run scaledboth ok screen-with-text.xml unix-with-socket "BATS PWA" both
 # the setup probe is called once (it answered 'opened', at the scale the font step left, 1.0)
 [ "$(grep -c ' opened$' "$TMP/scaledboth.calls")" = 1 ] || fail "the setup probe was not called once" "$TMP/scaledboth.calls"
 grep -E "$INPUTS" "$TMP/scaledboth.log" > "$TMP/scaledboth.inputs"
-printf '%s\n' 'adb shell input swipe 540 1200 540 1200 1000' 'adb shell input tap 100 200' \
-  'adb shell input swipe 540 2400 540 2400 1000' 'adb shell input tap 100 400' > "$TMP/scaledboth.want"
+printf '%s\n' 'adb shell input swipe 540 1200 540 1200 1000' 'adb shell -n input tap 100 200' \
+  'adb shell input swipe 540 2400 540 2400 1000' 'adb shell -n input tap 100 400' > "$TMP/scaledboth.want"
 cmp -s "$TMP/scaledboth.inputs" "$TMP/scaledboth.want" || fail "the long press and the tap are not made at each scale, at its points" "$TMP/scaledboth.inputs" "$TMP/scaledboth.want"
 # after the probe's first scale (1.0) the scale is set to 2.0 before the second long press, readiness polled after each
 grep -n -E "^adb shell (settings put system font_scale|input swipe)" "$TMP/scaledboth.log" | tail -5 | cut -d: -f2- | tr '\n' ';' | grep -q 'font_scale 1.0;adb shell input swipe 540 1200 .*;adb shell settings put system font_scale 2.0;adb shell input swipe 540 2400 .*;adb shell settings put system font_scale 1.0;$' ||
