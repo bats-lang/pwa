@@ -149,6 +149,27 @@ jobs:
           name: ${{ inputs.artifact }}
           path: app
 
+      # Node's installation, restored into the runner's tool cache before
+      # setup-node asks for it (bats-lang/pwa#298; area: node-cache).
+      # setup-node looks for node/<version>/x64 and its marker x64.complete
+      # in RUNNER_TOOL_CACHE first and downloads from github.com only when
+      # they are not there; the cache of a job before holds that directory
+      # after a job that passed, so a warm cache downloads nothing. The
+      # key is the version of .nvmrc (a workflow expression cannot read a
+      # file, hence the one line that does)
+      - name: Name the Node installation
+        id: node
+        env:
+          NVMRC: app/${{ inputs.project-dir }}/.nvmrc
+        run: echo "version=$(cat "$NVMRC")" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the Node installation of an earlier job
+        id: restore-node
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.tool_cache }}/node/${{ steps.node.outputs.version }}
+          key: node-tool-cache-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.version }}
+
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: app/${{ inputs.project-dir }}/.nvmrc
@@ -442,6 +463,14 @@ jobs:
           name: smoke-apk
           path: app/${{ inputs.project-dir }}/android/app/build/outputs/apk/release/*.apk
           retention-days: 1
+
+      # Last, so that only a job that passed saves (bats-lang/pwa#298; area: node-cache)
+      - name: Keep the Node installation
+        if: steps.restore-node.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.tool_cache }}/node/${{ steps.node.outputs.version }}
+          key: node-tool-cache-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.version }}
 
   # The tool that installs the smoke test's SDK packages at their pins
   # (tools/android-sdk-pins, bats-lang/pwa#137), built in a job of its own
