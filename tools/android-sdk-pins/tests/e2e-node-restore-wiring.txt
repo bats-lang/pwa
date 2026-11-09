@@ -1,0 +1,22 @@
+    - name: Name the Node installation
+      id: node
+      shell: bash
+      env:
+        NVMRC: ${{ inputs.working-directory }}/${{ inputs.node-version-file }}
+      run: echo "version=$(cat "$NVMRC")" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the Node installation of an earlier job
+      id: restore-node
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.tool_cache }}/node/${{ steps.node.outputs.version }}
+        key: node-tool-cache-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.version }}
+
+    # The downloads of npm's cache, keyed by setup-node on the lock's hash
+    - name: Set up Node.js
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: ${{ inputs.working-directory }}/${{ inputs.node-version-file }}
+        cache: npm
+        cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+
