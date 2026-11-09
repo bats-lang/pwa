@@ -15,10 +15,11 @@
 # Acquire::Retries (a transfer that stalls fails), and `timeout` around the
 # whole call (a hang guard for what apt's options do not reach, never a
 # budget: E2E_APT_HANG_S, default 600 s, is far past a slow install). A call
-# that fails or is killed makes the next attempt run. A diagnostic for a rare
-# freeze never fails the job: whatever cannot be installed is said as a
-# warning and the script exits 0 (the capture uses a tool only if it is
-# there, and the specs that need one skip, saying why, when it is not).
+# that fails or is killed makes the next attempt run. A tool that cannot be
+# installed fails the step (pwa#291): each of gdb, elfutils, libc6-dbg and rr
+# that is missing after the last attempt is an `::error::` naming it and the
+# status of apt-get, and the script exits 1, because a green job whose stall
+# capture lacks its native stacks cannot explain the next stall.
 # E2E_ATTEMPTS (default 3) is the tries of each call, E2E_PAUSE_S (default 5)
 # the pause that grows by itself with the attempt.
 #
@@ -54,6 +55,7 @@ attempt() {
   n=1
   while :; do
     apt_bounded "$@"; status=$?
+    last_status=$status
     [ "$status" != 0 ] || return 0
     if [ "$status" = 124 ] || [ "$status" = 137 ]; then
       echo "::warning::$label: apt-get did not return in ${hang}s and was stopped (try $n of $attempts)"
@@ -65,6 +67,15 @@ attempt() {
   done
 }
 
+# tool_failed <tool...>: an `::error::` for each tool, with the status of the last apt-get call
+failed=no
+last_status=0
+tool_failed() {
+  for tool in "$@"; do
+    echo "::error::$tool could not be installed: apt-get failed with status $last_status"
+  done
+  failed=yes
+}
 
 # deb_names <apt-get -s install output>: name_version_arch.deb of each Inst line
 # (apt writes an epoch's colon as %3a in the file name)
@@ -126,30 +137,28 @@ if prepare; then
   done < "$state/expected"
   echo "Stall tools: $cached of $total packages restored from the cache"
   fetch_gdb=no; fetch_libc=no; fetch_rr=no
-  fetched "gdb, elfutils" gdb elfutils && fetch_gdb=yes
-  fetched "libc6-dbg" --no-upgrade "libc6-dbg=$libc_version" && fetch_libc=yes
-  fetched "rr" rr && fetch_rr=yes
+  if fetched "gdb, elfutils" gdb elfutils; then fetch_gdb=yes; else tool_failed gdb elfutils; fi
+  if fetched "libc6-dbg" --no-upgrade "libc6-dbg=$libc_version"; then fetch_libc=yes; else tool_failed libc6-dbg; fi
+  if fetched "rr" rr; then fetch_rr=yes; else tool_failed rr; fi
   # the cache holds exactly the resolved packages, or nothing
   if [ "$cached" != "$total" ] && [ "$fetch_gdb$fetch_libc$fetch_rr" = yesyesyes ]; then
     rm -rf "$debs"; mkdir -p "$debs"
     while IFS= read -r deb; do cp -f "$archives/$deb" "$debs/$deb" || { rm -rf "$debs"; break; }; done < "$state/expected"
   fi
-  if [ "$fetch_gdb" = yes ] && attempt "gdb, elfutils" install -y -q gdb elfutils; then
-    installed=yes
+  if [ "$fetch_gdb" = yes ]; then
+    if attempt "gdb, elfutils" install -y -q gdb elfutils; then installed=yes; else tool_failed gdb elfutils; fi
   fi
   if [ "$fetch_libc" = yes ]; then
-    attempt "libc6-dbg" install -y -q --no-upgrade "libc6-dbg=$libc_version" \
-      || echo "::warning::libc6-dbg $libc_version is not available: libc's internal functions stay unnamed"
-  else
-    echo "::warning::libc6-dbg $libc_version is not available: libc's internal functions stay unnamed"
+    attempt "libc6-dbg" install -y -q --no-upgrade "libc6-dbg=$libc_version" || tool_failed libc6-dbg
   fi
   # rr is its own install: a package that is missing must not take gdb with it
   if [ "$fetch_rr" = yes ]; then
-    attempt "rr" install -y -q rr || echo "::warning::rr is not available: the preflight logs it as not installed"
-  else
-    echo "::warning::rr is not available: the preflight logs it as not installed"
+    attempt "rr" install -y -q rr || tool_failed rr
   fi
+else
+  # the index could not be updated: none of the four can be installed
+  tool_failed gdb elfutils libc6-dbg rr
 fi
 echo "Install gdb: installed=$installed after $(( $(date +%s) - started )) s"
-[ "$installed" = yes ] || echo "::warning::gdb and elfutils are not installed: the stall capture's native stacks are missing"
+[ "$failed" = no ] || exit 1
 exit 0

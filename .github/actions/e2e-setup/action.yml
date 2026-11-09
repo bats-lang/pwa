@@ -31,8 +31,8 @@ inputs:
   stall-tools:
     description: >-
       Install gdb, elfutils, libc6-dbg and rr for an app's stall capture
-      ("true" or "false"); every apt call is bounded, a failure never
-      fails the job (bats-lang/pwa#178) and the packages are kept between
+      ("true" or "false"); every apt call is bounded, a tool that cannot be
+      installed fails the job (bats-lang/pwa#291) and the packages are kept between
       runs under a key that names their versions (bats-lang/pwa#227)
     default: "false"
   japanese-font:

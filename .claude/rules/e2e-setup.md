@@ -66,8 +66,7 @@ bounded twice: apt's own `-o Acquire::http::Timeout`, `Acquire::https::Timeout`
 (`E2E_APT_HANG_S`, 600 s: a hang guard for what apt's options do not reach,
 never a budget), so a stalled mirror makes an attempt fail and the next of 3
 attempts run (a call that never returns would stop the attempts after it).
-A diagnostic for a rare freeze never fails the
-job: what cannot be installed is a warning and the script exits 0. No
+No
 wall-clock budget bounds the step. `tests/e2e-setup/check.sh` plays an
 `apt-get` that never returns on its first call, and on every call.
 

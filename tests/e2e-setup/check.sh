@@ -196,6 +196,13 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+# FAKE_FAIL: a package whose download and install fail (status 100); FAKE_FAIL_INSTALL: one whose
+# install fails after its download succeeded (libc6-dbg=<version> is the package libc6-dbg)
+failing() { for pkg in $pkgs; do [ "${pkg%%=*}" = "$1" ] && return 0; done; return 1; }
+if [ "$sim" = no ] && [ "$action" = install ]; then
+  if [ -n "${FAKE_FAIL:-}" ] && failing "$FAKE_FAIL"; then echo "E: unable to locate $FAKE_FAIL" >&2; exit 100; fi
+  if [ "$dl" = no ] && [ -n "${FAKE_FAIL_INSTALL:-}" ] && failing "$FAKE_FAIL_INSTALL"; then echo "E: dpkg failed for $FAKE_FAIL_INSTALL" >&2; exit 100; fi
+fi
 if [ "$sim" = no ]; then
   n=$(cat "$FAKE_COUNT" 2>/dev/null || echo 0); n=$((n + 1)); echo $n > "$FAKE_COUNT"
   echo "$ARGS" >> "$FAKE_COUNT.args"
@@ -254,11 +261,27 @@ grep -q 'installed=yes' "$TMP/out" || fail "the next attempt did not install" "$
 [ "$(wc -l < "$TMP/count.args")" = 8 ] || fail "apt-get ran $(wc -l < "$TMP/count.args") times, not 8" "$TMP/count.args"
 [ "$(grep -c '^-o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 ' "$TMP/count.args")" = 8 ] || fail "an apt call without apt's own bounds" "$TMP/count.args"
 grep -q 'install -y -q --no-upgrade libc6-dbg=2.39-0ubuntu8$' "$TMP/count.args" || fail "libc6-dbg is not pinned to the installed libc6" "$TMP/count.args"
-# every call stalls: three tries of the update, then the job goes on (exit 0) saying why
-stall 1000 "$TMP/f/debs2" || fail "stall-tools.sh failed the job when every call stalled" "$TMP/out"
+! grep -q '::error::' "$TMP/out" || fail "an installer that succeeds said an error" "$TMP/out"
+# every call stalls: three tries of the update, then the step fails (pwa#291), naming each of the 4 tools
+if stall 1000 "$TMP/f/debs2"; then fail "stall-tools.sh passed when every call stalled" "$TMP/out"; fi
 grep -q 'installed=no' "$TMP/out" || fail "installed=no not said" "$TMP/out"
-grep -q 'gdb and elfutils are not installed' "$TMP/out" || fail "the missing tools not said" "$TMP/out"
+for tool in gdb elfutils libc6-dbg rr; do
+  grep -q "^::error::$tool could not be installed: apt-get failed with status 124$" "$TMP/out" || fail "the missing $tool not said, with the status" "$TMP/out"
+done
 [ "$(grep -c ' update -q$' "$TMP/count.args")" = 3 ] || fail "the update was not tried 3 times" "$TMP/count.args"
+# a tool that cannot be downloaded, or installed after its download, fails the step and names it with
+# apt's status (gdb and elfutils are one apt call, so both are named); the other tools are still tried
+for mode in FAKE_FAIL FAKE_FAIL_INSTALL; do
+  for tool in gdb elfutils libc6-dbg rr; do
+    case $tool in gdb|elfutils) named="gdb elfutils" ;; *) named=$tool ;; esac
+    if (export "$mode=$tool"; stall 0 "$TMP/f/debs-$mode-$tool"); then fail "stall-tools.sh passed with $tool failing ($mode)" "$TMP/out"; fi
+    for n in $named; do
+      grep -q "^::error::$n could not be installed: apt-get failed with status 100$" "$TMP/out" || fail "$n not named when $tool fails ($mode)" "$TMP/out"
+    done
+    [ "$(grep -c '^::error::' "$TMP/out")" = "$(echo $named | wc -w)" ] || fail "an error for a tool that installed, when $tool fails ($mode)" "$TMP/out"
+    case $tool in rr|libc6-dbg) grep -q 'installed=yes' "$TMP/out" || fail "gdb not installed when only $tool fails ($mode)" "$TMP/out" ;; esac
+  done
+done
 
 # a miss: the mirror is asked for each of the 5 packages once, and they are kept
 stall 0 "$TMP/f/cache" || fail "a miss" "$TMP/out"
