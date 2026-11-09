@@ -156,6 +156,13 @@ jobs:
         timeout-minutes: 15
         run: tests/android-lock/check.sh example/dist/android/build-android.sh
 
+      # the minimum SDK level (bats-lang/pwa#308): the project asked for API level 29
+      # has minSdkVersion = 29 in android/variables.gradle, the one asked for none keeps
+      # Capacitor's line (a stand-in corepack that makes the project `cap add android` makes)
+      - name: Android minimum SDK level
+        timeout-minutes: 5
+        run: tests/android-min-sdk/check.sh example/dist/android-min-sdk example/dist/android
+
       # A file for the Android smoke test to open the app with
       - name: Make the file to open
         run: echo "A file the example app is opened with" > example/dist/android/smoke-share.txt

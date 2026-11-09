@@ -79,6 +79,15 @@ staload PV = "./public_values.sats"
 #pub fn build_android_script_locked {nw:nat | nw < 256}{n:nat | n + 5000 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 5000] $B.builder(m), web_dir: string nw): void
 
+(* build_android_script_locked, which also sets the minimum SDK level of the
+   project to min_sdk (an Android API level, bats-lang/pwa#308, keyword:
+   android-lock): right after cap add android the script rewrites the line
+   minSdkVersion = N of android/variables.gradle, where Capacitor keeps it, and
+   stops with a message when the line is not there. build_android_script_locked
+   writes no such step: the level is Capacitor's own. *)
+#pub fn build_android_script_locked_min_sdk {nw:nat | nw < 256}{k:pos | k < 1000}{n:nat | n + 6500 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 6500] $B.builder(m), web_dir: string nw, min_sdk: int k): void
+
 (* fetch-pnpm.sh: sourced by build-android.sh, which then runs "$pnpm"
    (bats-lang/pwa#158). pnpm 12's corepack entry downloads its native
    binary from the registry on first use, with a 30 s timeout and no
@@ -197,6 +206,14 @@ staload PV = "./public_values.sats"
    from it is frozen (bats-lang/pwa#131, android-lock). *)
 #pub fn create_android_locked {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nd:nat | nd < 256}{nm:nat | nm < 256}
   (app_name: string na, app_id: string ni, web_dir: string nw, project_dir: string nd, mime: string nm): void
+
+(* create_android_locked for an app that needs Android API level min_sdk or
+   newer (bats-lang/pwa#308, keyword: android-lock): the project is the same
+   and its build-android.sh (build_android_script_locked_min_sdk) sets the
+   minimum SDK level of the Android project it builds to min_sdk. The existing
+   create_android_locked keeps the level Capacitor writes. *)
+#pub fn create_android_locked_min_sdk {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nd:nat | nd < 256}{nm:nat | nm < 256}{k:pos | k < 1000}
+  (app_name: string na, app_id: string ni, web_dir: string nw, project_dir: string nd, mime: string nm, min_sdk: int k): void
 
 (* ============================================================
    Internal: paths and files
@@ -506,10 +523,35 @@ fn _android_script_pnpm
   val () = $B.bput(b, "printf 'nodeLinker: hoisted\\n' > pnpm-workspace.yaml\n")
 in end
 
-(* the script's text after its install, shared by the two forms *)
+(* the script's cap add, which writes android/ and its variables.gradle, shared by the two forms *)
+fn _android_script_cap_add
+  {n:nat | n + 60 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 60] $B.builder(m)): void =
+  $B.bput(b, "$pnpm exec cap add android\n")
+
+(* the minimum SDK level of the generated project (bats-lang/pwa#308, keyword: android-lock):
+   Capacitor keeps it in android/variables.gradle, as the line minSdkVersion = N; the line is
+   rewritten to the level the app asks for and the script stops when it is not there after,
+   so a Capacitor that moved it elsewhere fails the build and never ignores the setting *)
+fn _android_script_min_sdk {k:pos | k < 1000}{n:nat | n + 1000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 1000] $B.builder(m), min_sdk: int k): void = let
+  val () = $B.bput(b, "# the minimum SDK level the app asks for (bats-lang/pwa#308): Capacitor keeps it\n")
+  val () = $B.bput(b, "# in variables.gradle; the build stops when the line is not there afterwards\n")
+  val () = $B.bput(b, "awk '/^[[:space:]]*minSdkVersion[[:space:]]*=/ { sub(/=.*/, \"= ")
+  val () = $B.put_int(b, min_sdk)
+  val () = $B.bput(b, "\") } { print }' android/variables.gradle > android/variables.gradle.new\n")
+  val () = $B.bput(b, "mv android/variables.gradle.new android/variables.gradle\n")
+  val () = $B.bput(b, "grep -Eq '^[[:space:]]*minSdkVersion = ")
+  val () = $B.put_int(b, min_sdk)
+  val () = $B.bput(b, "$' android/variables.gradle || {\n")
+  val () = $B.bput(b, "  echo \"error: android/variables.gradle has no minSdkVersion line to set\" >&2\n")
+  val () = $B.bput(b, "  exit 1\n")
+  val () = $B.bput(b, "}\n")
+in end
+
+(* the script's text after its cap add, shared by the two forms *)
 fn _android_script_tail {nw:nat | nw < 256}{n:nat | n + 1800 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 1800] $B.builder(m), web_dir: string nw): void = let
-  val () = $B.bput(b, "$pnpm exec cap add android\n")
   val () = $B.bput(b, "if [ -n \"${ANDROID_KEYSTORE:-}\" ]; then\n")
   val () = $B.bput(b, "  cp \"$ANDROID_KEYSTORE\" android/app/release.jks\n")
   val () = $B.bput(b, "fi\n")
@@ -544,7 +586,9 @@ fn _android_script_tail {nw:nat | nw < 256}{n:nat | n + 1800 <= $B.BUILDER_CAP}
   val () = $B.bput(b, "./gradlew bundleRelease assembleRelease\n")
 in end
 
-implement build_android_script_locked (b, web_dir) = let
+(* the locked script up to and with its install, shared by the two forms of it *)
+fn _android_script_locked_install {n:nat | n + 3000 <= $B.BUILDER_CAP}
+  (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 3000] $B.builder(m)): void = let
   val () = _android_script_head(b)
   val () = $B.bput(b, "# The lock is checked before pnpm is fetched, so an app without one is told\n")
   val () = $B.bput(b, "# so at once, with nothing downloaded (bats-lang/pwa#164). The install is\n")
@@ -562,6 +606,17 @@ implement build_android_script_locked (b, web_dir) = let
   val () = $B.bput(b, "}\n")
   val () = _android_script_pnpm(b)
   val () = $B.bput(b, "$pnpm install --frozen-lockfile\n")
+in end
+
+implement build_android_script_locked (b, web_dir) = let
+  val () = _android_script_locked_install(b)
+  val () = _android_script_cap_add(b)
+in _android_script_tail(b, web_dir) end
+
+implement build_android_script_locked_min_sdk (b, web_dir, min_sdk) = let
+  val () = _android_script_locked_install(b)
+  val () = _android_script_cap_add(b)
+  val () = _android_script_min_sdk(b, min_sdk)
 in _android_script_tail(b, web_dir) end
 
 implement build_pnpm_script (b) = let
@@ -1585,6 +1640,12 @@ implement create_android_locked (app_name, app_id, web_dir, project_dir, mime) =
   val () = _android_project_files(app_name, app_id, web_dir, project_dir, mime)
   var sh_b = $B.create()
   val () = build_android_script_locked(sh_b, web_dir)
+in _write_mode(project_dir, "build-android.sh", sh_b, 493) end
+
+implement create_android_locked_min_sdk (app_name, app_id, web_dir, project_dir, mime, min_sdk) = let
+  val () = _android_project_files(app_name, app_id, web_dir, project_dir, mime)
+  var sh_b = $B.create()
+  val () = build_android_script_locked_min_sdk(sh_b, web_dir, min_sdk)
 in _write_mode(project_dir, "build-android.sh", sh_b, 493) end
 
 (* ============================================================
