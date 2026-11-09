@@ -176,8 +176,10 @@ end
 fn _cut {l:agz}{count:nat | count <= 131072}
   (view: !$A.borrow(byte, l, 131072), count: int count, which: int): [s,e:int | ~1 <= s; s <= e; e <= count] @(int s, int e) = let
   val s = (if which = 0 then _once(view, count, "      - name: Run the app on an emulator (attempt 1 of 2)\n")
+    else if which = 2 then _once(view, count, "          restore-keys: |\n")
     else _once(view, count, "      - name: Build release AAB and APK\n")): [p:int | ~1 <= p; p <= count] int p
   val e = (if which = 0 then _once(view, count, "      - name: Upload screenshot, UI dump and logcat\n")
+    else if which = 2 then _once(view, count, "      - name: Configure Gradle\n")
     else _once(view, count, "      - name: Stop Gradle\n")): [p:int | ~1 <= p; p <= count] int p
 in
   if s < 0 then @(~1, ~1) else if e < 0 then @(~1, ~1) else if s >= e then @(~1, ~1) else @(s, e)
@@ -228,7 +230,9 @@ end
 fn _load {yl,gl:agz} (yml: !$A.arr(byte, yl, 131072), gold: !$A.arr(byte, gl, 131072), which: int)
   : @([y:int | ~1 <= y; y <= 131072] int y, [g:int | ~1 <= g; g <= 131072] int g) = let
   val y = read_into(text_of("../../.github/workflows/android.yml"), yml)
-  val golden_path = (if which = 0 then text_of("tests/wiring.txt") else text_of("tests/build-wiring.txt")): $B.builder_v
+  val golden_path = (if which = 0 then text_of("tests/wiring.txt")
+    else if which = 2 then text_of("tests/restore-wiring.txt")
+    else text_of("tests/build-wiring.txt")): $B.builder_v
   val g = read_into(golden_path, gold)
 in @(y, g) end
 
@@ -429,21 +433,22 @@ fn _cut_cases {yl,gl:agz}{yc,gc:nat | yc <= 131072; gc <= 131072}{s,e:nat | s <=
   val () = let val verdict = (if cut_1 && r1 && r2 && r3 && r4 && r5 then "each refused" else "one was accepted"): string in println! ("cut cases: first bounding line absent, second absent, first twice, second twice, the two in the other order: ", verdict) end
 in cut_1 && r1 && r2 && r3 && r4 && r5 end
 
-(* the cut cases and the accepted control of the build's block (tests/build-wiring.txt) *)
-fn _build_cut_and_control (): bool = let
+(* the cut cases and the accepted control of a block that has no pin mask: the build's
+   (which 1, tests/build-wiring.txt) or the restore's (which 2, tests/restore-wiring.txt) *)
+fn _plain_cut_and_control (which: int): bool = let
   val yml = $A.alloc<byte>(131072)
   val gold = $A.alloc<byte>(131072)
-  val @(yc, gc) = _load(yml, gold, 1)
+  val @(yc, gc) = _load(yml, gold, which)
   val @(yf, yv) = $A.freeze<byte>(yml)
   val @(gf, gv) = $A.freeze<byte>(gold)
   val ok = (if yc < 0 then false else if gc < 0 then false else let
-      val @(s, e) = _cut(yv, yc, 1)
+      val @(s, e) = _cut(yv, yc, which)
     in
       if s < 0 then false
       else let
-        val cut_ok = _cut_cases(yv, yc, gv, gc, s, e, 1)
-        val control = _wired(yv, yc, gv, gc, 1)
-        val () = let val verdict = (if control then "accepted" else "refused"): string in println! ("control: the unedited android.yml against the build's block: ", verdict) end
+        val cut_ok = _cut_cases(yv, yc, gv, gc, s, e, which)
+        val control = _wired(yv, yc, gv, gc, which)
+        val () = let val verdict = (if control then "accepted" else "refused"): string in println! ("control: the unedited android.yml against the block of golden text ", which, ": ", verdict) end
       in cut_ok && control end
     end): bool
   val () = $A.drop<byte>(yf, yv)
@@ -683,7 +688,17 @@ fn test_build_edit_deleted_line_refused (): bool = _class("build D", 0, 1)
 fn test_build_edit_changed_line_refused (): bool = _class("build C", 1, 1)
 fn test_build_edit_added_line_refused (): bool = _class("build I", 2, 1)
 fn test_build_edit_swapped_lines_refused (): bool = _class("build S", 3, 1)
-fn test_build_cut_and_control (): bool = _build_cut_and_control()
+fn test_build_cut_and_control (): bool = _plain_cut_and_control(1)
+
+(* and for the restore step's restore-keys (tests/restore-wiring.txt, bats-lang/pwa#296; area
+   restore-keys): the prefix lines of the month and then of the os, from the restore-keys line to
+   the name line of "Configure Gradle". A deleted, changed, added or swapped line is refused, so is
+   a key line with another prefix (the changed-byte case) and a missing or repeated bounding line *)
+fn test_restore_edit_deleted_line_refused (): bool = _class("restore D", 0, 2)
+fn test_restore_edit_changed_line_refused (): bool = _class("restore C", 1, 2)
+fn test_restore_edit_added_line_refused (): bool = _class("restore I", 2, 2)
+fn test_restore_edit_swapped_lines_refused (): bool = _class("restore S", 3, 2)
+fn test_restore_cut_and_control (): bool = _plain_cut_and_control(2)
 
 (* a failure of the test after the emulator started is the job's failure and not run again *)
 fn test_test_failure_not_run_again (): bool = let
