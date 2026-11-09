@@ -1029,7 +1029,7 @@ if [ $found = 1 ] && { [ -f "$HERE/smoke-tap-points.js" ] || [ -f "$HERE/smoke-t
     while read -r name px py extra; do
       [ -n "$name" ] || continue
       if is_pixel "$px" && is_pixel "$py" && [ -z "$extra" ]; then
-        adb shell input tap "${px%%.*}" "${py%%.*}"
+        adb shell -n input tap "${px%%.*}" "${py%%.*}"
         taps=$((taps + 1))
         sleep 1
       else
