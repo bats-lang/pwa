@@ -177,9 +177,13 @@ fn _cut {l:agz}{count:nat | count <= 131072}
   (view: !$A.borrow(byte, l, 131072), count: int count, which: int): [s,e:int | ~1 <= s; s <= e; e <= count] @(int s, int e) = let
   val s = (if which = 0 then _once(view, count, "      - name: Run the app on an emulator (attempt 1 of 2)\n")
     else if which = 2 then _once(view, count, "          restore-keys: |\n")
+    else if which = 3 then _once(view, count, "      - name: Name the Node installation\n")
+    else if which = 4 then _once(view, count, "      - name: Keep the Node installation\n")
     else _once(view, count, "      - name: Build release AAB and APK\n")): [p:int | ~1 <= p; p <= count] int p
   val e = (if which = 0 then _once(view, count, "      - name: Upload screenshot, UI dump and logcat\n")
     else if which = 2 then _once(view, count, "      - name: Configure Gradle\n")
+    else if which = 3 then _once(view, count, "      # The JDK comes from setup-java's own cache of it when the download\n")
+    else if which = 4 then _once(view, count, "  # The tool that installs the smoke test's SDK packages at their pins\n")
     else _once(view, count, "      - name: Stop Gradle\n")): [p:int | ~1 <= p; p <= count] int p
 in
   if s < 0 then @(~1, ~1) else if e < 0 then @(~1, ~1) else if s >= e then @(~1, ~1) else @(s, e)
@@ -232,6 +236,8 @@ fn _load {yl,gl:agz} (yml: !$A.arr(byte, yl, 131072), gold: !$A.arr(byte, gl, 13
   val y = read_into(text_of("../../.github/workflows/android.yml"), yml)
   val golden_path = (if which = 0 then text_of("tests/wiring.txt")
     else if which = 2 then text_of("tests/restore-wiring.txt")
+    else if which = 3 then text_of("tests/node-restore-wiring.txt")
+    else if which = 4 then text_of("tests/node-save-wiring.txt")
     else text_of("tests/build-wiring.txt")): $B.builder_v
   val g = read_into(golden_path, gold)
 in @(y, g) end
@@ -699,6 +705,21 @@ fn test_restore_edit_changed_line_refused (): bool = _class("restore C", 1, 2)
 fn test_restore_edit_added_line_refused (): bool = _class("restore I", 2, 2)
 fn test_restore_edit_swapped_lines_refused (): bool = _class("restore S", 3, 2)
 fn test_restore_cut_and_control (): bool = _plain_cut_and_control(2)
+
+(* and for the Node installation of build-android (bats-lang/pwa#298; area node-cache): the restore
+   (tests/node-restore-wiring.txt, which 3), from the step that names the version to the JDK's
+   comment, so the restore comes before setup-node and keeps the key of the version, and the save
+   (tests/node-save-wiring.txt, which 4), the last step of the job, saved only on a miss *)
+fn test_node_restore_edit_deleted_line_refused (): bool = _class("node restore D", 0, 3)
+fn test_node_restore_edit_changed_line_refused (): bool = _class("node restore C", 1, 3)
+fn test_node_restore_edit_added_line_refused (): bool = _class("node restore I", 2, 3)
+fn test_node_restore_edit_swapped_lines_refused (): bool = _class("node restore S", 3, 3)
+fn test_node_restore_cut_and_control (): bool = _plain_cut_and_control(3)
+fn test_node_save_edit_deleted_line_refused (): bool = _class("node save D", 0, 4)
+fn test_node_save_edit_changed_line_refused (): bool = _class("node save C", 1, 4)
+fn test_node_save_edit_added_line_refused (): bool = _class("node save I", 2, 4)
+fn test_node_save_edit_swapped_lines_refused (): bool = _class("node save S", 3, 4)
+fn test_node_save_cut_and_control (): bool = _plain_cut_and_control(4)
 
 (* a failure of the test after the emulator started is the job's failure and not run again *)
 fn test_test_failure_not_run_again (): bool = let
