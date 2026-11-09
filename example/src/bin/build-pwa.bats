@@ -14,6 +14,9 @@ fn generate (): void = let
   (* The Capacitor project around it: dist/android/build-android.sh
      builds the Android app *)
   val () = $P.create_android_locked("Example App", "dev.bats.example", "../pwa", "dist/android", "text/plain")
+  (* the same project asking for Android 10 (API level 29), which
+     tests/android-min-sdk/check.sh builds beside dist/android (bats-lang/pwa#308) *)
+  val () = $P.create_android_locked_min_sdk("Example App", "dev.bats.example", "../pwa", "dist/android-min-sdk", "text/plain", 29)
 in end
 
 (* build-pwa test [--timings <dir>] [--evidence <dir>] [-- <playwright args>] runs the
