@@ -51,10 +51,6 @@ pull request run.
   `GRADLE_PROJECT`, its status said and not judged) and removes
   `$HOME/.gradle/caches/modules-2/metadata-*`; the downloaded files
   (`files-2.1`) stay. It then pauses `ANDROID_BUILD_PAUSE_S` seconds (default 30).
-* **Not a dependency cache keyed by the locked versions.** The existing
-  `android-downloads-*` cache is kept: it is saved after a build that passed
-  and restored under its exact key, so a new month or a changed project
-  starts empty; the retry covers that first build.
 * **The tests** (`tools/android-sdk-pins/src/smoke_tests.bats`, run by `bats
   test` in the step "SDK pins tool" of `check`) run the built tool against a
   stand-in build (`src/bin/build_stand_in.bats`, the build script and the

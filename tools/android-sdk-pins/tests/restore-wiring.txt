@@ -1,0 +1,6 @@
+          restore-keys: |
+            android-downloads-${{ runner.os }}-${{ steps.downloads.outputs.month }}-
+            android-downloads-${{ runner.os }}-
+
+      # Gradle prints a failed build's stack trace, for its cause
+      # (bats-lang/quire#258)
