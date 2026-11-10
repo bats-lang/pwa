@@ -151,6 +151,25 @@ staload PV = "./public_values.sats"
    assets: !$A.arr(byte, la, nas), asset_len: int k, asset_max: int nas,
    mime: string nm, ext: string ne): void
 
+(* As create_pwa and create_pwa_opening, for an app that renders outside
+   content (keyword: book bridge, bats-lang/quire#1063): bridge.js is
+   bridge's produce_bridge_app_book, which holds the platform atom, the
+   image error atom and the book operations (opcodes 13 to 18). The forms
+   before them are kept beside them and write the bridge without the book
+   operations *)
+#pub fn create_pwa_book {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nn:nat | nn < 200}{nd:nat | nd < 256}{la:agz}{nas:pos | nas + 257 <= $B.BUILDER_CAP}{k:nat | k <= nas}
+  (app_name: string na, app_id: string ni,
+   wasm_path: string nw, wasm_name: string nn,
+   out_dir: string nd,
+   assets: !$A.arr(byte, la, nas), asset_len: int k, asset_max: int nas): void
+
+#pub fn create_pwa_opening_book {na:nat | na < 256}{ni:nat | ni < 256}{nw:nat | nw < 256}{nn:nat | nn < 200}{nd:nat | nd < 256}{la:agz}{nas:pos | nas + 257 <= $B.BUILDER_CAP}{k:nat | k <= nas}{nm,ne:nat | nm < 256; ne < 256}
+  (app_name: string na, app_id: string ni,
+   wasm_path: string nw, wasm_name: string nn,
+   out_dir: string nd,
+   assets: !$A.arr(byte, la, nas), asset_len: int k, asset_max: int nas,
+   mime: string nm, ext: string ne): void
+
 (* smoke-test.sh, for app app_id: on a running emulator or device
    (adb), installs the APK given as its first argument (signing it with
    a throwaway key when it is unsigned), launches it, and waits up to
@@ -1584,6 +1603,42 @@ implement create_pwa_opening (app_name, app_id, wasm_path, wasm_name, out_dir, a
   val () = _write_to(out_dir, "index.html", html_b)
   var br_b = $B.create()
   val () = $BR.produce_bridge_app(br_b, wasm_name, "bats-root")
+  val () = _write_to(out_dir, "bridge.js", br_b)
+  var sw_b = $B.create()
+  val () = $BR.produce_service_worker(sw_b, wasm_name)
+  val () = _write_to(out_dir, "service-worker.js", sw_b)
+  var mf_b = $B.create()
+  val () = build_manifest_opening(mf_b, app_name, mime, ext)
+  val () = _write_to(out_dir, "manifest.json", mf_b)
+  val () = _copy_to(wasm_path, out_dir, wasm_name)
+  val () = _copy_assets(assets, 0, asset_len, out_dir)
+in end
+
+implement create_pwa_book (app_name, app_id, wasm_path, wasm_name, out_dir, assets, asset_len, asset_max) = let
+  val () = _mkdir(out_dir)
+  var html_b = $B.create()
+  val () = build_html(html_b, app_name)
+  val () = _write_to(out_dir, "index.html", html_b)
+  var br_b = $B.create()
+  val () = $BR.produce_bridge_app_book(br_b, wasm_name, "bats-root")
+  val () = _write_to(out_dir, "bridge.js", br_b)
+  var sw_b = $B.create()
+  val () = $BR.produce_service_worker(sw_b, wasm_name)
+  val () = _write_to(out_dir, "service-worker.js", sw_b)
+  var mf_b = $B.create()
+  val () = build_manifest(mf_b, app_name)
+  val () = _write_to(out_dir, "manifest.json", mf_b)
+  val () = _copy_to(wasm_path, out_dir, wasm_name)
+  val () = _copy_assets(assets, 0, asset_len, out_dir)
+in end
+
+implement create_pwa_opening_book (app_name, app_id, wasm_path, wasm_name, out_dir, assets, asset_len, asset_max, mime, ext) = let
+  val () = _mkdir(out_dir)
+  var html_b = $B.create()
+  val () = build_html(html_b, app_name)
+  val () = _write_to(out_dir, "index.html", html_b)
+  var br_b = $B.create()
+  val () = $BR.produce_bridge_app_book(br_b, wasm_name, "bats-root")
   val () = _write_to(out_dir, "bridge.js", br_b)
   var sw_b = $B.create()
   val () = $BR.produce_service_worker(sw_b, wasm_name)
