@@ -884,6 +884,9 @@ jobs:
             smoke/ui.xml
             smoke/logcat.txt
             smoke/dom.html
+            smoke/select-point-*.txt
+            smoke/tap-points-*.txt
+            smoke/tap-result-*.txt
           if-no-files-found: ignore
 
       # Only once the test passed: a failed test keeps the APK (for a
