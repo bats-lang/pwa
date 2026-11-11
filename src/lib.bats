@@ -204,7 +204,7 @@ staload PV = "./public_values.sats"
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 16000] $B.builder(m), app_id: string ni): void
 
 (* a long press and taps at the points the app's probe files name (android-smoke, pwa#205) *)
-(* deprecated (android-smoke): create_android_locked writes build_smoke_test_script_scaled_probes, which opens the app and plays the probes at each font scale (pwa#267); this keeps its type and its text, removed by bats-lang/pwa#270 *)
+(* deprecated (android-smoke): create_android_locked writes build_smoke_test_script_scaled_probes_printed, which opens the app and plays the probes at each font scale (pwa#267); this keeps its type and its text, removed by bats-lang/pwa#270 *)
 #pub fn build_smoke_test_script_probes {ni:nat | ni < 256}{n:nat | n + 18560 <= $B.BUILDER_CAP}
   (b: !$B.builder(n) >> [m:nat | n <= m; m <= n + 18560] $B.builder(m), app_id: string ni): void
 
