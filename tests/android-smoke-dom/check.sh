@@ -382,6 +382,17 @@ cmp -s "$TMP/scaledboth.inputs" "$TMP/scaledboth.want" || fail "the long press a
 grep -n -E "^adb shell (settings put system font_scale|input swipe)" "$TMP/scaledboth.log" | tail -5 | cut -d: -f2- | tr '\n' ';' | grep -q 'font_scale 1.0;adb shell input swipe 540 1200 .*;adb shell settings put system font_scale 2.0;adb shell input swipe 540 2400 .*;adb shell settings put system font_scale 1.0;$' ||
   fail "the scales were not set 1.0, long press, 2.0, long press, 1.0 again" "$TMP/scaledboth.log"
 [ "$(grep -c '^2.0 true$' "$TMP/scaledboth.calls")" = 2 ] || fail "readiness and the result were not asked at 2.0" "$TMP/scaledboth.calls"
+# (pwa#313) the long press, each tap and the page's answer are printed at each scale, none with a failure marker, and the three files are kept
+for s in 1.0 2.0; do
+  if [ $s = 1.0 ]; then py=1200; ty=200; else py=2400; ty=400; fi
+  grep -qx "Probe long press: font scale $s at 540 $py" "$TMP/scaledboth.out" || fail "no Probe long press line at $s" "$TMP/scaledboth.out"
+  grep -qx "Probe tap: font scale $s: back at 100 $ty" "$TMP/scaledboth.out" || fail "no Probe tap line at $s" "$TMP/scaledboth.out"
+  grep -qx "Probe taps: font scale $s: 1 taps, the page saw a click on every one: true" "$TMP/scaledboth.out" || fail "no Probe taps line at $s" "$TMP/scaledboth.out"
+  for f in select-point tap-points tap-result; do
+    [ -f "$TMP/scaledboth/$f-$s.txt" ] || fail "$f-$s.txt is not kept in the output directory" "$TMP/scaledboth.out"
+  done
+done
+if grep -q -E '^(Long press|Taps):' "$TMP/scaledboth.out"; then fail "a failure marker is printed on success" "$TMP/scaledboth.out"; fi
 echo "case 10, a setup probe, a ready probe and probes at both scales: setup called $(grep -c ' opened$' "$TMP/scaledboth.calls") time, inputs"
 cat "$TMP/scaledboth.inputs"
 fi
@@ -432,6 +443,9 @@ run scaledmiss ok screen-with-text.xml unix-with-socket "BATS PWA" miss
 [ "$(cat "$TMP/scaledmiss.status")" = 1 ] || fail "the script passed with a miss at 2.0" "$TMP/scaledmiss.out"
 grep -q '^Taps: font scale 2.0: the page saw no click on: back $' "$TMP/scaledmiss.out" || fail "the miss is not named with its scale" "$TMP/scaledmiss.out"
 if grep -q '^Taps: font scale 1.0' "$TMP/scaledmiss.out"; then fail "a miss is reported at 1.0" "$TMP/scaledmiss.out"; fi
+# (pwa#313) the answer true is printed at 1.0 and not at 2.0, where the failure line is unchanged
+grep -qx 'Probe taps: font scale 1.0: 1 taps, the page saw a click on every one: true' "$TMP/scaledmiss.out" || fail "no Probe taps line at 1.0" "$TMP/scaledmiss.out"
+if grep -q '^Probe taps: font scale 2.0' "$TMP/scaledmiss.out"; then fail "Probe taps printed for a miss at 2.0" "$TMP/scaledmiss.out"; fi
 [ "$(grep -c -E "$INPUTS" "$TMP/scaledmiss.log")" = 4 ] || fail "not a long press and a tap at both scales" "$TMP/scaledmiss.log"
 echo "case 10, a miss at 2.0: $(grep '^Taps' "$TMP/scaledmiss.out")"
 fi
