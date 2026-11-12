@@ -372,4 +372,21 @@ font "file://$TMP/j/good.deb" "$TMP/j/cache5" && fail "a font fontconfig does no
 grep -q 'fontconfig lists no Japanese font after the install' "$TMP/out" || fail "the message of an unlisted font" "$TMP/out"
 PATH=$OLDPATH
 
+# --- job-took.sh (pwa#319): `job took <seconds> s` is the last line of the output, passed or failed
+last_line() { tail -n 1 "$TMP/took"; }
+"$ACT/job-took.sh" sh -c 'echo run output' > "$TMP/took" 2>&1 || fail "job-took.sh failed a passing command" "$TMP/took"
+[ "$(last_line)" = "job took 0 s" ] || fail "a passing command: the last line" "$TMP/took"
+status=0
+"$ACT/job-took.sh" sh -c 'echo run output; exit 3' > "$TMP/took" 2>&1 || status=$?
+[ "$status" = 3 ] || fail "a failing command: the exit status was $status, not 3" "$TMP/took"
+grep -qE '^job took [0-9]+ s$' "$TMP/took" || fail "a failing command printed no 'job took' line" "$TMP/took"
+[ "$(last_line)" = "job took 0 s" ] || fail "a failing command: the line is not the last" "$TMP/took"
+grep -q '^run output$' "$TMP/took" || fail "the command's own output is missing" "$TMP/took"
+# counted from JOB_TOOK_START when the job has one
+JOB_TOOK_START=$(( $(date +%s) - 100 )) "$ACT/job-took.sh" false > "$TMP/took" 2>&1 && fail "false passed" "$TMP/took"
+grep -qE '^job took 10[0-9] s$' "$TMP/took" || fail "the seconds from JOB_TOOK_START" "$TMP/took"
+# the action starts the clock and puts the script on PATH; android.yml has the line in each of its 3 jobs
+grep -q 'JOB_TOOK_START=' "$ACT/action.yml" || fail "e2e-setup does not start the clock"
+[ "$(grep -c 'echo "job took ' "$HERE/../../.github/workflows/android.yml")" = 3 ] || fail "android.yml does not print the line in each of its jobs"
+
 echo "e2e-setup: all checks passed"

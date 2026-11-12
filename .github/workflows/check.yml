@@ -233,10 +233,12 @@ jobs:
 
       # the example's suite, run as an app runs it: build-pwa test serves
       # dist/pwa itself and checks the browsers Playwright expects
+      # job-took.sh (e2e-setup, on PATH) writes `job took <seconds> s` as the last line, also when
+      # the run fails (bats-lang/pwa#319)
       - name: Run e2e tests
         run: |
           cd example
-          ./dist/debug/build-pwa test --timings ../e2e-timings
+          job-took.sh ./dist/debug/build-pwa test --timings ../e2e-timings
 
   # The example's Android app, built by the reusable workflow; unsigned,
   # since this repository has no keystore
