@@ -374,6 +374,7 @@ PATH=$OLDPATH
 
 # --- job-took.sh (pwa#319): `job took <seconds> s` is the last line of the output, passed or failed
 last_line() { tail -n 1 "$TMP/took"; }
+unset JOB_TOOK_START # CI's job has one (e2e-setup's first step); these cases count from the script's own start
 "$ACT/job-took.sh" sh -c 'echo run output' > "$TMP/took" 2>&1 || fail "job-took.sh failed a passing command" "$TMP/took"
 [ "$(last_line)" = "job took 0 s" ] || fail "a passing command: the last line" "$TMP/took"
 status=0
