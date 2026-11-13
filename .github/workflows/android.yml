@@ -144,6 +144,10 @@ jobs:
     needs: sdk-pins-tool
     runs-on: ubuntu-24.04
     steps:
+      # The job's clock, read by the last step (bats-lang/pwa#319; area: job-took)
+      - name: Start the clock
+        run: echo "JOB_TOOK_START=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ inputs.artifact }}
@@ -464,13 +468,17 @@ jobs:
           path: app/${{ inputs.project-dir }}/android/app/build/outputs/apk/release/*.apk
           retention-days: 1
 
-      # Last, so that only a job that passed saves (bats-lang/pwa#298; area: node-cache)
+      # Last but the job's duration, so that only a job that passed saves (bats-lang/pwa#298; area: node-cache)
       - name: Keep the Node installation
         if: steps.restore-node.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.tool_cache }}/node/${{ steps.node.outputs.version }}
           key: node-tool-cache-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.version }}
+
+      - name: Job duration
+        if: always()
+        run: echo "job took $(( $(date +%s) - JOB_TOOK_START )) s"
 
   # The tool that installs the smoke test's SDK packages at their pins
   # (tools/android-sdk-pins, bats-lang/pwa#137), built in a job of its own
@@ -480,6 +488,9 @@ jobs:
   sdk-pins-tool:
     runs-on: ubuntu-24.04
     steps:
+      - name: Start the clock
+        run: echo "JOB_TOOK_START=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Check this workflow's commit
         env:
           WORKFLOW_SHA: ${{ job.workflow_sha }}
@@ -532,11 +543,18 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+      - name: Job duration
+        if: always()
+        run: echo "job took $(( $(date +%s) - JOB_TOOK_START )) s"
+
   smoke-test:
     needs: [build-android, sdk-pins-tool]
     if: inputs.smoke-test-text != ''
     runs-on: ubuntu-24.04
     steps:
+      - name: Start the clock
+        run: echo "JOB_TOOK_START=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ inputs.artifact }}
@@ -896,3 +914,7 @@ jobs:
         uses: geekyeggo/delete-artifact@176a747ab7e287e3ff4787bf8a148716375ca118 # v6.0.0
         with:
           name: smoke-apk
+
+      - name: Job duration
+        if: always()
+        run: echo "job took $(( $(date +%s) - JOB_TOOK_START )) s"
