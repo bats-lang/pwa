@@ -179,7 +179,7 @@ jobs:
       # installation of the pinned version after a job that passed and
       # restores it before any download, and a miss downloads, so a failed
       # download with nothing cached still fails this step
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
           java-version-file: app/${{ inputs.project-dir }}/.java-version
@@ -554,7 +554,7 @@ jobs:
           path: sdk-pins-bin
 
       # (bats-lang/pwa#292; area: jdk-cache, as in build-android)
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
           java-version-file: app/${{ inputs.project-dir }}/.java-version
