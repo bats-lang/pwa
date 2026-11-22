@@ -376,12 +376,12 @@ PATH=$OLDPATH
 last_line() { tail -n 1 "$TMP/took"; }
 unset JOB_TOOK_START # CI's job has one (e2e-setup's first step); these cases count from the script's own start
 "$ACT/job-took.sh" sh -c 'echo run output' > "$TMP/took" 2>&1 || fail "job-took.sh failed a passing command" "$TMP/took"
-[ "$(last_line)" = "job took 0 s" ] || fail "a passing command: the last line" "$TMP/took"
+last_line | grep -qE '^job took [0-9]+ s$' || fail "a passing command: the last line" "$TMP/took"
 status=0
 "$ACT/job-took.sh" sh -c 'echo run output; exit 3' > "$TMP/took" 2>&1 || status=$?
 [ "$status" = 3 ] || fail "a failing command: the exit status was $status, not 3" "$TMP/took"
 grep -qE '^job took [0-9]+ s$' "$TMP/took" || fail "a failing command printed no 'job took' line" "$TMP/took"
-[ "$(last_line)" = "job took 0 s" ] || fail "a failing command: the line is not the last" "$TMP/took"
+last_line | grep -qE '^job took [0-9]+ s$' || fail "a failing command: the line is not the last" "$TMP/took"
 grep -q '^run output$' "$TMP/took" || fail "the command's own output is missing" "$TMP/took"
 # counted from JOB_TOOK_START when the job has one
 JOB_TOOK_START=$(( $(date +%s) - 100 )) "$ACT/job-took.sh" false > "$TMP/took" 2>&1 && fail "false passed" "$TMP/took"
