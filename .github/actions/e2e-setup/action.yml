@@ -53,6 +53,17 @@ outputs:
 runs:
   using: composite
   steps:
+    # The clock of the e2e run (bats-lang/pwa#319; area: job-took): the start of the setup is
+    # kept for job-took.sh, which the job's later steps find on PATH and which writes
+    # `job took <seconds> s` as the last line of the command it runs, passed or failed
+    - name: Start the clock
+      shell: bash
+      run: |
+        echo "JOB_TOOK_START=$(date +%s)" >> "$GITHUB_ENV"
+        echo "$ACTION_PATH" >> "$GITHUB_PATH"
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+
     # Node's installation, restored into the runner's tool cache before
     # setup-node asks for it (bats-lang/pwa#300; area: node-cache, as android.yml's
     # in pwa#298). setup-node looks for node/<version>/x64 and its marker x64.complete

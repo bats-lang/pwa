@@ -5,3 +5,7 @@
           path: ${{ runner.tool_cache }}/node/${{ steps.node.outputs.version }}
           key: node-tool-cache-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.version }}
 
+      - name: Job duration
+        if: always()
+        run: echo "job took $(( $(date +%s) - JOB_TOOK_START )) s"
+
