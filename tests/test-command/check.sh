@@ -117,6 +117,8 @@ f=$(grep -m1 '^watch-existed ' "$TMP/c.log"); f=${f#watch-existed }
 PWA_WATCH="$TMP/watch.cjs" node --test --test-reporter=spec "$HERE/watch.test.mjs" > "$TMP/watch.out" 2>&1 || { echo "FAIL: the page watch's tests"; cat "$TMP/watch.out"; exit 1; }
 # pwa#289: the line the one-client test prints, shown in the job's log
 grep '^one DevTools client: ' "$TMP/watch.out" || { echo "FAIL: the one-client test printed no line"; cat "$TMP/watch.out"; exit 1; }
+# pwa#329: the line the test of a pause that fires after the wait printed, shown in the job's log
+grep '^page answers a probe after its script started: yes' "$TMP/watch.out" || { echo "FAIL: the late-pause test printed no line"; cat "$TMP/watch.out"; exit 1; }
 for p in $(ports "$TMP/a.log"); do closed "$p" || { echo "FAIL: port $p still served after the run"; exit 1; }; done
 
 # a caller's --workers: one run, as given
