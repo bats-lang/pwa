@@ -49,19 +49,26 @@ const browser = Object.assign(new EventEmitter(), {
   contexts: () => (early ? [] : [{ pages: () => [page] }]),
 });
 if (early) browser.newContext = async () => Object.assign(new EventEmitter(), { pages: () => [] });
+if (mode === 'one-client') {
+  // the routes by which the watch reaches a spinning page (ROUTES: both, page, scans); newContext is
+  // defined before launch returns, which is when the preload wraps it (a later assignment would replace the wrapper)
+  const routes = process.env.ROUTES;
+  const scanned = Object.assign(new EventEmitter(), { pages: () => [page] });
+  // the context newContext makes keeps no page in pages(), so only its page event can reach the page
+  const made = Object.assign(new EventEmitter(), { pages: () => [] });
+  browser.contexts = () => (routes === 'page' ? [] : [scanned]);
+  if (routes !== 'scans') browser.newContext = async () => made;
+}
 globalThis.__browser = browser;
 (async () => {
   const launched = await require('playwright-core').chromium.launch();
   console.log('launched ' + (launched === browser));
   if (mode === 'one-client') {
-    // a spinning page (its evaluate never answers) reached by every way the watch arms a page:
-    // the browser's contexts at the first scan, the context's page event (twice) and every later scan
-    const context = Object.assign(new EventEmitter(), { pages: () => [page] });
-    browser.contexts = () => [context];
-    browser.newContext = async () => context;
-    const made = await launched.newContext();
-    made.emit('page', page);
-    made.emit('page', page);
+    if (process.env.ROUTES !== 'scans') {
+      const made = await launched.newContext();
+      made.emit('page', page);
+      made.emit('page', page);
+    }
     await new Promise((r) => setTimeout(r, 3000));
     console.log('counts ' + JSON.stringify(counts));
     process.exit(0);
@@ -202,12 +209,25 @@ test('no evidence directory in the environment: launch is not wrapped', async ()
 });
 
 // pwa#289: the preload is the one DevTools client of a page, so a second watch (quire's own
-// stall-capture.js) stands down; the line printed is what check.yml's job shows
-test('exactly one DevTools client arms a spinning page, however the page is reached', async () => {
-  const r = await play({ MODE: 'one-client', WAIT_MS: '4000' }, { requires: 2 });
+// stall-capture.js) stands down; the lines printed are what check.yml's job shows. The two controls
+// each reach the page by one route only, so a route that does not reach track fails its own test.
+async function oneClient(routes, how) {
+  const r = await play({ MODE: 'one-client', ROUTES: routes, WAIT_MS: '4000' }, { requires: 2 });
   assert.equal(r.code, 0);
   const counts = JSON.parse(/^counts (.*)$/m.exec(r.out)[1]);
   assert.deepEqual(counts, { sessions: 1, enable: 1 });
-  console.log(`one DevTools client: Debugger.enable sent ${counts.enable} time for 1 spinning page (${counts.sessions} session)`);
+  console.log(`one DevTools client: Debugger.enable sent ${counts.enable} time for 1 spinning page${how} (${counts.sessions} session)`);
   r.done();
+}
+
+test('exactly one DevTools client arms a spinning page, however the page is reached', async () => {
+  await oneClient('both', '');
+});
+
+test('the context page event alone arms a spinning page once', async () => {
+  await oneClient('page', ' reached by the page event alone');
+});
+
+test('the scans alone arm a spinning page once', async () => {
+  await oneClient('scans', ' reached by the scans alone');
 });
