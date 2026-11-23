@@ -89,6 +89,21 @@ deb_names() {
 
 libc_version=$(dpkg-query -W -f='${Version}' libc6)
 
+# libc6-dbg of the installed libc6 is the first choice. Covers quire#1122: the runner's index no longer has that
+# version ("E: Version '2.39-0ubuntu8.9' for 'libc6-dbg' was not found"), which every retry repeats, so after a miss
+# the index is updated once and the exact request made once more; a miss after that is an `::error::` naming the
+# version asked and the ones the index has, and fails the step (libc6 is never upgraded in the middle of a job).
+libc_dbg_request="libc6-dbg=$libc_version"
+index_versions() { apt-cache madison libc6-dbg | awk -F'|' '{gsub(/ /, "", $2); print $2}' | paste -sd' ' -; }
+libc_dbg_fetched() {
+  fetched "libc6-dbg" --no-upgrade "$libc_dbg_request" && return 0
+  case " $(index_versions) " in *" $libc_version "*) return 1 ;; esac
+  echo "::warning::$libc_dbg_request is not in the index (it has: $(index_versions)); updating the index once"
+  attempt "apt-get update" update -q && fetched "libc6-dbg" --no-upgrade "$libc_dbg_request" && return 0
+  echo "::error::$libc_dbg_request was asked for and is not in the index after an update (it has: $(index_versions))"
+  return 1
+}
+
 # prepare: the index updated once and the packages resolved into $state/expected;
 # libc6-dbg of exactly the installed libc6, never an upgrade of libc6 in the middle of a job
 prepare() {
@@ -97,7 +112,7 @@ prepare() {
   attempt "apt-get update" update -q || return 1
   {
     apt_bounded -s install -y -q gdb elfutils 2>/dev/null | deb_names
-    apt_bounded -s install -y -q --no-upgrade "libc6-dbg=$libc_version" 2>/dev/null | deb_names
+    apt_bounded -s install -y -q --no-upgrade "$libc_dbg_request" 2>/dev/null | deb_names
     apt_bounded -s install -y -q rr 2>/dev/null | deb_names
   } | sort -u > "$state/expected"
   : > "$state/prepared"
@@ -138,7 +153,7 @@ if prepare; then
   echo "Stall tools: $cached of $total packages restored from the cache"
   fetch_gdb=no; fetch_libc=no; fetch_rr=no
   if fetched "gdb, elfutils" gdb elfutils; then fetch_gdb=yes; else tool_failed gdb elfutils; fi
-  if fetched "libc6-dbg" --no-upgrade "libc6-dbg=$libc_version"; then fetch_libc=yes; else tool_failed libc6-dbg; fi
+  if libc_dbg_fetched; then fetch_libc=yes; else tool_failed libc6-dbg; fi
   if fetched "rr" rr; then fetch_rr=yes; else tool_failed rr; fi
   # the cache holds exactly the resolved packages, or nothing
   if [ "$cached" != "$total" ] && [ "$fetch_gdb$fetch_libc$fetch_rr" = yesyesyes ]; then
@@ -149,7 +164,7 @@ if prepare; then
     if attempt "gdb, elfutils" install -y -q gdb elfutils; then installed=yes; else tool_failed gdb elfutils; fi
   fi
   if [ "$fetch_libc" = yes ]; then
-    attempt "libc6-dbg" install -y -q --no-upgrade "libc6-dbg=$libc_version" || tool_failed libc6-dbg
+    attempt "libc6-dbg" install -y -q --no-upgrade "$libc_dbg_request" || tool_failed libc6-dbg
   fi
   # rr is its own install: a package that is missing must not take gdb with it
   if [ "$fetch_rr" = yes ]; then
