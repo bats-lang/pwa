@@ -29,8 +29,10 @@ if (process.env.NO_CORE_NEEDED) { console.log('ran unchanged'); process.exit(0);
 const { EventEmitter } = require('events');
 const fs = require('fs');
 const mode = process.env.MODE;
+const counts = { sessions: 0, enable: 0 };
 const session = Object.assign(new EventEmitter(), {
   send: async (method) => {
+    if (method === 'Debugger.enable') counts.enable += 1;
     if (method === 'Debugger.pause' && mode === 'frames') setImmediate(() => session.emit('Debugger.paused', { reason: 'other', callFrames: [{ functionName: 'loop', url: 'http://x/a.js', location: { scriptId: '1', lineNumber: 3, columnNumber: 4 } }] }));
     if (method === 'Profiler.stop') return { profile: { nodes: [{ callFrame: { functionName: 'busy', url: 'u', lineNumber: 0, columnNumber: 0 }, hitCount: 9 }, { callFrame: { functionName: 'idle', url: 'u', lineNumber: 1, columnNumber: 0 }, hitCount: 1 }] } };
     return {};
@@ -39,7 +41,7 @@ const session = Object.assign(new EventEmitter(), {
 const page = Object.assign(new EventEmitter(), {
   isClosed: () => false, url: () => 'http://x/',
   evaluate: () => (process.env.ANSWERS ? Promise.resolve(1) : new Promise(() => {})),
-  context: () => ({ newCDPSession: async () => { if (mode === 'no-session') throw new Error('no session for you'); return session; } }),
+  context: () => ({ newCDPSession: async () => { counts.sessions += 1; if (mode === 'no-session') throw new Error('no session for you'); return session; } }),
 });
 const early = process.env.EARLY === '1';
 const browser = Object.assign(new EventEmitter(), {
@@ -47,10 +49,30 @@ const browser = Object.assign(new EventEmitter(), {
   contexts: () => (early ? [] : [{ pages: () => [page] }]),
 });
 if (early) browser.newContext = async () => Object.assign(new EventEmitter(), { pages: () => [] });
+if (mode === 'one-client') {
+  // the routes by which the watch reaches a spinning page (ROUTES: both, page, scans); newContext is
+  // defined before launch returns, which is when the preload wraps it (a later assignment would replace the wrapper)
+  const routes = process.env.ROUTES;
+  const scanned = Object.assign(new EventEmitter(), { pages: () => [page] });
+  // the context newContext makes keeps no page in pages(), so only its page event can reach the page
+  const made = Object.assign(new EventEmitter(), { pages: () => [] });
+  browser.contexts = () => (routes === 'page' ? [] : [scanned]);
+  if (routes !== 'scans') browser.newContext = async () => made;
+}
 globalThis.__browser = browser;
 (async () => {
   const launched = await require('playwright-core').chromium.launch();
   console.log('launched ' + (launched === browser));
+  if (mode === 'one-client') {
+    if (process.env.ROUTES !== 'scans') {
+      const made = await launched.newContext();
+      made.emit('page', page);
+      made.emit('page', page);
+    }
+    await new Promise((r) => setTimeout(r, 3000));
+    console.log('counts ' + JSON.stringify(counts));
+    process.exit(0);
+  }
   if (early) {
     // a page is created and writes at once, before any scan could have seen it
     const context = await launched.newContext();
@@ -71,7 +93,7 @@ globalThis.__browser = browser;
 })();
 `;
 
-function play(env, { withCore = true, withTest = true } = {}) {
+function play(env, { withCore = true, withTest = true, requires = 1 } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'pwa-watch-'));
   mkdirSync(join(root, 'node_modules', 'playwright-core'), { recursive: true });
   mkdirSync(join(root, 'node_modules', '@playwright', 'test'), { recursive: true });
@@ -80,7 +102,7 @@ function play(env, { withCore = true, withTest = true } = {}) {
   writeFileSync(join(root, 'driver.cjs'), DRIVER);
   const evidence = join(root, 'evidence');
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, ['--require', WATCH, 'driver.cjs'], {
+    const child = spawn(process.execPath, [...Array(requires).fill(['--require', WATCH]).flat(), 'driver.cjs'], {
       cwd: root, env: { ...process.env, PWA_TEST_EVIDENCE_DIR: evidence, WAIT_MS: '20000', ...env },
     });
     let out = ''; let err = '';
@@ -184,4 +206,28 @@ test('no evidence directory in the environment: launch is not wrapped', async ()
   assert.equal(r.files.length, 0);
   assert.doesNotMatch(r.err, /gen-pwa test/);
   r.done();
+});
+
+// pwa#289: the preload is the one DevTools client of a page, so a second watch (quire's own
+// stall-capture.js) stands down; the lines printed are what check.yml's job shows. The two controls
+// each reach the page by one route only, so a route that does not reach track fails its own test.
+async function oneClient(routes, how) {
+  const r = await play({ MODE: 'one-client', ROUTES: routes, WAIT_MS: '4000' }, { requires: 2 });
+  assert.equal(r.code, 0);
+  const counts = JSON.parse(/^counts (.*)$/m.exec(r.out)[1]);
+  assert.deepEqual(counts, { sessions: 1, enable: 1 });
+  console.log(`one DevTools client: Debugger.enable sent ${counts.enable} time for 1 spinning page${how} (${counts.sessions} session)`);
+  r.done();
+}
+
+test('exactly one DevTools client arms a spinning page, however the page is reached', async () => {
+  await oneClient('both', '');
+});
+
+test('the context page event alone arms a spinning page once', async () => {
+  await oneClient('page', ' reached by the page event alone');
+});
+
+test('the scans alone arm a spinning page once', async () => {
+  await oneClient('scans', ' reached by the scans alone');
 });
