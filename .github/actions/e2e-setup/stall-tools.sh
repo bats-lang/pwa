@@ -87,7 +87,7 @@ deb_names() {
   done
 }
 
-libc_version=$(dpkg-query -W -f='${Version}' libc6)
+libc_version=$(dpkg-query -W -f='${Version}' libc6).injected-miss
 
 # libc6-dbg of the installed libc6 is the first choice. Covers quire#1122: the runner's index no longer has that
 # version ("E: Version '2.39-0ubuntu8.9' for 'libc6-dbg' was not found"), which every retry repeats, so after a miss
