@@ -30,10 +30,15 @@ const { EventEmitter } = require('events');
 const fs = require('fs');
 const mode = process.env.MODE;
 const counts = { sessions: 0, enable: 0 };
+const scene = { paused: false, resumes: 0 };
 const session = Object.assign(new EventEmitter(), {
   send: async (method) => {
     if (method === 'Debugger.enable') counts.enable += 1;
     if (method === 'Debugger.pause' && mode === 'frames') setImmediate(() => session.emit('Debugger.paused', { reason: 'other', callFrames: [{ functionName: 'loop', url: 'http://x/a.js', location: { scriptId: '1', lineNumber: 3, columnNumber: 4 } }] }));
+    // a page that runs no script while the pause is waited for (3 s) and the profile is taken (2 s), and
+    // runs script 4 s after the pause was asked for: the pause fires then, in the profile's window
+    if (method === 'Debugger.pause' && mode === 'late-script') setTimeout(() => { scene.paused = true; session.emit('Debugger.paused', { reason: 'other', callFrames: [] }); }, 4000);
+    if (method === 'Debugger.resume') { scene.paused = false; scene.resumes += 1; }
     if (method === 'Profiler.stop') return { profile: { nodes: [{ callFrame: { functionName: 'busy', url: 'u', lineNumber: 0, columnNumber: 0 }, hitCount: 9 }, { callFrame: { functionName: 'idle', url: 'u', lineNumber: 1, columnNumber: 0 }, hitCount: 1 }] } };
     return {};
   },
@@ -41,6 +46,7 @@ const session = Object.assign(new EventEmitter(), {
 const page = Object.assign(new EventEmitter(), {
   isClosed: () => false, url: () => 'http://x/',
   evaluate: () => (process.env.ANSWERS ? Promise.resolve(1) : new Promise(() => {})),
+  probe: () => !scene.paused,
   context: () => ({ newCDPSession: async () => { counts.sessions += 1; if (mode === 'no-session') throw new Error('no session for you'); return session; } }),
 });
 const early = process.env.EARLY === '1';
@@ -89,6 +95,7 @@ globalThis.__browser = browser;
     await new Promise((r) => setTimeout(r, 200));
   }
   await new Promise((r) => setTimeout(r, 300));
+  if (mode === 'late-script') console.log('answers ' + page.probe() + ' resumes ' + scene.resumes);
   process.exit(0);
 })();
 `;
@@ -230,4 +237,19 @@ test('the context page event alone arms a spinning page once', async () => {
 
 test('the scans alone arm a spinning page once', async () => {
   await oneClient('scans', ' reached by the scans alone');
+});
+
+// pwa#329: a pause the preload asked for and did not get while the page ran no script is not left
+// pending: the page's script starts after the wait ended (in the profile's window), the pause fires
+// then, and the page must answer a probe afterwards; the line is what check.yml's job shows
+test('a page that runs script only after the pause wait is not left paused', async () => {
+  const r = await play({ MODE: 'late-script', WAIT_MS: '30000' });
+  assert.equal(r.code, 0);
+  const body = r.read(r.files[0]);
+  assert.match(body.pause, /^not available: no pause within 3000 ms/);
+  const answered = /^answers (true|false) resumes (\d+)$/m.exec(r.out);
+  assert.ok(answered, r.out);
+  console.log(`page answers a probe after its script started: ${answered[1] === 'true' ? 'yes' : 'no'} (${answered[2]} resume)`);
+  assert.equal(answered[1], 'true');
+  r.done();
 });
