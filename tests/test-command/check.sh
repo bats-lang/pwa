@@ -114,7 +114,9 @@ FAKE_PW_COPY_WATCH="$TMP/watch.cjs" run "$TMP/c.log" > "$TMP/c.out" 2>&1 || { ec
 f=$(grep -m1 '^watch-existed ' "$TMP/c.log"); f=${f#watch-existed }
 [ -s "$TMP/watch.cjs" ] && [ ! -e "$f" ] || { echo "FAIL: the preload was not written, or is left after the run"; exit 1; }
 # its tests (node --test): a page that does not answer, a test near its timeout, and each part failing
-PWA_WATCH="$TMP/watch.cjs" node --test "$HERE/watch.test.mjs" > "$TMP/watch.out" 2>&1 || { echo "FAIL: the page watch's tests"; cat "$TMP/watch.out"; exit 1; }
+PWA_WATCH="$TMP/watch.cjs" node --test --test-reporter=spec "$HERE/watch.test.mjs" > "$TMP/watch.out" 2>&1 || { echo "FAIL: the page watch's tests"; cat "$TMP/watch.out"; exit 1; }
+# pwa#289: the line the one-client test prints, shown in the job's log
+grep '^one DevTools client: ' "$TMP/watch.out" || { echo "FAIL: the one-client test printed no line"; cat "$TMP/watch.out"; exit 1; }
 for p in $(ports "$TMP/a.log"); do closed "$p" || { echo "FAIL: port $p still served after the run"; exit 1; }; done
 
 # a caller's --workers: one run, as given
