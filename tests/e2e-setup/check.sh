@@ -199,6 +199,12 @@ done
 # FAKE_FAIL: a package whose download and install fail (status 100); FAKE_FAIL_INSTALL: one whose
 # install fails after its download succeeded (libc6-dbg=<version> is the package libc6-dbg)
 failing() { for pkg in $pkgs; do [ "${pkg%%=*}" = "$1" ] && return 0; done; return 1; }
+# FAKE_MISSING: the index lacks the installed libc6's libc6-dbg (quire#1122), until a second update when FAKE_REFRESH_FIXES
+if [ "$sim" = no ] && [ "$action" = update ]; then echo update >> "$FAKE_COUNT.updated"; fi
+if [ "$action" = install ] && [ -n "${FAKE_MISSING:-}" ] && failing libc6-dbg \
+  && ! { [ -n "${FAKE_REFRESH_FIXES:-}" ] && [ "$(wc -l < "$FAKE_COUNT.updated")" -ge 2 ]; }; then
+  echo "E: Version '2.39-0ubuntu8' for 'libc6-dbg' was not found" >&2; exit 100
+fi
 if [ "$sim" = no ] && [ "$action" = install ]; then
   if [ -n "${FAKE_FAIL:-}" ] && failing "$FAKE_FAIL"; then echo "E: unable to locate $FAKE_FAIL" >&2; exit 100; fi
   if [ "$dl" = no ] && [ -n "${FAKE_FAIL_INSTALL:-}" ] && failing "$FAKE_FAIL_INSTALL"; then echo "E: dpkg failed for $FAKE_FAIL_INSTALL" >&2; exit 100; fi
@@ -235,9 +241,16 @@ for pkg in $pkgs; do
 done
 exit 0
 FAKE
-chmod +x "$TMP/f/bin/sudo" "$TMP/f/bin/dpkg-query" "$TMP/f/bin/apt-get"
+cat > "$TMP/f/bin/apt-cache" <<'FAKE'
+#!/bin/sh
+# madison of libc6-dbg: the versions of FAKE_INDEX (default: the installed libc6's)
+for v in ${FAKE_INDEX:-${FAKE_LIBC:-2.39-0ubuntu8}}; do
+  echo " libc6-dbg | $v | http://archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages"
+done
+FAKE
+chmod +x "$TMP/f/bin/sudo" "$TMP/f/bin/dpkg-query" "$TMP/f/bin/apt-get" "$TMP/f/bin/apt-cache"
 stall() { # <stalled calls> <debs dir> [libc6] -> stall-tools.sh install, an empty archives directory and state
-  rm -rf "$TMP/count" "$TMP/count.args" "$TMP/count.fetched" "$TMP/count.installed" "$TMP/f/arch" "$TMP/f/state"
+  rm -rf "$TMP/count" "$TMP/count.updated" "$TMP/count.args" "$TMP/count.fetched" "$TMP/count.installed" "$TMP/f/arch" "$TMP/f/state"
   mkdir -p "$TMP/f/arch"
   PATH="$TMP/f/bin:$PATH" FAKE_COUNT="$TMP/count" FAKE_STALL=$1 FAKE_LIBC=${3:-2.39-0ubuntu8} E2E_APT_HANG_S=1 E2E_PAUSE_S=0 \
     E2E_APT_ARCHIVES="$TMP/f/arch" E2E_STALL_STATE="$TMP/f/state" STALL_DEBS_DIR=$2 "$ACT/stall-tools.sh" install > "$TMP/out" 2>&1
@@ -282,6 +295,23 @@ for mode in FAKE_FAIL FAKE_FAIL_INSTALL; do
     case $tool in rr|libc6-dbg) grep -q 'installed=yes' "$TMP/out" || fail "gdb not installed when only $tool fails ($mode)" "$TMP/out" ;; esac
   done
 done
+
+# libc6-dbg of the installed libc6 is not in the index (quire#1122): the index is updated once and the exact
+# version asked again; when that finds it the step passes, else the miss is named with the versions the index has
+(export FAKE_MISSING=1 FAKE_REFRESH_FIXES=1 FAKE_INDEX=2.39-0ubuntu9; stall 0 "$TMP/f/debs-missing-fixed") || fail "a miss the update fixes failed the step" "$TMP/out"
+grep -q "^::warning::libc6-dbg=2.39-0ubuntu8 is not in the index (it has: 2.39-0ubuntu9); updating the index once$" "$TMP/out" || fail "the miss was not named" "$TMP/out"
+[ "$(grep -c ' update -q$' "$TMP/count.args")" = 2 ] || fail "the index was not updated once more" "$TMP/count.args"
+! grep -q '^::error::' "$TMP/out" || fail "a miss the update fixed said an error" "$TMP/out"
+grep -q '^libc6-dbg_2.39-0ubuntu8_amd64.deb$' "$TMP/count.installed" || fail "libc6-dbg was not installed after the update" "$TMP/count.installed"
+if (export FAKE_MISSING=1 FAKE_INDEX="2.39-0ubuntu9 2.39-0ubuntu10"; stall 0 "$TMP/f/debs-missing"); then fail "stall-tools.sh passed with the version not in the index" "$TMP/out"; fi
+grep -q "^::error::libc6-dbg=2.39-0ubuntu8 was asked for and is not in the index after an update (it has: 2.39-0ubuntu9 2.39-0ubuntu10)$" "$TMP/out" || fail "the miss was not named after the update" "$TMP/out"
+grep -q '^::error::libc6-dbg could not be installed: apt-get failed with status 100$' "$TMP/out" || fail "libc6-dbg not named as failed" "$TMP/out"
+[ "$(grep -c ' update -q$' "$TMP/count.args")" = 2 ] || fail "the index was updated more than once for a miss" "$TMP/count.args"
+grep -q 'installed=yes' "$TMP/out" || fail "gdb not installed when only libc6-dbg is missing" "$TMP/out"
+# the nearest input that is no miss: the version is in the index and the install fails; no update, no warning
+if (export FAKE_FAIL=libc6-dbg; stall 0 "$TMP/f/debs-fail-in-index"); then fail "stall-tools.sh passed with libc6-dbg failing" "$TMP/out"; fi
+[ "$(grep -c ' update -q$' "$TMP/count.args")" = 1 ] || fail "a failure that is no miss updated the index again" "$TMP/count.args"
+! grep -q '^::warning::libc6-dbg=' "$TMP/out" || fail "a failure that is no miss said a miss" "$TMP/out"
 
 # a miss: the mirror is asked for each of the 5 packages once, and they are kept
 stall 0 "$TMP/f/cache" || fail "a miss" "$TMP/out"
